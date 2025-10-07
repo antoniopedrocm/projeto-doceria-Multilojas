@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Regras para o Cloud Storage
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Permite leitura e escrita de qualquer arquivo por qualquer usuário.
+    // ATENÇÃO: Use isso APENAS para o ambiente de desenvolvimento local (emuladores).
+    // Para produção, você DEVE restringir o acesso.
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

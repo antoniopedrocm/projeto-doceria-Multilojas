@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "crmdoceria-9959e"
+  },
+  "targets": {
+    "crmdoceria-9959e": {
+      "hosting": {
+        "prod": [
+          "crmdoceria-9959e"
+        ],
+        "dev": [
+          "crmdoceria-9959e-dev"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

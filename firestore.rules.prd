@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Função simplificada para verificar se usuário está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Permissões básicas - usuários autenticados podem acessar tudo
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+    
+  }
+}

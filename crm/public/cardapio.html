@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cardápio - Ana Guimarães Doceria</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+        body { font-family: 'Poppins', sans-serif; }
+        html { scroll-behavior: smooth; scroll-padding-top: 140px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #db2777; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #toast { transition: opacity 0.5s, transform 0.5s; }
+        #subcategory-nav a.active { color: #db2777; border-bottom-color: #db2777; }
+        #subcategory-nav::-webkit-scrollbar { display: none; }
+        #subcategory-nav { -ms-overflow-style: none; scrollbar-width: none; }
+        #map, #guest-map { height: 300px; width: 100%; border-radius: 0.5rem; background-color: #f9fafb; }
+        .gm-control-active { background: white !important; border-radius: 50% !important; padding: 8px !important; box-shadow: 0 2px 6px rgba(0,0,0,0.3) !important; }
+        .gm-control-active:hover { background: #f8f9fa !important; }
+    </style>
+</head>
+<body class="bg-pink-50">
+    <header class="bg-white shadow-md sticky top-0 z-20">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <img src="/logotipo.png" alt="Logotipo" class="h-10">
+                <h1 class="text-2xl font-bold text-pink-600">Nosso Cardápio</h1>
+            </div>
+            <button id="cart-button" class="relative">
+                <i class="fa-solid fa-shopping-cart text-2xl text-gray-600"></i>
+                <span id="cart-count" class="absolute -top-2 -right-2 bg-pink-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">0</span>
+            </button>
+        </div>
+    </header>
+    
+    <nav id="subcategory-nav-container" class="bg-white sticky top-[72px] z-10 shadow-sm">
+        <div id="subcategory-nav" class="container mx-auto px-6 flex items-center space-x-6 overflow-x-auto whitespace-nowrap"></div>
+    </nav>
+
+    <main class="container mx-auto px-6 py-8">
+        <div id="product-list" class="space-y-12">
+            <div id="loading-message" class="col-span-full flex flex-col items-center justify-center py-16">
+                <div class="loader"></div>
+                <p class="text-pink-600 mt-4">Carregando nosso cardápio...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modais (Carrinho, Identificação, etc.) -->
+    <div id="cart-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-30">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+            <div class="p-6 border-b flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-pink-600">Seu Pedido</h2>
+                <button id="close-cart" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div id="cart-items" class="p-6 max-h-80 overflow-y-auto"></div>
+            <div class="p-6 border-t space-y-4">
+                <div id="cart-summary" class="space-y-1 text-gray-700">
+                    <div class="flex justify-between"><span>Subtotal:</span><span id="cart-subtotal">R$ 0,00</span></div>
+                    <div id="discount-line" class="flex justify-between text-green-600 hidden"><span>Desconto:</span><span id="cart-discount"></span></div>
+                    <div id="shipping-line" class="flex justify-between hidden"><span>Frete:</span><span id="cart-shipping">R$ 0,00</span></div>
+                    <div class="flex justify-between items-center font-bold text-xl"><span>Total:</span><span id="cart-total">R$ 0,00</span></div>
+                </div>
+                <button id="checkout-button" class="w-full bg-pink-600 text-white py-3 rounded-lg mt-2 font-bold hover:bg-pink-700 transition-colors">Finalizar Pedido</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="identification-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl p-8 text-center max-w-sm mx-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Como deseja continuar?</h2>
+            <p class="text-gray-600 mb-6">Você pode buscar seu cadastro ou continuar como visitante.</p>
+            <div class="space-y-4">
+                <button id="use-phone-button" class="w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-mobile-screen-button"></i> Usar número de celular
+                </button>
+                <button id="continue-guest-button" class="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700 transition-colors">Continuar sem cadastro</button>
+                <button id="close-identification-modal" class="text-sm text-gray-500 mt-4 hover:underline">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="phone-login-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4">
+            <div class="p-6 border-b flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-pink-600">Identificar Cliente</h2>
+                <button id="close-phone-login-modal" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div class="p-6">
+                <p class="text-gray-600 mb-4">Digite seu número de celular para buscar seu cadastro.</p>
+                <input id="phone-input" type="tel" placeholder="(00) 00000-0000" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                <p id="phone-error" class="text-red-500 text-sm mt-2 hidden"></p>
+            </div>
+            <div class="p-6 border-t">
+                <button id="search-phone-button" class="w-full bg-pink-600 text-white py-3 rounded-lg font-bold hover:bg-pink-700 transition-colors">Buscar</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="address-management-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+            <div class="p-6 border-b">
+                <h2 id="address-modal-title" class="text-2xl font-bold text-pink-600">Confirmar Endereço</h2>
+            </div>
+            <div class="p-6 max-h-[80vh] overflow-y-auto">
+                <p class="text-gray-600 mb-4">Olá, <strong id="confirm-customer-name"></strong>! Selecione um endereço para a entrega ou adicione um novo.</p>
+                <div id="address-list" class="space-y-3"></div>
+                <div id="add-new-address-container" class="mt-4 border-t pt-4 hidden">
+                    <h3 class="text-lg font-bold text-gray-700 mb-2">Novo Endereço</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label for="new-address-input" class="block text-sm font-medium text-gray-700 mb-1">Digite seu endereço para buscar</label>
+                            <input id="new-address-input" type="text" placeholder="Ex: Av. Comercial, 433, Goiânia" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        </div>
+                        <p class="text-xs text-gray-500">Ajuste o marcador no mapa para a localização exata.</p>
+                        <div id="map"></div>
+                        <button id="save-new-address-button" class="w-full mt-2 bg-green-500 text-white py-3 px-4 rounded-lg font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-check"></i> Salvar e Usar este Endereço
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6 border-t space-y-3">
+                <button id="add-new-address-button" class="w-full bg-blue-500 text-white py-3 px-4 rounded-lg font-bold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-plus"></i>Adicionar Novo Endereço
+                </button>
+                <button id="close-address-management-modal" class="text-sm text-gray-500 mt-2 hover:underline w-full text-center">Cancelar</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="payment-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4">
+            <div class="p-6 border-b flex justify-between items-center">
+                <button id="back-to-address" class="text-gray-500 hover:text-gray-800"><i class="fa-solid fa-arrow-left"></i></button>
+                <h2 class="text-xl font-bold text-pink-600 text-center flex-grow">Forma de Pagamento</h2>
+                <button id="close-payment-modal" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div class="p-6">
+                <div class="mb-4 p-3 bg-gray-50 rounded-lg text-sm">
+                    <p class="text-gray-500">Entregar em:</p>
+                    <p id="selected-address-text" class="font-semibold text-gray-800"></p>
+                </div>
+                <div class="space-y-2 mb-4">
+                    <div class="flex gap-2">
+                        <input id="payment-cupom-input" type="text" placeholder="Tem um cupom?" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 uppercase">
+                        <button id="payment-verify-cupom-button" class="bg-gray-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-700 transition-colors flex-shrink-0">Aplicar</button>
+                    </div>
+                    <p id="payment-cupom-message" class="text-sm"></p>
+                </div>
+                <div id="payment-summary" class="mb-4 p-4 border rounded-lg space-y-2">
+                    <h3 class="font-bold text-gray-700">Resumo do Pedido</h3>
+                    <div class="flex justify-between text-sm"><span>Subtotal Produtos:</span><span id="payment-subtotal" class="font-medium text-gray-800">R$ 0,00</span></div>
+                    <div id="payment-discount-row" class="flex justify-between text-sm text-green-600 hidden"><span>Desconto:</span><span id="payment-discount" class="font-medium">- R$ 0,00</span></div>
+                    <div id="payment-shipping-row" class="flex justify-between text-sm"><span>Frete:</span><span id="payment-shipping" class="font-medium text-gray-800">R$ 0,00</span></div>
+                    <div class="flex justify-between text-lg font-bold border-t pt-2 mt-2"><span>Total a pagar:</span><span id="payment-total" class="text-pink-600">R$ 0,00</span></div>
+                </div>
+                <p class="text-gray-600 mb-4">Selecione como você prefere pagar.</p>
+                <select id="payment-method-select" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
+                    <option value="" disabled selected>Escolha uma opção...</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Cartão de Débito">Cartão de Débito</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                    <option value="Pix">Pix</option>
+                    <option value="Link de Pagamento">Link de Pagamento</option>
+                </select>
+                <p id="payment-error" class="text-red-500 text-sm mt-2 hidden"></p>
+            </div>
+            <div class="p-6 border-t">
+                <button id="confirm-order-button" class="w-full bg-pink-600 text-white py-3 rounded-lg font-bold hover:bg-pink-700 transition-colors">Confirmar Pedido</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="guest-info-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+            <div class="p-6 border-b flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-pink-600">Quase lá!</h2>
+                <button id="close-guest-info-modal" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">&times;</button>
+            </div>
+            <div class="p-6 max-h-[80vh] overflow-y-auto">
+                <p class="text-gray-600 mb-4">Por favor, informe seus dados para entrega e pagamento.</p>
+                <div id="guest-summary" class="mb-4 p-4 border rounded-lg space-y-2">
+                    <h3 class="font-bold text-gray-700">Resumo do Pedido</h3>
+                    <div class="flex justify-between text-sm"><span>Subtotal Produtos:</span><span id="guest-subtotal" class="font-medium text-gray-800">R$ 0,00</span></div>
+                    <div id="guest-discount-row" class="flex justify-between text-sm text-green-600 hidden"><span>Desconto:</span><span id="guest-discount" class="font-medium">- R$ 0,00</span></div>
+                    <div id="guest-shipping-row" class="flex justify-between text-sm"><span>Frete:</span><span id="guest-shipping" class="font-medium text-gray-800">Calculando...</span></div>
+                    <div class="flex justify-between text-lg font-bold border-t pt-2 mt-2"><span>Total a pagar:</span><span id="guest-total" class="text-pink-600">R$ 0,00</span></div>
+                </div>
+                <div class="space-y-2 mb-4">
+                    <div class="flex gap-2">
+                        <input id="guest-cupom-input" type="text" placeholder="Tem um cupom?" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 uppercase">
+                        <button id="guest-verify-cupom-button" class="bg-gray-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-700 transition-colors flex-shrink-0">Aplicar</button>
+                    </div>
+                    <p id="guest-cupom-message" class="text-sm"></p>
+                </div>
+                <div class="space-y-4">
+                    <input id="guest-name" type="text" placeholder="Seu nome completo" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                    <input id="guest-phone" type="tel" placeholder="Seu telefone (WhatsApp)" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                    <div>
+                        <label for="guest-address" class="block text-sm font-medium text-gray-700 mb-1">Endereço de entrega</label>
+                        <input id="guest-address" type="text" placeholder="Busque seu endereço aqui" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        <div id="guest-map" class="mt-2"></div>
+                    </div>
+                    <select id="guest-payment-method" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
+                        <option value="" disabled selected>Forma de Pagamento</option>
+                        <option value="Cartão de Crédito">Cartão de Crédito</option>
+                        <option value="Cartão de Débito">Cartão de Débito</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                        <option value="Pix">Pix</option>
+                        <option value="Link de Pagamento">Link de Pagamento</option>
+                    </select>
+                </div>
+            </div>
+            <div class="p-6 border-t">
+                <button id="send-whatsapp-button" class="w-full bg-green-500 text-white py-3 rounded-lg font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                    <i class="fa-brands fa-whatsapp"></i> Enviar Pedido via WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-8 text-center max-w-sm mx-4">
+            <i class="fas fa-check-circle text-5xl text-green-500 mb-4"></i>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Pedido Enviado!</h2>
+            <p class="text-gray-600">Obrigado! Seu pedido foi registrado e a mensagem está pronta para ser enviada.</p>
+            <button id="close-confirmation" class="bg-pink-600 text-white py-2 px-6 rounded-lg mt-6 font-bold hover:bg-pink-700 transition-colors">Fechar</button>
+        </div>
+    </div>
+    
+    <div id="platform-confirmation-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-8 text-center max-w-sm mx-4">
+            <i class="fas fa-check-circle text-5xl text-green-500 mb-4"></i>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Pedido Registrado!</h2>
+            <p class="text-gray-600">Obrigado! Seu pedido foi enviado diretamente para a nossa plataforma.</p>
+            <button id="close-platform-confirmation" class="bg-pink-600 text-white py-2 px-6 rounded-lg mt-6 font-bold hover:bg-pink-700 transition-colors">Fechar</button>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-5 right-5 bg-red-500 text-white py-2 px-4 rounded-lg shadow-lg hidden opacity-0 transform translate-y-2">
+        <p id="toast-message"></p>
+    </div>
+
+    <!-- Google Maps API -->
+    <!-- ATENÇÃO: Certifique-se de que as APIs "Maps JavaScript API" e "Places API" estão ativadas para esta chave no seu Google Cloud Console. -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCUiV11tfJJySiaunNXWhbrhtpDPlMmx8k&libraries=places&callback=initMaps" async defer></script>
+    
+    <!-- Firebase Configuration -->
+    <script src="firebaseClientConfig.js" type="module"></script>
+    
+    <!-- Main Application Logic -->
+    <script type="module">
+        // Import Firebase modules
+        import { firebaseConfig } from './firebaseClientConfig.js';
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getFirestore, collection, getDocs, getDoc, doc, addDoc, query, where, updateDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js";
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Global variables
+        const WHATSAPP_NUMBER = '5562991056075';
+        let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
+        const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
+        let valorFrete = 0, guestAddressCoords = null, newAddressCoords = null;
+        let map, marker, guestMap, guestMarker, autocomplete, guestAutocomplete;
+		let mapsApiLoaded = false;
+		let pendingMapInits = [];
+        let storeConfig = {};
+
+        // DOM Elements
+        const productList=document.getElementById('product-list'),subcategoryNav=document.getElementById('subcategory-nav'),loadingMessage=document.getElementById('loading-message'),cartButton=document.getElementById('cart-button'),cartModal=document.getElementById('cart-modal'),closeCartButton=document.getElementById('close-cart'),cartItemsContainer=document.getElementById('cart-items'),cartCount=document.getElementById('cart-count'),cartSubtotal=document.getElementById('cart-subtotal'),cartDiscountLine=document.getElementById('discount-line'),cartDiscount=document.getElementById('cart-discount'),cartShippingLine=document.getElementById('shipping-line'),cartShipping=document.getElementById('cart-shipping'),cartTotal=document.getElementById('cart-total'),checkoutButton=document.getElementById('checkout-button'),identificationModal=document.getElementById('identification-modal'),usePhoneButton=document.getElementById('use-phone-button'),continueGuestButton=document.getElementById('continue-guest-button'),closeIdentificationModal=document.getElementById('close-identification-modal'),guestInfoModal=document.getElementById('guest-info-modal'),closeGuestInfoModal=document.getElementById('close-guest-info-modal'),sendWhatsappButton=document.getElementById('send-whatsapp-button'),guestNameInput=document.getElementById('guest-name'),guestPhoneInput=document.getElementById('guest-phone'),guestAddressInput=document.getElementById('guest-address'),guestPaymentMethodSelect=document.getElementById('guest-payment-method'),phoneLoginModal=document.getElementById('phone-login-modal'),closePhoneLoginModal=document.getElementById('close-phone-login-modal'),phoneInput=document.getElementById('phone-input'),phoneError=document.getElementById('phone-error'),searchPhoneButton=document.getElementById('search-phone-button'),addressManagementModal=document.getElementById('address-management-modal'),addressModalTitle=document.getElementById('address-modal-title'),confirmCustomerName=document.getElementById('confirm-customer-name'),addressList=document.getElementById('address-list'),addNewAddressContainer=document.getElementById('add-new-address-container'),newAddressInput=document.getElementById('new-address-input'),addNewAddressButton=document.getElementById('add-new-address-button'),saveNewAddressButton=document.getElementById('save-new-address-button'),closeAddressManagementModal=document.getElementById('close-address-management-modal'),paymentModal=document.getElementById('payment-modal'),closePaymentModal=document.getElementById('close-payment-modal'),backToAddressButton=document.getElementById('back-to-address'),selectedAddressText=document.getElementById('selected-address-text'),paymentMethodSelect=document.getElementById('payment-method-select'),confirmOrderButton=document.getElementById('confirm-order-button'),paymentError=document.getElementById('payment-error'),confirmationModal=document.getElementById('confirmation-modal'),closeConfirmationButton=document.getElementById('close-confirmation'),platformConfirmationModal=document.getElementById('platform-confirmation-modal'),closePlatformConfirmationButton=document.getElementById('close-platform-confirmation'),toast=document.getElementById('toast'),toastMessage=document.getElementById('toast-message'),guestCupomInput=document.getElementById('guest-cupom-input'),guestVerifyCupomButton=document.getElementById('guest-verify-cupom-button'),guestCupomMessage=document.getElementById('guest-cupom-message'),paymentCupomInput=document.getElementById('payment-cupom-input'),paymentVerifyCupomButton=document.getElementById('payment-verify-cupom-button'),paymentCupomMessage=document.getElementById('payment-cupom-message');
+        
+        // Maps API Callback
+        window.initMaps = function() {
+			mapsApiLoaded = true;
+			console.log('Google Maps API loaded successfully');
+			pendingMapInits.forEach(fn => fn());
+			pendingMapInits = [];
+		}
+
+        // Functions
+        function getCurrentLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error('Geolocation is not supported by your browser'));
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+                    (error) => reject(new Error('Failed to get location: ' + error.message)),
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                );
+            });
+        }
+
+		function initMapForAddress(mapId, inputId, isGuest) {
+			const mapElement = document.getElementById(mapId);
+			if (!mapElement) {
+				console.error(`Map element not found: ${mapId}`);
+				showToast("Error loading map. Please refresh.", true);
+				return;
+			}
+			mapElement.innerHTML = '<div class="flex items-center justify-center h-full bg-gray-100"><div class="text-center"><div class="loader mx-auto"></div><p class="text-gray-600 mt-2">Loading map...</p></div></div>';
+
+			if (!mapsApiLoaded) {
+				pendingMapInits.push(() => initMapForAddress(mapId, inputId, isGuest));
+				return;
+			}
+
+			if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
+				console.error('Google Maps API not available');
+				mapElement.innerHTML = '<p class="text-red-500 text-center">Failed to load Google Maps.</p>';
+				return;
+			}
+
+			const defaultPosition = { lat: -16.6869, lng: -49.2648 };
+			
+			getCurrentLocation().then(userLocation => {
+				initializeMap(userLocation);
+				showToast("Your location was detected automatically!");
+			}).catch(error => {
+				console.warn('Could not get location:', error.message);
+				initializeMap(defaultPosition);
+				showToast("Use the marker to set your exact location.", false);
+			});
+
+			function initializeMap(centerPosition) {
+				mapElement.innerHTML = '';
+				const currentMap = new google.maps.Map(mapElement, {
+					center: centerPosition,
+					zoom: 15,
+                    styles: [{"featureType":"all","elementType":"geometry.fill","stylers":[{"weight":"2.00"}]},{"featureType":"all","elementType":"geometry.stroke","stylers":[{"color":"#9c9c9c"}]},{"featureType":"all","elementType":"labels.text","stylers":[{"visibility":"on"}]},{"featureType":"landscape","elementType":"all","stylers":[{"color":"#f2f2f2"}]},{"featureType":"landscape","elementType":"geometry.fill","stylers":[{"color":"#ffffff"}]},{"featureType":"landscape.man_made","elementType":"geometry.fill","stylers":[{"color":"#ffffff"}]},{"featureType":"poi","elementType":"all","stylers":[{"visibility":"off"}]},{"featureType":"road","elementType":"all","stylers":[{"saturation":-100},{"lightness":45}]},{"featureType":"road","elementType":"geometry.fill","stylers":[{"color":"#eeeeee"}]},{"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#7b7b7b"}]},{"featureType":"road","elementType":"labels.text.stroke","stylers":[{"color":"#ffffff"}]},{"featureType":"road.highway","elementType":"all","stylers":[{"visibility":"simplified"}]},{"featureType":"road.arterial","elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"featureType":"transit","elementType":"all","stylers":[{"visibility":"off"}]},{"featureType":"water","elementType":"all","stylers":[{"color":"#46bcec"},{"visibility":"on"}]},{"featureType":"water","elementType":"geometry.fill","stylers":[{"color":"#c8d7d4"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#070707"}]},{"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#ffffff"}]}]
+				});
+
+				const currentMarker = new google.maps.Marker({ position: centerPosition, map: currentMap, draggable: true, title: "Drag to exact location" });
+                
+				const inputElement = document.getElementById(inputId);
+				if (inputElement) {
+                    const currentAutocomplete = new google.maps.places.Autocomplete(inputElement, { 
+                        componentRestrictions: { country: "br" }, 
+                        fields: ['geometry', 'formatted_address'] 
+                    });
+                    currentAutocomplete.bindTo('bounds', currentMap);
+                    currentAutocomplete.addListener('place_changed', () => {
+                        const place = currentAutocomplete.getPlace();
+                        if (!place.geometry || !place.geometry.location) { 
+                            showToast("Address not found.", true); 
+                            return; 
+                        }
+                        currentMap.setCenter(place.geometry.location);
+                        currentMap.setZoom(17);
+                        currentMarker.setPosition(place.geometry.location);
+                        updateCoords(place.geometry.location, isGuest);
+                        if (place.formatted_address) inputElement.value = place.formatted_address;
+                    });
+                    if (isGuest) guestAutocomplete = currentAutocomplete; else autocomplete = currentAutocomplete;
+                }
+				
+				google.maps.event.addListener(currentMarker, 'dragend', (event) => {
+					updateCoords(event.latLng, isGuest);
+					const geocoder = new google.maps.Geocoder();
+					geocoder.geocode({ location: event.latLng }, (results, status) => { 
+						if (status === 'OK' && results[0] && inputElement) {
+							inputElement.value = results[0].formatted_address;
+						}
+					});
+				});
+
+				if (isGuest) { guestMap = currentMap; guestMarker = currentMarker; } 
+                else { map = currentMap; marker = currentMarker; }
+			}
+		}
+
+        function updateCoords(location, isGuest) {
+            const coords = { lat: location.lat(), lng: location.lng() };
+            if (isGuest) {
+                guestAddressCoords = coords;
+                calculateAndDisplayShipping(coords);
+            } else {
+                newAddressCoords = coords;
+            }
+        }
+        
+        async function calculateAndDisplayShipping(coords) {
+            valorFrete = 0;
+            ['guest-shipping', 'payment-shipping', 'cart-shipping'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = 'Calculando...';
+            });
+            updateAllSummaries();
+            if (!coords || !storeConfig.lat || !storeConfig.lng) {
+                 showToast('Endereço da loja não configurado.', true);
+                 return;
+            }
+
+            const origin = new google.maps.LatLng(storeConfig.lat, storeConfig.lng);
+            const destination = new google.maps.LatLng(coords.lat, coords.lng);
+            const service = new google.maps.DistanceMatrixService();
+            
+            service.getDistanceMatrix({
+                origins: [origin],
+                destinations: [destination],
+                travelMode: 'DRIVING',
+            }, (response, status) => {
+                if (status === 'OK' && response.rows[0].elements[0].status === 'OK') {
+                    const distance = response.rows[0].elements[0].distance; // in meters
+                    const distanceKm = distance.value / 1000;
+                    valorFrete = distanceKm * (storeConfig.valorPorKm || 0);
+                    showToast(`Frete: R$ ${valorFrete.toFixed(2)} (${distance.text})`);
+                } else {
+                    showToast('Não foi possível calcular o frete.', true);
+                    valorFrete = 0;
+                }
+                updateAllSummaries();
+            });
+        }
+
+        function updateAllSummaries() { updateCartInfo(); updatePaymentSummary(); updateGuestSummary(); }
+        
+        function showToast(message, isError = false) {
+            toastMessage.textContent = message;
+            toast.className = `fixed bottom-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg opacity-0 transform translate-y-2 ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+            toast.classList.remove('hidden');
+            setTimeout(() => { toast.classList.remove('opacity-0', 'translate-y-2'); }, 10);
+            setTimeout(() => { toast.classList.add('opacity-0', 'translate-y-2'); setTimeout(() => toast.classList.add('hidden'), 500); }, 3000);
+        }
+
+        async function fetchStoreConfig() {
+            try {
+                const configDoc = await getDoc(doc(db, "configuracoes", "frete"));
+                if (configDoc.exists()) {
+                    storeConfig = configDoc.data();
+                } else {
+                    console.warn("Shipping config not found in Firestore. Using default values.");
+                    storeConfig = { lat: -16.6869, lng: -49.2648, valorPorKm: 1.5 };
+                }
+            } catch (error) {
+                console.error("Error fetching store config:", error);
+                showToast("Error loading store settings.", true);
+            }
+        }
+
+        async function fetchProducts() {
+            try {
+                const productsCol = collection(db, 'produtos');
+                const productSnapshot = await getDocs(query(productsCol, where("status", "==", "Ativo")));
+                allProducts = productSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderMenu();
+            } catch (error) { 
+                console.error("Error fetching products:", error); 
+                productList.innerHTML = `<p class="col-span-full text-center text-red-500">Error loading menu.</p>`;
+            } finally { 
+                if(loadingMessage) loadingMessage.style.display = 'none'; 
+            }
+        }
+
+        function renderMenu() {
+            const deliveryProducts = allProducts.filter(p => p.categoria === 'Delivery');
+            const productsBySubcategory = deliveryProducts.reduce((acc, product) => { const sub = product.subcategoria || 'Outros'; if (!acc[sub]) acc[sub] = []; acc[sub].push(product); return acc; }, {});
+            const availableSubcategories = subcategoryOrder.filter(sub => productsBySubcategory[sub]?.length > 0);
+            productList.innerHTML = ''; subcategoryNav.innerHTML = '';
+            availableSubcategories.forEach(sub => { const slug = sub.toLowerCase().replace(/\s+/g, '-'); const link = document.createElement('a'); link.href = `#${slug}`; link.textContent = sub; link.className = 'py-4 text-sm font-semibold text-gray-500 border-b-2 border-transparent hover:text-pink-600'; subcategoryNav.appendChild(link); });
+            availableSubcategories.forEach(sub => { const slug = sub.toLowerCase().replace(/\s+/g, '-'); const section = document.createElement('section'); section.id = slug; section.innerHTML = `<h2 class="text-2xl font-bold text-gray-800 mb-6">${sub}</h2>`; const grid = document.createElement('div'); grid.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6';
+                productsBySubcategory[sub].forEach(product => { grid.innerHTML += createProductCard(product); });
+                section.appendChild(grid); productList.appendChild(section);
+            });
+            setupScrollSpy();
+        }
+
+        function createProductCard(product) {
+            const isOutOfStock = product.estoque !== null && product.estoque <= 0;
+            return `<div class="bg-white rounded-lg shadow-lg overflow-hidden flex sm:flex-col transform hover:scale-105 transition-transform duration-300 ${isOutOfStock ? 'opacity-50 grayscale' : ''}"><img src="${product.imageUrl || 'https://placehold.co/600x400/FFC0CB/FFFFFF?text=Doce'}" alt="${product.nome}" class="w-28 h-28 sm:w-full sm:h-48 object-cover flex-shrink-0"><div class="p-4 flex flex-col flex-grow justify-between sm:p-5"><div><h3 class="text-md sm:text-lg font-bold text-gray-800 leading-tight">${product.nome}</h3><p class="text-gray-600 text-sm mt-1">${product.descricao || ''}</p></div><div class="flex justify-between items-center mt-2"><span class="text-md sm:text-lg font-bold text-pink-600">R$ ${product.preco.toFixed(2)}</span><button class="bg-pink-600 text-white font-bold py-1 px-3 text-sm rounded-md hover:bg-pink-700 transition-colors ${isOutOfStock ? 'cursor-not-allowed bg-gray-300' : ''}" onclick="window.cardapio.addToCart('${product.id}')" ${isOutOfStock ? 'disabled' : ''}>${isOutOfStock ? 'Esgotado' : 'Adicionar'}</button></div></div></div>`;
+        }
+
+		function setupScrollSpy() {
+			const sections = document.querySelectorAll('#product-list section');
+			const navLinks = document.querySelectorAll('#subcategory-nav a');
+			if (sections.length === 0 || navLinks.length === 0) return;
+			const observer = new IntersectionObserver((entries) => { 
+				entries.forEach(entry => { 
+					if (entry.isIntersecting && entry.target.id) { 
+						navLinks.forEach(link => { 
+							const targetId = (link.getAttribute('href') || '').substring(1);
+							link.classList.toggle('active', targetId === entry.target.id);
+						}); 
+					} 
+				}); 
+			}, { rootMargin: '-150px 0px -50% 0px', threshold: 0.1 });
+			sections.forEach(section => observer.observe(section));
+		}
+
+        function renderCart() {
+            cartItemsContainer.innerHTML = cart.length === 0 ? '<p class="text-gray-500">Seu carrinho está vazio.</p>' : cart.map(item => `<div class="flex justify-between items-center mb-4"><div><p class="font-bold">${item.nome}</p><p class="text-sm text-gray-500">R$ ${item.preco.toFixed(2)}</p></div><div class="flex items-center gap-2"><button class="px-2 rounded-md bg-gray-200" onclick="window.cardapio.updateQuantity('${item.id}', -1)">-</button><span>${item.quantity}</span><button class="px-2 rounded-md bg-gray-200" onclick="window.cardapio.updateQuantity('${item.id}', 1)">+</button><button onclick="window.cardapio.removeFromCart('${item.id}')"><i class="fa-solid fa-trash-alt text-red-500"></i></button></div></div>`).join('');
+            updateAllSummaries();
+        }
+
+        window.cardapio = {}; // Namespace for global functions
+        window.cardapio.addToCart = (productId) => {
+            const product = allProducts.find(p => p.id === productId); if (!product) return;
+            const existingItem = cart.find(item => item.id === productId);
+            if (product.estoque !== null && (existingItem?.quantity || 0) >= product.estoque) { showToast('Quantidade máxima em estoque atingida!', true); return; }
+            if (existingItem) existingItem.quantity++;
+            else cart.push({ ...product, quantity: 1 });
+            renderCart();
+        }
+        
+        window.cardapio.removeFromCart = (productId) => { cart = cart.filter(item => item.id !== productId); renderCart(); }
+
+        window.cardapio.updateQuantity = (productId, change) => {
+            const item = cart.find(item => item.id === productId); if (!item) return;
+            if (change > 0) { const product = allProducts.find(p => p.id === productId); if (product.estoque !== null && item.quantity >= product.estoque) { showToast('Quantidade máxima em estoque atingida!', true); return; } }
+            item.quantity += change;
+            if (item.quantity <= 0) window.cardapio.removeFromCart(productId);
+            else renderCart();
+        }
+        
+        function updateCartInfo() {
+            const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0); const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0); const desconto = appliedCupom?.cupom?.valorDesconto || 0; const total = subtotal - desconto + valorFrete;
+            cartCount.textContent = totalItems; cartSubtotal.textContent = `R$ ${subtotal.toFixed(2)}`; cartTotal.textContent = `R$ ${total.toFixed(2)}`;
+            if (desconto > 0) { cartDiscount.textContent = `- R$ ${desconto.toFixed(2)}`; cartDiscountLine.classList.remove('hidden'); } else { cartDiscountLine.classList.add('hidden'); }
+            if (valorFrete > 0) { cartShipping.textContent = `R$ ${valorFrete.toFixed(2)}`; cartShippingLine.classList.remove('hidden'); } else if(cartShipping.textContent === 'Calculando...') { cartShippingLine.classList.remove('hidden'); } else { cartShippingLine.classList.add('hidden'); }
+        }
+
+        function updatePaymentSummary() {
+            const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0); let discount = appliedCupom?.cupom?.valorDesconto || 0; let total = subtotal - discount + valorFrete;
+            document.getElementById('payment-subtotal').textContent = `R$ ${subtotal.toFixed(2)}`; document.getElementById('payment-shipping').textContent = `R$ ${valorFrete.toFixed(2)}`;
+            document.getElementById('payment-discount-row').classList.toggle('hidden', discount <= 0); if (discount > 0) document.getElementById('payment-discount').textContent = `- R$ ${discount.toFixed(2)}`;
+            document.getElementById('payment-total').textContent = `R$ ${total.toFixed(2)}`;
+        }
+
+        function updateGuestSummary() {
+            const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0); let discount = appliedCupom?.cupom?.valorDesconto || 0; let total = subtotal - discount + valorFrete;
+            document.getElementById('guest-subtotal').textContent = `R$ ${subtotal.toFixed(2)}`; document.getElementById('guest-shipping').textContent = valorFrete > 0 ? `R$ ${valorFrete.toFixed(2)}` : 'Calculando...';
+            document.getElementById('guest-discount-row').classList.toggle('hidden', discount <= 0); if (discount > 0) document.getElementById('guest-discount').textContent = `- R$ ${discount.toFixed(2)}`;
+            document.getElementById('guest-total').textContent = `R$ ${total.toFixed(2)}`;
+        }
+
+		async function finalizeOrder(clientInfo, clientId, isPlatform) {
+			const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
+			let cupomData = (appliedCupom && appliedCupom.valido && subtotal >= appliedCupom.cupom.valorMinimo) ? appliedCupom.cupom : null;
+			const desconto = cupomData?.valorDesconto || 0;
+			const total = subtotal - desconto + valorFrete;
+			
+			const orderData = {
+				clienteId: clientId,
+				clienteNome: clientInfo.clienteNome,
+				clienteEndereco: clientInfo.clienteEndereco,
+				telefone: clientInfo.telefone,
+				formaPagamento: clientInfo.formaPagamento,
+				itens: cart.map(item => ({ produtoId: item.id, nome: item.nome, quantity: item.quantity, preco: item.preco })),
+				subtotal: subtotal,
+				desconto: desconto,
+				valorFrete: valorFrete,
+				total: total,
+				cupom: cupomData,
+				status: 'Pendente',
+				origem: isPlatform ? 'Plataforma' : 'Cardapio Online',
+				createdAt: serverTimestamp()
+			};
+
+			try {
+				await addDoc(collection(db, "pedidos"), orderData);
+				
+				if (!isPlatform) {
+					let message = `Olá! *Novo Pedido* 🎂\n\n*Itens:*\n${cart.map(item => `• ${item.quantity}x ${item.nome}`).join('\n')}\n\n*Resumo:*\nSubtotal: R$ ${subtotal.toFixed(2)}\n`;
+					if (cupomData) message += `Desconto: -R$ ${desconto.toFixed(2)}\n`;
+					message += `Frete: R$ ${valorFrete.toFixed(2)}\n*Total: R$ ${total.toFixed(2)}*\n\n*Dados:*\nNome: ${clientInfo.clienteNome}\nTelefone: ${clientInfo.telefone}\nEndereço: ${clientInfo.clienteEndereco}\nPagamento: ${clientInfo.formaPagamento}\n\n_Pedido enviado via Cardápio Online_`;
+					window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`, '_blank');
+					confirmationModal.classList.remove('hidden');
+				} else {
+					platformConfirmationModal.classList.remove('hidden');
+				}
+				
+				cart = []; currentClient = null; pendingOrderDetails = {}; valorFrete = 0; removeCupom(); renderCart();
+			} catch (error) {
+				console.error("Error saving order:", error);
+				showToast('Error confirming order. Try again.', true);
+			}
+		}
+
+        function openAddressManagementModal(client) {
+            currentClient = client; 
+            addressList.innerHTML = ''; 
+            addNewAddressContainer.classList.add('hidden'); 
+            confirmCustomerName.textContent = client.nome;
+            
+            if (client.enderecos?.length > 0) {
+                addressModalTitle.textContent = `Confirmar Endereço`;
+                client.enderecos.forEach(address => {
+                    const addressText = typeof address === 'string' ? address : address.endereco;
+                    const addressDiv = document.createElement('div');
+                    addressDiv.className = 'bg-gray-100 p-4 rounded-lg';
+                    addressDiv.innerHTML = `<p class="font-semibold">${addressText}</p><button class="w-full mt-2 bg-green-500 text-white py-2 rounded-lg font-bold">Entregar aqui</button>`;
+                    addressDiv.querySelector('button').onclick = () => {
+                        pendingOrderDetails = { clienteId: client.id, clienteNome: client.nome, clienteEndereco: addressText, telefone: client.telefone };
+                        selectedAddressText.textContent = addressText;
+                        showToast("Calculando frete...");
+                        valorFrete = 0; 
+                        
+                        const geocoder = new google.maps.Geocoder();
+                        geocoder.geocode({ address: addressText }, (results, status) => {
+                            if (status === 'OK' && results[0]) {
+                                const location = results[0].geometry.location;
+                                calculateAndDisplayShipping({lat: location.lat(), lng: location.lng()});
+                            } else {
+                                updateAllSummaries();
+                                showToast("Não foi possível calcular o frete.", true);
+                            }
+                        });
+                        
+                        addressManagementModal.classList.add('hidden'); 
+                        paymentModal.classList.remove('hidden');
+                    };
+                    addressList.appendChild(addressDiv);
+                });
+            } else { 
+                addressModalTitle.textContent = 'Cadastrar Endereço'; 
+                addressList.innerHTML = '<p class="text-center text-gray-500">Nenhum endereço cadastrado.</p>'; 
+                addNewAddressButton.click(); 
+            }
+            addressManagementModal.classList.remove('hidden');
+        }
+
+        function removeCupom() {
+            if (appliedCupom) showToast('Cupom removido.'); appliedCupom = null;
+            [guestCupomInput, paymentCupomInput].forEach(input => { input.value = ''; input.disabled = false; });
+            [guestVerifyCupomButton, paymentVerifyCupomButton].forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
+            [guestCupomMessage, paymentCupomMessage].forEach(msg => { msg.textContent = ''; });
+            updateAllSummaries();
+        }
+        
+        async function handleVerifyCupom(cupomInputEl, cupomMessageEl, verifyButtonEl, telefone) {
+            if (appliedCupom) { removeCupom(); return; }
+            const codigo = cupomInputEl.value.trim().toUpperCase(); if (!codigo) { showToast('Digite um cupom.', true); return; }
+            const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0); if (subtotal <= 0) { showToast('Adicione itens ao carrinho.', true); return; }
+            
+            verifyButtonEl.disabled = true; verifyButtonEl.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div>';
+            
+            try {
+                const q = query(collection(db, "cupons"), where("codigo", "==", codigo), where("status", "==", "Ativo"));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) throw new Error('Cupom inválido ou inativo.');
+
+                const cupomDoc = querySnapshot.docs[0];
+                const cupom = { id: cupomDoc.id, ...cupomDoc.data() };
+                
+                if (subtotal < cupom.valorMinimo) throw new Error(`Pedido mínimo de R$ ${cupom.valorMinimo.toFixed(2)} para este cupom.`);
+                if (cupom.usos >= cupom.limiteUso) throw new Error('Este cupom já atingiu o limite de usos.');
+                
+                // Mock verification result
+                const result = { valido: true, cupom: cupom, mensagem: 'Cupom aplicado!' };
+
+                appliedCupom = result;
+                [guestCupomMessage, paymentCupomMessage].forEach(msg => { msg.textContent = result.mensagem; msg.className = 'text-sm text-green-600'; });
+                [guestCupomInput, paymentCupomInput].forEach(input => { input.value = result.cupom.codigo; input.disabled = true; });
+                [guestVerifyCupomButton, paymentVerifyCupomButton].forEach(btn => { btn.textContent = 'Remover'; btn.classList.replace('bg-gray-600', 'bg-red-600'); });
+                showToast('Cupom aplicado!'); 
+                updateAllSummaries();
+
+            } catch (error) { 
+                cupomMessageEl.textContent = error.message; 
+                cupomMessageEl.className = 'text-sm text-red-500'; 
+                appliedCupom = null;
+            } finally { 
+                verifyButtonEl.disabled = false; 
+                if(!appliedCupom) { verifyButtonEl.innerHTML = 'Aplicar'; } 
+                else { [guestVerifyCupomButton, paymentVerifyCupomButton].forEach(btn => btn.innerHTML = 'Remover'); } 
+            }
+        }
+        
+        // Event Listeners
+        cartButton.addEventListener('click', () => cartModal.classList.remove('hidden'));
+        closeCartButton.addEventListener('click', () => cartModal.classList.add('hidden'));
+        guestVerifyCupomButton.addEventListener('click', () => handleVerifyCupom(guestCupomInput, guestCupomMessage, guestVerifyCupomButton, guestPhoneInput.value));
+        paymentVerifyCupomButton.addEventListener('click', () => handleVerifyCupom(paymentCupomInput, paymentCupomMessage, paymentVerifyCupomButton, currentClient?.telefone));
+        checkoutButton.addEventListener('click', () => { if (cart.length === 0) return; removeCupom(); valorFrete = 0; cartModal.classList.add('hidden'); identificationModal.classList.remove('hidden'); });
+        closeIdentificationModal.addEventListener('click', () => identificationModal.classList.add('hidden'));
+        usePhoneButton.addEventListener('click', () => { identificationModal.classList.add('hidden'); phoneLoginModal.classList.remove('hidden'); phoneInput.value = ''; phoneError.classList.add('hidden'); });
+        closePhoneLoginModal.addEventListener('click', () => { phoneLoginModal.classList.add('hidden'); currentClient = null; });
+        continueGuestButton.addEventListener('click', () => { identificationModal.classList.add('hidden'); valorFrete = 0; updateGuestSummary(); guestInfoModal.classList.remove('hidden'); setTimeout(() => initMapForAddress('guest-map', 'guest-address', true), 100); });
+        closeGuestInfoModal.addEventListener('click', () => guestInfoModal.classList.add('hidden'));
+        
+        searchPhoneButton.addEventListener('click', async () => {
+            const phone = phoneInput.value.trim().replace(/\D/g, ''); 
+            if (phone.length < 10) { phoneError.textContent = 'Digite um número válido.'; phoneError.classList.remove('hidden'); return; }
+            phoneError.classList.add('hidden');
+            searchPhoneButton.disabled = true;
+            searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
+            try {
+                const q = query(collection(db, "clientes"), where("telefone", "==", phoneInput.value.trim()));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                    const doc = querySnapshot.docs[0];
+                    const foundClient = { id: doc.id, ...doc.data() };
+                    phoneLoginModal.classList.add('hidden');
+                    openAddressManagementModal(foundClient);
+                } else {
+                    phoneLoginModal.classList.add('hidden'); 
+                    openAddressManagementModal({ nome: 'Novo Cliente', telefone: phoneInput.value.trim(), enderecos: [] });
+                }
+            } catch (error) { 
+                console.error("Error searching client:", error);
+                phoneError.textContent = 'Erro ao buscar cliente.'; 
+                phoneError.classList.remove('hidden'); 
+            } finally {
+                searchPhoneButton.disabled = false;
+                searchPhoneButton.textContent = 'Buscar';
+            }
+        });
+        
+        closeAddressManagementModal.addEventListener('click', () => { addressManagementModal.classList.add('hidden'); currentClient = null; });
+        addNewAddressButton.addEventListener('click', () => { 
+            addNewAddressContainer.classList.remove('hidden'); 
+            newAddressInput.value = ''; 
+            newAddressCoords = null; 
+            setTimeout(() => initMapForAddress('map', 'new-address-input', false), 100);
+        });
+        
+		saveNewAddressButton.addEventListener('click', async () => {
+			const addressText = newAddressInput.value.trim();
+			if (!addressText || !newAddressCoords) { showToast("Digite o endereço e marque no mapa.", true); return; }
+			
+			const newAddress = { endereco: addressText, ...newAddressCoords };
+			
+			try {
+				let finalClientId = currentClient?.id;
+				
+				if (currentClient && currentClient.id) {
+					const updatedAddresses = [...(currentClient.enderecos || []), newAddress];
+                    const clientRef = doc(db, "clientes", currentClient.id);
+					await updateDoc(clientRef, { enderecos: updatedAddresses });
+				} else {
+					const newClientData = { nome: currentClient.nome, telefone: currentClient.telefone, enderecos: [newAddress], status: 'Ativo' };
+                    const docRef = await addDoc(collection(db, "clientes"), newClientData);
+					finalClientId = docRef.id;
+                    currentClient.id = finalClientId;
+				}
+
+				pendingOrderDetails = { clienteId: finalClientId, clienteNome: currentClient.nome, clienteEndereco: newAddress.endereco, telefone: currentClient.telefone };
+				selectedAddressText.textContent = newAddress.endereco;
+				
+				await calculateAndDisplayShipping(newAddress);
+				addressManagementModal.classList.add('hidden');
+				paymentModal.classList.remove('hidden');
+			} catch(error) {
+				console.error("Error saving address:", error);
+				showToast("Erro ao salvar o endereço.", true);
+			}
+		});
+
+        sendWhatsappButton.addEventListener('click', async () => {
+            const name = guestNameInput.value.trim(), address = guestAddressInput.value.trim(), phone = guestPhoneInput.value.trim(), paymentMethod = guestPaymentMethodSelect.value;
+            if (!name || !address || !phone || !paymentMethod || !guestAddressCoords) { showToast('Preencha todos os campos e selecione o endereço no mapa.', true); return; }
+            
+            sendWhatsappButton.disabled = true; sendWhatsappButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+            try {
+                let clientId;
+                const q = query(collection(db, "clientes"), where("telefone", "==", phone));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    clientId = querySnapshot.docs[0].id;
+                } else {
+                    const newAddress = { endereco: address, ...guestAddressCoords };
+                    const newClientData = { nome: name, enderecos: [newAddress], telefone: phone, status: 'Ativo' };
+                    const docRef = await addDoc(collection(db, "clientes"), newClientData);
+                    clientId = docRef.id;
+                }
+                await finalizeOrder({ clienteNome: name, clienteEndereco: address, telefone: phone, formaPagamento: paymentMethod }, clientId, false);
+            } catch (error) { 
+                showToast('Erro ao processar o pedido.', true);
+            } finally { 
+                sendWhatsappButton.disabled = false; 
+                sendWhatsappButton.innerHTML = '<i class="fa-brands fa-whatsapp"></i> Enviar Pedido'; 
+            }
+        });
+
+        closePaymentModal.addEventListener('click', () => paymentModal.classList.add('hidden'));
+        backToAddressButton.addEventListener('click', () => { paymentModal.classList.add('hidden'); addressManagementModal.classList.remove('hidden'); });
+
+		confirmOrderButton.addEventListener('click', async () => {
+			if (!paymentMethodSelect.value) { paymentError.textContent = 'Selecione uma forma de pagamento.'; paymentError.classList.remove('hidden'); return; }
+			paymentError.classList.add('hidden');
+			confirmOrderButton.disabled = true;
+			confirmOrderButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Confirmando...';
+			try {
+				const finalOrderDetails = { ...pendingOrderDetails, formaPagamento: paymentMethodSelect.value };
+				await finalizeOrder(finalOrderDetails, finalOrderDetails.clienteId, true);
+			} catch (error) {
+				console.error('Error confirming order:', error);
+				showToast('Erro ao confirmar o pedido.', true);
+			} finally {
+				confirmOrderButton.disabled = false;
+				confirmOrderButton.textContent = 'Confirmar Pedido';
+			}
+		});
+
+        closeConfirmationButton.addEventListener('click', () => { confirmationModal.classList.add('hidden'); location.reload(); });
+        closePlatformConfirmationButton.addEventListener('click', () => { platformConfirmationModal.classList.add('hidden'); location.reload(); });
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStoreConfig();
+            fetchProducts();
+        });
+    </script>
+</body>
+</html>
+
