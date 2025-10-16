@@ -57,3 +57,36 @@ http-server
 ---
 
 Quer que eu adapte esse texto para **projetos com múltiplos sites no Firebase Hosting** também? (ex: `hosting:admin`, `hosting:site`)
+
+
+------------------------------------------------
+#publicar no forebase
+1. Verificar configuração de usuário
+bash
+git config user.name
+git config user.email
+
+2. Verifique o status atual
+bash
+git status
+Isso mostra quais arquivos foram modificados.
+
+3. Adicione os arquivos para o commit
+bash
+# Para adicionar todos os arquivos modificados
+git add .
+
+# Ou para adicionar arquivos específicos
+git add nome_do_arquivo
+
+4. Faça o commit das alterações
+bash
+git commit -m "Descrição das alterações realizadas"
+
+5. Envie para o repositório remoto
+bash
+git push origin main
+Ou se sua branch principal for chamada "master":
+
+bash
+git push origin master
