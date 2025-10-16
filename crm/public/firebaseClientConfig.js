@@ -1,9 +1,36 @@
-// Importações do SDK do Firebase que você vai precisar
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, getDocs, getDoc, doc, addDoc, updateDoc, runTransaction, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// --- SEÇÃO 1: IMPORTAÇÕES DO FIREBASE SDK ---
+// Este bloco importa as funções e módulos necessários diretamente dos servidores do Firebase.
+// Usar a URL completa é a forma padrão de usar o Firebase em arquivos HTML/JS puros.
 
-// A configuração do seu projeto Firebase (do Console do Firebase)
+// 'initializeApp' é a função principal para conectar-se ao seu projeto Firebase.
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+
+// Importa todas as funções relacionadas ao Firestore, o banco de dados NoSQL do Firebase.
+// Isso inclui funções para buscar coleções ('collection'), obter documentos ('getDocs', 'getDoc'),
+// adicionar ('addDoc'), atualizar ('updateDoc'), e consultar dados ('query', 'where').
+import { 
+  getFirestore, 
+  collection, 
+  getDocs, 
+  getDoc, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  query, 
+  where,
+  serverTimestamp,
+  setDoc
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+// Importa a função para obter o serviço de Autenticação.
+// A função 'signInAnonymously' foi removida intencionalmente para resolver o problema.
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+
+// --- SEÇÃO 2: CONFIGURAÇÃO DO PROJETO FIREBASE ---
+// Este objeto 'firebaseConfig' contém as chaves e identificadores únicos do SEU projeto Firebase.
+// É como o "endereço" que diz ao seu site a qual projeto Firebase ele deve se conectar.
+// Essas chaves são seguras para serem expostas no lado do cliente, pois a segurança é controlada pelas Regras de Segurança (firestore.rules).
 const firebaseConfig = {
   apiKey: "AIzaSyCNU5ZEl60OcW5eZyL_ZoD0tFKpweQvhwU",
   authDomain: "crmdoceria-9959e.firebaseapp.com",
@@ -14,12 +41,36 @@ const firebaseConfig = {
   measurementId: "G-XJ7LPG0229"
 };
 
-// Inicializa o Firebase
+
+// --- SEÇÃO 3: INICIALIZAÇÃO DO FIREBASE E SEUS SERVIÇOS ---
+
+// A função 'initializeApp' é chamada com o objeto de configuração.
+// Isso estabelece a conexão inicial com o Firebase e retorna uma instância da aplicação.
 const app = initializeApp(firebaseConfig);
 
-// Exporta os serviços do Firebase para serem usados em outros scripts
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+// A partir da instância da aplicação ('app'), inicializamos os serviços que vamos usar.
+// 'db' será o nosso objeto para interagir com o banco de dados Firestore.
+const db = getFirestore(app);
+// 'auth' será o nosso objeto para lidar com autenticação, se necessário.
+const auth = getAuth(app); // A instância é mantida, mas não é usada para login nesta página.
 
-// Exporta as funções do Firestore que você usará no seu HTML
-export { collection, getDocs, getDoc, doc, addDoc, updateDoc, runTransaction, query, where, signInAnonymously };
+
+// --- SEÇÃO 4: EXPORTAÇÃO DOS MÓDULOS ---
+// A palavra-chave 'export' torna as variáveis e funções disponíveis para outros arquivos
+// que importarem este script (como é o caso do seu 'cardapio.html').
+// Isso permite que a página do cardápio acesse o banco de dados ('db') e as funções do Firestore.
+export { 
+  db, 
+  auth, 
+  collection, 
+  getDocs, 
+  getDoc, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  query, 
+  where, 
+  serverTimestamp,
+  setDoc
+};
+

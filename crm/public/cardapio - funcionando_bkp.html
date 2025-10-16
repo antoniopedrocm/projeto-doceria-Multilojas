@@ -1109,11 +1109,8 @@
 					const addressDiv = document.createElement('div');
 					addressDiv.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow mb-4';
 					addressDiv.innerHTML = `
-						<div class="flex items-center justify-between gap-2 mb-2">
+						<div class="flex items-center gap-2 mb-2">
 							<span class="bg-pink-100 text-pink-800 text-xs font-medium px-2 py-1 rounded">${nickname}</span>
-							<button class="text-red-500 hover:text-red-700 transition-colors delete-address-btn" title="Excluir endereço">
-								<i class="fa-solid fa-trash-alt text-lg"></i>
-							</button>
 						</div>
 						<p class="text-gray-800 font-medium text-sm leading-tight">${addressText}</p>
 						<button class="w-full mt-3 bg-pink-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-pink-700 transition-colors flex items-center justify-center gap-2 use-address-btn">
@@ -1121,19 +1118,9 @@
 							Usar este Endereço
 						</button>
 					`;
-
 					
-					// Evento para usar o endereço (já existe)
 					addressDiv.querySelector('.use-address-btn').onclick = () => useExistingAddress(addressText, address);
-
-					// NOVO: Evento para deletar o endereço
-					addressDiv.querySelector('.delete-address-btn').onclick = (e) => {
-						e.stopPropagation(); // Evita que o clique se propague
-						deleteAddress(index);
-					};
-
 					addressList.appendChild(addressDiv);
-
 				});
 			} else {
 				addressList.innerHTML = `
@@ -1147,47 +1134,6 @@
 			
 			addressManagementModal.classList.remove('hidden');
 		}
-		
-		// Função para deletar endereço
-		async function deleteAddress(addressIndex) {
-			// Confirmação antes de deletar
-			const confirmDelete = confirm('Tem certeza que deseja excluir este endereço?');
-			if (!confirmDelete) return;
-
-			try {
-				const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-				
-				// Buscar documento do cliente
-				const clientDocRef = doc(db, 'clientes', currentClient.id);
-				const clientDoc = await getDoc(clientDocRef);
-				
-				if (!clientDoc.exists()) {
-					throw new Error('Cliente não encontrado');
-				}
-
-				// Remover o endereço do array
-				const existingAddresses = clientDoc.data().enderecos || [];
-				existingAddresses.splice(addressIndex, 1);
-
-				// Atualizar no Firebase
-				await updateDoc(clientDocRef, {
-					enderecos: existingAddresses
-				});
-
-				showToast('Endereço excluído com sucesso!');
-				
-				// Atualizar a lista de endereços na tela
-				openAddressManagementModal({
-					...currentClient,
-					enderecos: existingAddresses
-				});
-
-			} catch (error) {
-				console.error('Erro ao deletar endereço:', error);
-				showToast('Erro ao excluir endereço. Tente novamente.', true);
-			}
-		}
-
 
 		async function useExistingAddress(addressText, addressData) {
 			pendingOrderDetails = {
@@ -1724,21 +1670,15 @@
 				}
 				
 				const distanceMeters = element.distance.value;
-				const distanceKm = distanceMeters / 1000
-				let valorFrete = (distanceKm * valorPorKm).toFixed(2)
-
-				// Aplicar valor mínimo de frete de R$ 2,00
-				if (parseFloat(valorFrete) < 2) {
-					valorFrete = '2.00'
-					console.log('Frete ajustado para o valor mínimo de R$ 2,00')
-				}
-
-				console.log('Distância calculada:', distanceKm.toFixed(2), 'km')
-				console.log('Valor do frete:', 'R$', valorFrete)
-
-				resolve({
-					distanciaKm: distanceKm.toFixed(2),
-					valorFrete: valorFrete
+				const distanceKm = distanceMeters / 1000;
+				const valorFrete = (distanceKm * valorPorKm).toFixed(2);
+				
+				console.log('✅ Distância calculada:', distanceKm.toFixed(2), 'km');
+				console.log('✅ Valor do frete:', 'R$', valorFrete);
+				
+				resolve({ 
+					distanciaKm: distanceKm.toFixed(2), 
+					valorFrete: valorFrete 
 				});
 			});
 		});

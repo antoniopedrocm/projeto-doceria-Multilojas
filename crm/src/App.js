@@ -16,8 +16,10 @@ import { auth, db, storage, functions } from './firebaseConfig.js';
 import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc } from "firebase/firestore";
+// ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
+// CORRIGIDO: Adicionado 'getDocs' à importação
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // Hook customizado para estado persistente na sessão
@@ -932,6 +934,12 @@ function App() {
   const [loginError, setLoginError] = useState('');
 	const [lightboxImage, setLightboxImage] = useState(null);
 	const [authReady, setAuthReady] = useState(false);
+  
+  // ATUALIZADO: State para controlar a tela de "Esqueci a Senha"
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [passwordResetEmail, setPasswordResetEmail] = useState('');
+  const [passwordResetMessage, setPasswordResetMessage] = useState({ text: '', type: '' });
+
 
   const audioRef = useRef(null);
   const initialDataLoaded = useRef(false);
@@ -1138,8 +1146,73 @@ function App() {
 	  return () => unsubscribe();
 	}, []);
 
-  const handleLogin = async () => { try { setLoginError(''); await signInWithEmailAndPassword(auth, email, password); setShowLogin(false); setEmail(''); setPassword(''); setCurrentPage('dashboard'); } catch (error) { setLoginError('Email ou senha inválidos.'); } };
-  const handleRegister = async () => { try { setLoginError(''); const userCredential = await createUserWithEmailAndPassword(auth, email, password); await setDoc(doc(db, "users", userCredential.user.uid), { email: userCredential.user.email, role: "Atendente" }); setShowLogin(false); setEmail(''); setPassword(''); setCurrentPage('dashboard'); } catch (error) { setLoginError(error.code === 'auth/email-already-in-use' ? 'Este email já está em uso.' : 'Erro ao registrar.'); } };
+    const handleLogin = async () => {
+        setLoginError('');
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+            // A verificação de usuário já acontece no onAuthStateChanged
+            setShowLogin(false);
+            setEmail('');
+            setPassword('');
+            setCurrentPage('dashboard');
+        } catch (error) {
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                setLoginError('Email ou senha inválidos.');
+            } else {
+                setLoginError('Ocorreu um erro. Tente novamente.');
+            }
+        }
+    };
+
+    const handleGoogleSignIn = async () => {
+        setLoginError('');
+        const provider = new GoogleAuthProvider();
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const googleUser = result.user;
+
+            // Verifica se o usuário do Google está na sua lista de usuários autorizados
+            const q = query(collection(db, "users"), where("email", "==", googleUser.email));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                // Se o email não está na sua lista, desloga o usuário e mostra erro
+                await signOut(auth);
+                setLoginError("Usuário não autorizado. Solicite acesso ao administrador.");
+            } else {
+                // Usuário autorizado, fecha o modal e continua
+                setShowLogin(false);
+                setCurrentPage('dashboard');
+            }
+        } catch (error) {
+            console.error("Erro no login com Google:", error);
+            if (error.code === 'auth/popup-closed-by-user') {
+                setLoginError('Login com Google cancelado.');
+            } else {
+                setLoginError('Ocorreu um erro ao entrar com Google.');
+            }
+        }
+    };
+    
+    const handlePasswordReset = async () => {
+        if (!passwordResetEmail) {
+            setPasswordResetMessage({ text: 'Por favor, insira seu email.', type: 'error' });
+            return;
+        }
+        setPasswordResetMessage({ text: 'Enviando email...', type: 'loading' });
+        try {
+            await sendPasswordResetEmail(auth, passwordResetEmail);
+            setPasswordResetMessage({ text: 'Email de recuperação enviado! Verifique sua caixa de entrada e spam.', type: 'success' });
+        } catch (error) {
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
+                setPasswordResetMessage({ text: 'Email não encontrado. Verifique o email digitado.', type: 'error' });
+            } else {
+                setPasswordResetMessage({ text: 'Ocorreu um erro. Tente novamente.', type: 'error' });
+            }
+        }
+    };
+
+
   const handleLogout = async () => { await signOut(auth); };
 
   const allMenuItems = [ { id: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: ['admin', 'Atendente', null] }, { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'Atendente'] }, { id: 'clientes', label: 'Clientes', icon: Users, roles: ['admin', 'Atendente'] }, { id: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: ['admin', 'Atendente'] }, { id: 'produtos', label: 'Produtos', icon: Package, roles: ['admin', 'Atendente'] }, { id: 'agenda', label: 'Agenda', icon: Calendar, roles: ['admin', 'Atendente'] }, { id: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: ['admin', 'Atendente'] }, { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'Atendente'] }, { id: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: ['admin'] }, { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: ['admin'] }, ];
@@ -1196,7 +1269,7 @@ function App() {
                     </div>
                 </div>
                 <div>
-                    <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3821.890300951331!2d-49.3274707!3d-16.6725019!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x935ef50062f12789%3A0x5711296a03567da3!2sAna%20Guimar%C3%Aes%20doceria!5e0!3m2!1spt-BR!2sbr!4v1661282662551!5m2!1spt-BR!2sbr" width="100%" height="300" style={{border:0}} allowFullScreen="" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="rounded-lg shadow-md" title="Localização da Doceria"></iframe>
+                    <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3821.890300951331!2d-49.3274707!3d-16.6725019!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x935ef50062f12789%3A0x5711296a03567da3!2sAna%20Guimar%C3%Aes%2d doceria!5e0!3m2!1spt-BR!2sbr!4v1661282662551!5m2!1spt-BR!2sbr" width="100%" height="300" style={{border:0}} allowFullScreen="" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="rounded-lg shadow-md" title="Localização da Doceria"></iframe>
                 </div>
             </div>
         </div>
@@ -2391,18 +2464,9 @@ const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, dele
                                 </ul>
                             </div>
                             
-                            <div className="text-right pt-4 border-t mt-4 space-y-1">
-                                {viewingOrder.cupom && (
-                                  <>
-                                    <p className="text-md text-gray-600">Subtotal: R$ {subtotal.toFixed(2)}</p>
-                                    <p className="text-md text-green-600">Desconto ({viewingOrder.cupom.codigo}): - R$ {(viewingOrder.cupom.valorDesconto || 0).toFixed(2)}</p>
-                                  </>
-                                )}
-                                <p className="font-bold text-2xl text-pink-600">
-                                    Total: R$ ${(viewingOrder.total || 0).toFixed(2)}
-                                </p>
-                            </div>
-
+                            <p className="text-right font-bold text-2xl text-pink-600 pt-4 border-t mt-4">
+                                Total: R$ ${(viewingOrder.total || 0).toFixed(2)}
+                            </p>
 
                             <div className="flex justify-end pt-4 mt-4 border-t gap-3">
                                  <Button 
@@ -2747,69 +2811,116 @@ const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, dele
             </button>
             <div className="flex-1"></div>
             <div className="flex items-center gap-4">
-                <div className="relative">
-                    <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-full hover:bg-gray-100">
-                        <Bell className="w-5 h-5 text-gray-600" />
-                        {pendingOrders.length > 0 && 
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                                {pendingOrders.length}
-                            </span>
-                        }
-                    </button>
-                    {showNotifications && (
-                        <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-20 border">
-                            <div className="p-4 font-bold border-b">Pedidos Pendentes</div>
-                            <div className="p-2 max-h-96 overflow-y-auto">
-                                {pendingOrders.length > 0 ? (
-                                    pendingOrders.map(order => (
-                                        <div key={order.id} className="p-2 border-b hover:bg-gray-50">
-                                            <p className="font-semibold">{order.clienteNome}</p>
-                                            <p className="text-sm text-gray-500">ID: {order.id.substring(0,8)}</p>
-                                            <p className="text-sm text-gray-500">Data: {getJSDate(order.createdAt)?.toLocaleDateString()}</p>
-                                            <p className="text-sm">Status: <span className="font-medium">{order.status}</span></p>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <p className="p-4 text-center text-gray-500">Nenhum pedido pendente.</p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <div className="relative">
-                    <button onClick={() => setShowUserMenu(!showUserMenu)} className="p-2 rounded-full hover:bg-gray-100">
-                        <UserIcon className="w-6 h-6 text-gray-600" />
-                    </button>
-                    {user && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white"></span>}
-                    {showUserMenu && user && (
-                         <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl z-20 border p-2">
-                           <p className="px-2 py-1 text-sm text-gray-700 font-semibold">{user.auth.displayName || user.auth.email}</p>
-                         </div>
-                    )}
-                </div>
-            </div>
+				{/* Ícone de notificações - SOMENTE para usuários logados */}
+				{user && (
+					<div className="relative">
+						<button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-full hover:bg-gray-100">
+							<Bell className="w-5 h-5 text-gray-600" />
+							{pendingOrders.length > 0 && 
+								<span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+									{pendingOrders.length}
+								</span>
+							}
+						</button>
+						{showNotifications && (
+							<div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-20 border">
+								<div className="p-4 font-bold border-b">Pedidos Pendentes</div>
+								<div className="p-2 max-h-96 overflow-y-auto">
+									{pendingOrders.length > 0 ? (
+										pendingOrders.map(order => (
+											<div key={order.id} className="p-2 border-b hover:bg-gray-50">
+												<p className="font-semibold">{order.clienteNome}</p>
+												<p className="text-sm text-gray-500">ID: {order.id.substring(0,8)}</p>
+												<p className="text-sm text-gray-500">Data: {getJSDate(order.createdAt)?.toLocaleDateString()}</p>
+												<p className="text-sm">Status: <span className="font-medium">{order.status}</span></p>
+											</div>
+										))
+									) : (
+										<p className="p-4 text-center text-gray-500">Nenhum pedido pendente.</p>
+									)}
+								</div>
+							</div>
+						)}
+					</div>
+				)}
+				
+				{/* Ícone do usuário - MANTIDO EXATAMENTE COMO ESTÁ */}
+				<div className="relative">
+					<button onClick={() => {
+						if (!user) {
+							setShowLogin(true);
+							setShowPasswordReset(false);
+							setPasswordResetMessage({ text: '', type: '' });
+						} else {
+							setShowUserMenu(!showUserMenu);
+						}
+					}} className="p-2 rounded-full hover:bg-gray-100">
+						<UserIcon className="w-6 h-6 text-gray-600" />
+					</button>
+					{user && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white"></span>}
+					{showUserMenu && user && (
+						<div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl z-20 border p-2">
+							<p className="px-2 py-1 text-sm text-gray-700 font-semibold">{user.auth.displayName || user.auth.email}</p>
+						</div>
+					)}
+				</div>
+			</div>
         </div>
         <main className="flex-1 overflow-y-auto">
             {renderCurrentPage()}
         </main>
       </div>
 
-      <Modal isOpen={showLogin} onClose={() => setShowLogin(false)} title={isRegistering ? "Registrar Nova Conta" : "Login"} size="sm">
-        <div className="space-y-4">
-          <Input label="Email" type="email" placeholder="seu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Senha" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
-          {loginError && <p className="text-red-500 text-sm">{loginError}</p>}
-          <div className="flex flex-col gap-2">
-            {isRegistering ? (
-              <Button onClick={handleRegister}>Registrar</Button>
-            ) : (
-              <Button onClick={handleLogin}>Entrar</Button>
-            )}
-            <button onClick={() => setIsRegistering(!isRegistering)} className="text-sm text-pink-600 hover:underline text-center">
-              {isRegistering ? "Já tem uma conta? Faça login" : "Não tem uma conta? Registre-se"}
-            </button>
-          </div>
-        </div>
+      <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' });}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm">
+        {showPasswordReset ? (
+            <div className="space-y-4">
+                <p className="text-sm text-gray-600">Insira seu e-mail para enviarmos um link de recuperação.</p>
+                <Input label="Email" type="email" placeholder="seu@email.com" value={passwordResetEmail} onChange={(e) => setPasswordResetEmail(e.target.value)} />
+                {passwordResetMessage.text && (
+                    <p className={`text-sm ${passwordResetMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                        {passwordResetMessage.text}
+                    </p>
+                )}
+                <div className="flex flex-col gap-2">
+                    <Button onClick={handlePasswordReset} disabled={passwordResetMessage.type === 'loading'}>
+                        {passwordResetMessage.type === 'loading' ? 'Enviando...' : 'Enviar Email de Recuperação'}
+                    </Button>
+                    <button onClick={() => setShowPasswordReset(false)} className="text-sm text-pink-600 hover:underline text-center">
+                        Voltar para o Login
+                    </button>
+                </div>
+            </div>
+        ) : (
+            <div className="space-y-4">
+                <Input label="Email" type="email" placeholder="seu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input label="Senha" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button onClick={() => setShowPasswordReset(true)} className="text-sm text-pink-600 hover:underline text-left w-full">
+                    Esqueci a senha
+                </button>
+                {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
+                <div className="flex flex-col gap-4 pt-2">
+                    <Button onClick={handleLogin}>Entrar</Button>
+                    <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-300" />
+                        </div>
+                        <div className="relative flex justify-center text-sm">
+                            <span className="bg-white px-2 text-gray-500">ou</span>
+                        </div>
+                    </div>
+                    <Button onClick={handleGoogleSignIn} variant="secondary">
+                        <svg className="w-5 h-5" viewBox="0 0 48 48">
+                            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                            <path fill="none" d="M0 0h48v48H0z"></path>
+                        </svg>
+                        Entrar com Google
+                    </Button>
+                </div>
+            </div>
+        )}
       </Modal>
 
       <Modal isOpen={confirmDelete.isOpen} onClose={() => setConfirmDelete({ isOpen: false, onConfirm: ()=>{} })} title="Confirmar Exclusão" size="sm">
@@ -2835,3 +2946,4 @@ const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, dele
 }
 
 export default App;
+

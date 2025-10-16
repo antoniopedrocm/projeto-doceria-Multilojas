@@ -1109,11 +1109,8 @@
 					const addressDiv = document.createElement('div');
 					addressDiv.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow mb-4';
 					addressDiv.innerHTML = `
-						<div class="flex items-center justify-between gap-2 mb-2">
+						<div class="flex items-center gap-2 mb-2">
 							<span class="bg-pink-100 text-pink-800 text-xs font-medium px-2 py-1 rounded">${nickname}</span>
-							<button class="text-red-500 hover:text-red-700 transition-colors delete-address-btn" title="Excluir endereço">
-								<i class="fa-solid fa-trash-alt text-lg"></i>
-							</button>
 						</div>
 						<p class="text-gray-800 font-medium text-sm leading-tight">${addressText}</p>
 						<button class="w-full mt-3 bg-pink-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-pink-700 transition-colors flex items-center justify-center gap-2 use-address-btn">
@@ -1121,19 +1118,9 @@
 							Usar este Endereço
 						</button>
 					`;
-
 					
-					// Evento para usar o endereço (já existe)
 					addressDiv.querySelector('.use-address-btn').onclick = () => useExistingAddress(addressText, address);
-
-					// NOVO: Evento para deletar o endereço
-					addressDiv.querySelector('.delete-address-btn').onclick = (e) => {
-						e.stopPropagation(); // Evita que o clique se propague
-						deleteAddress(index);
-					};
-
 					addressList.appendChild(addressDiv);
-
 				});
 			} else {
 				addressList.innerHTML = `
@@ -1147,47 +1134,6 @@
 			
 			addressManagementModal.classList.remove('hidden');
 		}
-		
-		// Função para deletar endereço
-		async function deleteAddress(addressIndex) {
-			// Confirmação antes de deletar
-			const confirmDelete = confirm('Tem certeza que deseja excluir este endereço?');
-			if (!confirmDelete) return;
-
-			try {
-				const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-				
-				// Buscar documento do cliente
-				const clientDocRef = doc(db, 'clientes', currentClient.id);
-				const clientDoc = await getDoc(clientDocRef);
-				
-				if (!clientDoc.exists()) {
-					throw new Error('Cliente não encontrado');
-				}
-
-				// Remover o endereço do array
-				const existingAddresses = clientDoc.data().enderecos || [];
-				existingAddresses.splice(addressIndex, 1);
-
-				// Atualizar no Firebase
-				await updateDoc(clientDocRef, {
-					enderecos: existingAddresses
-				});
-
-				showToast('Endereço excluído com sucesso!');
-				
-				// Atualizar a lista de endereços na tela
-				openAddressManagementModal({
-					...currentClient,
-					enderecos: existingAddresses
-				});
-
-			} catch (error) {
-				console.error('Erro ao deletar endereço:', error);
-				showToast('Erro ao excluir endereço. Tente novamente.', true);
-			}
-		}
-
 
 		async function useExistingAddress(addressText, addressData) {
 			pendingOrderDetails = {
@@ -1196,47 +1142,30 @@
 				clienteEndereco: addressText,
 				telefone: currentClient.telefone
 			};
-
+			
 			selectedAddressText.textContent = addressText;
 			addressManagementModal.classList.add('hidden');
-
+			
 			// Calcular frete se houver lat/lng
 			if (addressData?.lat && addressData?.lng) {
 				try {
-					console.log('🔄 Aguardando Google Maps carregar...');
-					await aguardarGoogleMaps();
-					
-					console.log('🔄 Calculando frete para endereço selecionado...');
-					const resultado = await calcularFreteParaEndereco({ 
-						lat: parseFloat(addressData.lat), 
-						lng: parseFloat(addressData.lng) 
-					});
-					
+					const resultado = await calcularFreteParaEndereco({ lat: addressData.lat, lng: addressData.lng });
 					valorFrete = parseFloat(resultado.valorFrete);
-					console.log('✅ Frete calculado com sucesso: R$', valorFrete.toFixed(2));
-					
-					updateCartInfo();
-					updatePaymentSummary();
+					updateAllSummaries();
 					showToast(`Frete calculado: R$ ${valorFrete.toFixed(2)}`);
 				} catch (error) {
-					console.error('❌ Erro ao calcular frete:', error);
-					showToast('Não foi possível calcular o frete. Continuando sem frete.', true);
+					console.error('Erro ao calcular frete:', error);
+					showToast('Não foi possível calcular o frete', true);
 					valorFrete = 0;
-					updateCartInfo();
-					updatePaymentSummary();
+					updateAllSummaries();
 				}
-			} else {
-				console.warn('⚠️ Endereço não possui coordenadas');
-				valorFrete = 0;
-				updateCartInfo();
-				updatePaymentSummary();
 			}
-
+			
 			paymentModal.classList.remove('hidden');
 			updatePaymentSummary();
 		}
 
-
+      
 
         // Funções de Busca de Cliente
         async function handlePhoneSearch() {
@@ -1448,52 +1377,42 @@
 			sendWhatsappButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
 			
 			try {
-				// Aguardar Google Maps e tentar calcular frete
-				await aguardarGoogleMaps();
-				
+				// Tentar geocodificar o endereço e calcular frete
 				if (window.google?.maps && window.dadosFrete) {
-					console.log('🔄 Tentando geocodificar endereço do visitante...');
 					const geocoder = new google.maps.Geocoder();
-					
-					try {
-						const geocodeResult = await new Promise((resolve, reject) => {
-							geocoder.geocode({ address: address }, (results, status) => {
-								if (status === 'OK' && results[0]) {
-									resolve(results[0]);
-								} else {
-									reject(status);
-								}
-							});
-						});
+					geocoder.geocode({ address: address }, async (results, status) => {
+						if (status === 'OK' && results[0]) {
+							const location = results[0].geometry.location;
+							try {
+								const resultado = await calcularFreteParaEndereco({ 
+									lat: location.lat(), 
+									lng: location.lng() 
+								});
+								valorFrete = parseFloat(resultado.valorFrete);
+								updateAllSummaries();
+							} catch (error) {
+								console.warn('Frete não calculado:', error);
+							}
+						}
 						
-						const location = geocodeResult.geometry.location;
-						console.log('✅ Endereço geocodificado:', location.lat(), location.lng());
-						
-						const resultado = await calcularFreteParaEndereco({ 
-							lat: location.lat(), 
-							lng: location.lng() 
-						});
-						
-						valorFrete = parseFloat(resultado.valorFrete);
-						console.log('✅ Frete calculado para visitante: R$', valorFrete.toFixed(2));
-						updateGuestSummary();
-					} catch (geocodeError) {
-						console.warn('⚠️ Não foi possível geocodificar o endereço:', geocodeError);
-						valorFrete = 0;
-						updateGuestSummary();
-					}
+						// Finalizar pedido
+						await finalizeOrder({
+							clienteNome: name,
+							clienteEndereco: address,
+							telefone: phone,
+							formaPagamento: paymentMethod
+						}, null, false);
+					});
+				} else {
+					// Se não conseguir calcular, prosseguir sem frete
+					await finalizeOrder({
+						clienteNome: name,
+						clienteEndereco: address,
+						telefone: phone,
+						formaPagamento: paymentMethod
+					}, null, false);
 				}
-				
-				// Finalizar pedido
-				await finalizeOrder({
-					clienteNome: name,
-					clienteEndereco: address,
-					telefone: phone,
-					formaPagamento: paymentMethod
-				}, null, false);
-				
 			} catch (error) {
-				console.error('❌ Erro ao processar pedido:', error);
 				showToast('Erro ao processar o pedido.', true);
 				sendWhatsappButton.disabled = false;
 				sendWhatsappButton.innerHTML = '<i class="fa-brands fa-whatsapp"></i> Enviar Pedido';
@@ -1589,6 +1508,44 @@
 
     </script>
 	
+	<script>
+	  async function calcularFreteParaEndereco(enderecoCliente) {
+		return new Promise((resolve, reject) => {
+		  if (!window.dadosFrete) {
+			reject("Configurações de frete ainda não carregadas");
+			return;
+		  }
+
+		  const loja = {
+			lat: parseFloat(window.dadosFrete.lat),
+			lng: parseFloat(window.dadosFrete.lng)
+		  };
+
+		  const valorPorKm = parseFloat(window.dadosFrete.valorPorKm);
+		  const directionsService = new google.maps.DirectionsService();
+
+		  directionsService.route(
+			{
+			  origin: loja,
+			  destination: enderecoCliente,
+			  travelMode: google.maps.TravelMode.DRIVING
+			},
+			(response, status) => {
+			  if (status === "OK") {
+				const rota = response.routes[0].legs[0];
+				const distanciaKm = rota.distance.value / 1000;
+				const valorFrete = (distanciaKm * valorPorKm).toFixed(2);
+				resolve({ distanciaKm, valorFrete });
+			  } else {
+				reject("Erro ao calcular rota: " + status);
+			  }
+			}
+		  );
+		});
+	  }
+
+
+	</script>
 
 	<script type="module">
 		import { db, doc, getDoc } from './firebaseClientConfig.js';
@@ -1608,6 +1565,42 @@
 			console.warn('Configurações de frete não encontradas.');
 		}
 	}
+
+	// 🔸 Calcula frete usando Google Distance Matrix
+	async function calcularFreteParaEndereco(destinoLatLng) {
+		return new Promise((resolve, reject) => {
+			if (!window.dadosFrete) {
+				return reject('Configurações de frete ainda não carregadas');
+			}
+			
+			const loja = {
+				lat: parseFloat(window.dadosFrete.lat),
+				lng: parseFloat(window.dadosFrete.lng)
+			};
+			
+			const valorPorKm = parseFloat(window.dadosFrete.valorPorKm);
+			
+			const service = new google.maps.DistanceMatrixService();
+			service.getDistanceMatrix({
+				origins: [loja],
+				destinations: [destinoLatLng],
+				travelMode: google.maps.TravelMode.DRIVING,
+				unitSystem: google.maps.UnitSystem.METRIC
+			}, (response, status) => {
+				if (status !== 'OK') {
+					console.error('Erro ao calcular distância:', status);
+					return reject(status);
+				}
+				
+				const distanceMeters = response.rows[0].elements[0].distance.value;
+				const distanceKm = distanceMeters / 1000;
+				const valorFrete = (distanceKm * valorPorKm).toFixed(2);
+				
+				resolve({ distanciaKm: distanceKm, valorFrete: valorFrete });
+			});
+		});
+	}
+
 
 	// 🔸 Atualiza UI do carrinho com o valor de frete
 	function atualizarFreteNoCarrinho(valorFrete) {
@@ -1637,114 +1630,6 @@
 			atualizarFreteNoCarrinho(valorFrete);
 		};
 	});
-	</script>
-
-	<script>
-	// ==================== CÁLCULO DE FRETE - VERSÃO ÚNICA ====================
-
-	// Função auxiliar para aguardar o Google Maps carregar
-	function aguardarGoogleMaps() {
-		return new Promise((resolve) => {
-			if (window.google && window.google.maps) {
-				console.log('✅ Google Maps já está carregado');
-				resolve();
-			} else {
-				console.log('⏳ Aguardando Google Maps carregar...');
-				const checkInterval = setInterval(() => {
-					if (window.google && window.google.maps) {
-						console.log('✅ Google Maps carregado com sucesso');
-						clearInterval(checkInterval);
-						resolve();
-					}
-				}, 100);
-				
-				// Timeout de 10 segundos
-				setTimeout(() => {
-					console.warn('⚠️ Timeout ao aguardar Google Maps');
-					clearInterval(checkInterval);
-					resolve();
-				}, 10000);
-			}
-		});
-	}
-
-	// Função para calcular frete usando Google Distance Matrix API
-	async function calcularFreteParaEndereco(destinoLatLng) {
-		console.log('🚚 Iniciando cálculo de frete...');
-		console.log('📍 Destino:', destinoLatLng);
-		console.log('⚙️ Dados de frete disponíveis:', window.dadosFrete);
-		
-		return new Promise((resolve, reject) => {
-			// Verificar se as configurações de frete estão carregadas
-			if (!window.dadosFrete) {
-				console.error('❌ Configurações de frete não carregadas');
-				return reject('Configurações de frete ainda não carregadas');
-			}
-			
-			// Verificar se o Google Maps está disponível
-			if (!window.google || !window.google.maps) {
-				console.error('❌ Google Maps não está carregado');
-				return reject('Google Maps ainda não foi carregado');
-			}
-			
-			const loja = {
-				lat: parseFloat(window.dadosFrete.lat),
-				lng: parseFloat(window.dadosFrete.lng)
-			};
-			
-			const valorPorKm = parseFloat(window.dadosFrete.valorPorKm);
-			
-			console.log('🏪 Endereço da loja:', loja);
-			console.log('💰 Valor por KM:', valorPorKm);
-			
-			const service = new google.maps.DistanceMatrixService();
-			service.getDistanceMatrix({
-				origins: [loja],
-				destinations: [destinoLatLng],
-				travelMode: google.maps.TravelMode.DRIVING,
-				unitSystem: google.maps.UnitSystem.METRIC
-			}, (response, status) => {
-				console.log('📡 Resposta do Google Maps:', status);
-				
-				if (status !== 'OK') {
-					console.error('❌ Erro ao calcular distância:', status);
-					return reject(status);
-				}
-				
-				if (!response.rows[0] || !response.rows[0].elements[0]) {
-					console.error('❌ Resposta inválida do Google Maps');
-					return reject('Resposta inválida');
-				}
-				
-				const element = response.rows[0].elements[0];
-				
-				if (element.status !== 'OK') {
-					console.error('❌ Não foi possível calcular a rota:', element.status);
-					return reject(element.status);
-				}
-				
-				const distanceMeters = element.distance.value;
-				const distanceKm = distanceMeters / 1000
-				let valorFrete = (distanceKm * valorPorKm).toFixed(2)
-
-				// Aplicar valor mínimo de frete de R$ 2,00
-				if (parseFloat(valorFrete) < 2) {
-					valorFrete = '2.00'
-					console.log('Frete ajustado para o valor mínimo de R$ 2,00')
-				}
-
-				console.log('Distância calculada:', distanceKm.toFixed(2), 'km')
-				console.log('Valor do frete:', 'R$', valorFrete)
-
-				resolve({
-					distanciaKm: distanceKm.toFixed(2),
-					valorFrete: valorFrete
-				});
-			});
-		});
-	}
-
-	console.log('✅ Módulo de cálculo de frete carregado');
 	</script>
 
 </body>
