@@ -38,7 +38,177 @@
         #subcategory-nav::-webkit-scrollbar { display: none; }
         #subcategory-nav { -ms-overflow-style: none; scrollbar-width: none; }
         .map-placeholder { height: 300px; width: 100%; border-radius: 0.5rem; background-color: #f9fafb; display: flex; align-items: center; justify-content: center; color: #6b7280; }
+		
+		/* ===== RESPONSIVIDADE MOBILE ===== */
+
+		/* Layout responsivo para produtos */
+		@media (max-width: 768px) {
+			/* Ajuste do container principal */
+			#product-list {
+				padding: 0 1rem;
+			}
+			
+			/* Layout dos cards de produto em lista vertical */
+			#product-list > div > div[class*="grid"] {
+				display: flex !important;
+				flex-direction: column !important;
+				gap: 1rem !important;
+			}
+			
+			/* Card individual do produto - layout horizontal */
+			#product-list div[class*="grid"] > div {
+				display: flex !important;
+				flex-direction: row !important;
+				align-items: flex-start !important;
+				background: white;
+				border-radius: 8px;
+				padding: 0.75rem;
+				box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+				gap: 0.75rem;
+				min-height: 120px;
+			}
+			
+			/* Imagem do produto - tamanho fixo à esquerda */
+			#product-list div[class*="grid"] > div img {
+				width: 100px !important;
+				min-width: 100px !important;
+				height: 100px !important;
+				object-fit: cover !important;
+				border-radius: 8px !important;
+				flex-shrink: 0;
+			}
+			
+			/* Container de informações do produto */
+			#product-list div[class*="grid"] > div > div {
+				display: flex !important;
+				flex-direction: column !important;
+				justify-content: space-between !important;
+				flex: 1;
+				min-height: 100px;
+			}
+			
+			/* Título do produto */
+			#product-list div[class*="grid"] > div h3,
+			#product-list div[class*="grid"] > div h2 {
+				font-size: 1rem !important;
+				line-height: 1.3 !important;
+				font-weight: 600 !important;
+				margin: 0 0 0.35rem 0 !important;
+				color: #1f2937;
+			}
+			
+			/* Descrição do produto */
+			#product-list div[class*="grid"] > div p {
+				font-size: 0.813rem !important;
+				line-height: 1.4 !important;
+				color: #6b7280 !important;
+				margin: 0 0 0.5rem 0 !important;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				display: -webkit-box;
+				-webkit-line-clamp: 2;
+				-webkit-box-orient: vertical;
+			}
+			
+			/* Preço do produto */
+			#product-list div[class*="grid"] > div span[class*="text"],
+			#product-list div[class*="grid"] > div div[class*="text"] {
+				font-size: 1.125rem !important;
+				font-weight: 700 !important;
+				color: #db2777 !important;
+				margin-top: auto;
+			}
+			
+			/* Botão de adicionar ao carrinho */
+			#product-list div[class*="grid"] > div button {
+				margin-top: 0.5rem !important;
+				padding: 0.5rem 1rem !important;
+				font-size: 0.875rem !important;
+				width: 100% !important;
+			}
+			
+			/* Ajuste do header para mobile */
+			header {
+				padding: 0.75rem 1rem !important;
+			}
+			
+			/* Logo menor em mobile */
+			header img {
+				max-height: 40px !important;
+			}
+			
+			/* Barra de busca em mobile */
+			header input[type="text"],
+			header input[type="search"] {
+				font-size: 0.875rem !important;
+				padding: 0.5rem !important;
+			}
+			
+			/* Menu de categorias horizontal scrollável */
+			#subcategory-nav {
+				padding: 0.75rem 1rem !important;
+				gap: 1rem !important;
+			}
+			
+			#subcategory-nav a {
+				font-size: 0.875rem !important;
+				padding: 0.5rem 0 !important;
+				white-space: nowrap;
+			}
+			
+			/* Espaçamento entre seções */
+			#product-list > div {
+				margin-bottom: 1.5rem !important;
+			}
+			
+			/* Título das categorias */
+			#product-list h2 {
+				font-size: 1.25rem !important;
+				padding: 0 0 0.75rem 0 !important;
+				margin-bottom: 0.75rem !important;
+			}
+			
+			/* Carrinho de compras mobile */
+			#cart-button {
+				padding: 0.5rem !important;
+				font-size: 0.875rem !important;
+			}
+			
+			/* Modal do carrinho em mobile */
+			#cart-modal > div {
+				max-width: 95% !important;
+				margin: 1rem !important;
+			}
+		}
+
+		/* Ajustes extras para telas muito pequenas */
+		@media (max-width: 380px) {
+			/* Imagem ainda menor em telas pequenas */
+			#product-list div[class*="grid"] > div img {
+				width: 85px !important;
+				min-width: 85px !important;
+				height: 85px !important;
+			}
+			
+			/* Título menor */
+			#product-list div[class*="grid"] > div h3,
+			#product-list div[class*="grid"] > div h2 {
+				font-size: 0.938rem !important;
+			}
+			
+			/* Descrição menor */
+			#product-list div[class*="grid"] > div p {
+				font-size: 0.75rem !important;
+			}
+			
+			/* Preço mantém destaque */
+			#product-list div[class*="grid"] > div span[class*="text"] {
+				font-size: 1rem !important;
+			}
+		}
+
     </style>
+	
 	<!-- Google Maps API 
         IMPORTANTE: Para o mapa funcionar corretamente, você precisa:-->
 	
@@ -399,28 +569,34 @@
     saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
 
     // Função de verificação geral
-    function validateAddressForm() {
-        const rua = document.getElementById('manual-address-input').value.trim();
-        const bairro = document.getElementById('manual-address-neighborhood').value.trim();
-        const cidade = document.getElementById('manual-address-city').value.trim();
-        const apelido = document.getElementById('manual-address-nickname').value.trim();
+	function validateAddressForm() {
+	  const bairro = document.getElementById('manual-address-neighborhood').value.trim();
+	  const cidade = document.getElementById('manual-address-city').value.trim();
+	  const apelido = document.getElementById('manual-address-nickname').value.trim();
+	  
+	  // ✅ CORREÇÃO: Validar apenas se tem coordenadas + campos básicos
+	  // NÃO exige que 'rua' (manual-address-input) esteja preenchido
+	  const hasCoords = window.currentLatLng?.lat && window.currentLatLng?.lng;
+	  const hasBasicInfo = bairro.length > 0 && cidade.length > 0 && apelido.length > 0;
+	  
+	  const isValid = hasCoords && hasBasicInfo;
+	  
+	  console.log('🔍 Validando formulário:');
+	  console.log('  - Coordenadas:', hasCoords ? '✅' : '❌', window.currentLatLng);
+	  console.log('  - Bairro:', bairro.length > 0 ? '✅' : '❌', bairro);
+	  console.log('  - Cidade:', cidade.length > 0 ? '✅' : '❌', cidade);
+	  console.log('  - Apelido:', apelido.length > 0 ? '✅' : '❌', apelido);
+	  console.log('  - Formulário válido:', isValid ? '✅' : '❌');
+	  
+	  if (isValid) {
+		saveAddressBtn.disabled = false;
+		saveAddressBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+	  } else {
+		saveAddressBtn.disabled = true;
+		saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
+	  }
+	}
 
-        const isValid =
-            rua.length > 0 &&
-            bairro.length > 0 &&
-            cidade.length > 0 &&
-            apelido.length > 0 &&
-            window.currentLatLng?.lat &&
-            window.currentLatLng?.lng;
-
-        if (isValid) {
-            saveAddressBtn.disabled = false;
-            saveAddressBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
-            saveAddressBtn.disabled = true;
-            saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
-        }
-    }
 
     async function initAddressMap() {
         const addressMapContainer = document.getElementById('address-map-container');
@@ -466,61 +642,6 @@
 			placeAutocomplete.setAttribute('placeholder', 'Digite o endereço...')
 
 			// ✅ CÓDIGO CORRIGIDO - Suporta ambas as versões da API
-
-			// ✅ EVENTO ANTIGO (gmp-placeselect) - Para compatibilidade
-			placeAutocomplete.addEventListener('gmp-placeselect', async (event) => {
-			  try {
-				console.log('🔵 Evento gmp-placeselect disparado (versão antiga)');
-				const place = event.detail?.place || event.place;
-				
-				await place.fetchFields({ 
-				  fields: ['geometry', 'addressComponents', 'formattedAddress'] 
-				});
-				
-				if (!place.geometry || !place.geometry.location) {
-				  throw new Error('Localização não disponível');
-				}
-				
-				const location = place.geometry.location;
-				const lat = typeof location.lat === 'function' ? location.lat() : location.lat;
-				const lng = typeof location.lng === 'function' ? location.lng() : location.lng;
-				
-				const newPosition = { lat: lat, lng: lng };
-				
-				console.log('📍 Endereço:', place.formattedAddress);
-				console.log('📍 Coordenadas:', newPosition);
-				
-				if (map) {
-				  map.setCenter(newPosition);
-				  map.setZoom(18);
-				  console.log('✅ Mapa centralizado');
-				}
-				
-				if (marker) {
-				  marker.position = newPosition;
-				  console.log('✅ Marcador movido');
-				}
-				
-				window.currentLatLng = newPosition;
-				fillAddressFields(place);
-				validateAddressForm();
-				
-				// Mostrar toast se a função existir
-				if (typeof showToast === 'function') {
-				  showToast('📍 Endereço encontrado!');
-				} else {
-				  alert('📍 Endereço encontrado!');
-				}
-				
-			  } catch (error) {
-				console.error('❌ Erro (versão antiga):', error);
-				if (typeof showToast === 'function') {
-				  showToast('Erro: ' + error.message, true);
-				} else {
-				  alert('Erro: ' + error.message);
-				}
-			  }
-			});
 
 			// ✅ REMOVA todos os event listeners antigos e use APENAS estes:
 
@@ -713,19 +834,54 @@
 	  }
 	  
 	  console.log('🔄 Fazendo geocode reverso para:', window.currentLatLng);
+	  console.log('📍 Coordenadas salvas! Latitude:', window.currentLatLng.lat, 'Longitude:', window.currentLatLng.lng);
 	  
+	  // ✅ IMPORTANTE: Validar IMEDIATAMENTE após salvar coordenadas
+	  // Isso garante que o botão habilite mesmo se o geocode falhar
+	  validateAddressForm();
+	  
+	  // Tentar preencher os campos com geocode reverso
 	  geocoder.geocode({ location: latlng }, (results, status) => {
 		if (status === 'OK' && results[0]) {
 		  console.log('✅ Geocode reverso bem-sucedido');
-		  fillAddressFields(results[0]);
-		} else {
-		  console.warn('⚠️ Geocode reverso falhou, mas coordenadas foram salvas');
-		  // Mesmo se o geocode falhar, valida o formulário
-		  // porque as coordenadas já foram salvas
+		  
+		  // Só preenche SE os campos estiverem vazios
+		  const currentAddress = document.getElementById('manual-address-input').value;
+		  
+		  if (!currentAddress || currentAddress.trim() === '') {
+			fillAddressFields(results[0]);
+		  } else {
+			console.log('⏭️ Campos já preenchidos, ignorando geocode reverso');
+			
+			// Atualizar apenas bairro, cidade e CEP
+			const components = results[0].addressComponents || results[0].addresscomponents;
+			const get = (type) => components?.find(c => c.types.includes(type))?.longName;
+			
+			if (!document.getElementById('manual-address-neighborhood').value) {
+			  document.getElementById('manual-address-neighborhood').value = 
+				get('sublocality_level_1') || get('sublocality') || get('political') || '';
+			}
+			
+			if (!document.getElementById('manual-address-city').value) {
+			  document.getElementById('manual-address-city').value = 
+				get('administrative_area_level_2') || 'Goiânia';
+			}
+			
+			if (!document.getElementById('manual-address-zip').value) {
+			  document.getElementById('manual-address-zip').value = get('postal_code') || '';
+			}
+		  }
+		  
+		  // Validar novamente após preencher
 		  validateAddressForm();
+		} else {
+		  console.warn('⚠️ Geocode reverso falhou:', status);
+		  console.log('✅ Mas as coordenadas já foram salvas, então o formulário está válido!');
+		  // Não faz nada, pois já validamos no início
 		}
 	  });
 	}
+
 
 
 	function fillAddressFields(place) {
@@ -1229,10 +1385,15 @@
             const city = document.getElementById('manual-address-city').value.trim();
             const zip = document.getElementById('manual-address-zip').value.trim();
 
-            if (!address || !nickname) {
-                showToast("Preencha o endereço (buscando no mapa) e o apelido.", true);
-                return;
-            }
+			if (!window.currentLatLng || !window.currentLatLng.lat || !window.currentLatLng.lng) {
+				showToast("Selecione a localização no mapa antes de salvar.", true);
+				return;
+			}
+
+			if (!nickname) {
+				showToast("Digite um apelido para o endereço.", true);
+				return;
+			}
 
             const addressText = `${address}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
 
@@ -1569,7 +1730,23 @@
             verifyButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div>';
             
             try {
-                const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
+                const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
+
+                // ---> INÍCIO DA MODIFICAÇÃO
+                // Nova validação: Verifica se o cliente já usou este cupom
+                // Aplica-se apenas a clientes logados (currentClient existe)
+                if (currentClient && currentClient.id) {
+                    const clientDocRef = doc(db, "clientes", currentClient.id);
+                    const clientDoc = await getDoc(clientDocRef);
+                    if (clientDoc.exists()) {
+                        const clientData = clientDoc.data();
+                        if (clientData.cuponsUsados && clientData.cuponsUsados.includes(codigo)) {
+                            throw new Error('Você já utilizou este cupom anteriormente.');
+                        }
+                    }
+                }
+                // ---> FIM DA MODIFICAÇÃO
+                
                 const q = query(collection(db, "cupons"), where("codigo", "==", codigo));
                 const cupomSnapshot = await getDocs(q);
                 
@@ -1579,6 +1756,14 @@
                 const cupom = { id: cupomDoc.id, ...cupomDoc.data() };
 
                 if (cupom.status !== 'Ativo') throw new Error('Cupom inativo.');
+
+                // Validação de limite de uso geral do cupom
+                const usosAtuais = cupom.usos || 0;
+                const limiteUso = cupom.limiteUso || 0;
+                if (limiteUso > 0 && usosAtuais >= limiteUso) {
+                    throw new Error('Este cupom atingiu o limite de usos.');
+                }
+
                 if (subtotal < (cupom.valorMinimo || 0)) throw new Error(`Pedido mínimo de R$ ${cupom.valorMinimo.toFixed(2)}.`);
                 
                 appliedCupom = cupom;
@@ -1734,7 +1919,7 @@
             const desconto = cupomData?.valorDesconto || 0;
             const total = subtotal - desconto + valorFrete;
             
-            const { db, collection, addDoc, serverTimestamp } = await import('./firebaseClientConfig.js');
+            const { db, collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, getDoc } = await import('./firebaseClientConfig.js');
             
             const orderData = {
                 clienteId: clientId,
@@ -1755,6 +1940,33 @@
 
             try {
                 const docRef = await addDoc(collection(db, "pedidos"), orderData);
+
+                // ---> INÍCIO DA MODIFICAÇÃO: Lógica para registrar uso do cupom
+                if (clientId && appliedCupom) {
+                    try {
+                        // 1. Adiciona o cupom à lista de cupons usados pelo cliente
+                        const clientDocRef = doc(db, "clientes", clientId);
+                        await updateDoc(clientDocRef, {
+                            cuponsUsados: arrayUnion(appliedCupom.codigo)
+                        });
+                        console.log(`✅ Cupom ${appliedCupom.codigo} registrado para o cliente ${clientId}`);
+
+                        // 2. Incrementa o contador de uso geral do cupom
+                        const cupomDocRef = doc(db, "cupons", appliedCupom.id);
+                        const cupomDoc = await getDoc(cupomDocRef);
+                        if (cupomDoc.exists()) {
+                            const usosAtuais = cupomDoc.data().usos || 0;
+                            await updateDoc(cupomDocRef, {
+                                usos: usosAtuais + 1
+                            });
+                            console.log(`✅ Contagem de uso do cupom ${appliedCupom.codigo} atualizada.`);
+                        }
+                    } catch (updateError) {
+                        console.error("❌ Erro ao registrar o uso do cupom:", updateError);
+                        // A falha aqui não deve impedir a finalização do pedido. Apenas logamos o erro.
+                    }
+                }
+                // ---> FIM DA MODIFICAÇÃO
                 
                 if (!isPlatform) {
                     let message = `Olá! *Novo Pedido* 🎂 (Nº ${docRef.id.substring(0, 5)})\n\n*Itens:*\n${cart.map(item => `• ${item.quantity}x ${item.nome}`).join('\n')}\n\n*Resumo:*\nSubtotal: R$ ${subtotal.toFixed(2)}\n`;
@@ -1944,4 +2156,3 @@
 
 </body>
 </html>
-

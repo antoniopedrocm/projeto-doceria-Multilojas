@@ -19,7 +19,8 @@ import {
   query, 
   where,
   serverTimestamp,
-  setDoc
+  setDoc,
+  arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // Importa a função para obter o serviço de Autenticação.
@@ -71,6 +72,6 @@ export {
   query, 
   where, 
   serverTimestamp,
-  setDoc
+  setDoc,
+  arrayUnion
 };
-
