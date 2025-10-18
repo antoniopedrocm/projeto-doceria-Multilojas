@@ -1232,10 +1232,10 @@ function App() {
             <p className="text-gray-600 mt-1">Seja bem-vindo à Ana Guimarães Doceria!</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-              <a href="/cardapio.html" target="_blank" rel="noopener noreferrer" className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full">
+              <a href="/cardapio" target="_blank" rel="noopener noreferrer" className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full">
                   <BookOpen className="w-4 h-4" /> Cardápio Delivery
               </a>
-              <a href="/cardapio-festa.html" target="_blank" rel="noopener noreferrer" className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full">
+              <a href="/cardapio-festa" target="_blank" rel="noopener noreferrer" className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full">
                   <Gift className="w-4 h-4" /> Cardápio de Festas
               </a>
           </div>
@@ -2228,18 +2228,66 @@ const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, dele
         }));
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        const orderData = { ...formData, clienteNome: data.clientes.find(c => c.id === formData.clienteId)?.nome };
-        if (editingOrder) {
-            const { id, ...updateData } = orderData;
-            await updateItem('pedidos', editingOrder.id, updateData);
-        } else {
-            await addItem('pedidos', orderData);
+const handleSubmit = async (e) => {
+    e.preventDefault();
+    const orderData = { ...formData, clienteNome: data.clientes.find(c => c.id === formData.clienteId)?.nome };
+    
+    if (editingOrder) {
+        const { id, ...updateData } = orderData;
+        await updateItem('pedidos', editingOrder.id, updateData);
+        
+        // 🔄 CORREÇÃO: Baixa de estoque quando o pedido é finalizado
+        if (orderData.status === 'Finalizado' && editingOrder.status !== 'Finalizado') {
+            await updateStockForOrder(orderData.itens, 'decrease');
         }
-        setShowModal(false);
-        resetForm();
-    };
+        // 🔄 CORREÇÃO: Restaura estoque se o pedido sair do status "Finalizado"
+        else if (orderData.status !== 'Finalizado' && editingOrder.status === 'Finalizado') {
+            await updateStockForOrder(editingOrder.itens, 'increase');
+        }
+    } else {
+        await addItem('pedidos', orderData);
+        
+        // 🔄 CORREÇÃO: Baixa de estoque quando um novo pedido é criado como finalizado
+        if (orderData.status === 'Finalizado') {
+            await updateStockForOrder(orderData.itens, 'decrease');
+        }
+    }
+    
+    setShowModal(false);
+    resetForm();
+};
+
+	// 🔄 NOVA FUNÇÃO: Atualizar estoque dos produtos
+	const updateStockForOrder = async (itens, operation) => {
+		if (!itens || itens.length === 0) return;
+		
+		try {
+			for (const item of itens) {
+				const productRef = doc(db, 'produtos', item.id);
+				const productSnap = await getDoc(productRef);
+				
+				if (productSnap.exists()) {
+					const productData = productSnap.data();
+					let newStock = productData.estoque || 0;
+					
+					if (operation === 'decrease') {
+						newStock = Math.max(0, newStock - (item.quantity || 1));
+					} else if (operation === 'increase') {
+						newStock = newStock + (item.quantity || 1);
+					}
+					
+					await updateDoc(productRef, {
+						estoque: newStock
+					});
+					
+					console.log(`Estoque atualizado: ${item.nome} - ${operation === 'decrease' ? 'Baixa' : 'Restauração'} de ${item.quantity || 1} unidades. Novo estoque: ${newStock}`);
+				}
+			}
+		} catch (error) {
+			console.error('Erro ao atualizar estoque:', error);
+			alert('Erro ao atualizar estoque dos produtos. Verifique o console para mais detalhes.');
+		}
+	};
     
     const handleEdit = (order) => {
         setEditingOrder(order);

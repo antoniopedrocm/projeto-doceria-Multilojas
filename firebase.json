@@ -22,6 +22,14 @@
         "function": "api"
       },
       {
+        "source": "/cardapio",
+        "destination": "/cardapio.html"
+      },
+      {
+        "source": "/cardapio-festa",
+        "destination": "/cardapio-festa.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -1,13 +1,8 @@
 // --- SEÇÃO 1: IMPORTAÇÕES DO FIREBASE SDK ---
-// Este bloco importa as funções e módulos necessários diretamente dos servidores do Firebase.
-// Usar a URL completa é a forma padrão de usar o Firebase em arquivos HTML/JS puros.
-
-// 'initializeApp' é a função principal para conectar-se ao seu projeto Firebase.
+// Importa os módulos principais do Firebase.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 
-// Importa todas as funções relacionadas ao Firestore, o banco de dados NoSQL do Firebase.
-// Isso inclui funções para buscar coleções ('collection'), obter documentos ('getDocs', 'getDoc'),
-// adicionar ('addDoc'), atualizar ('updateDoc'), e consultar dados ('query', 'where').
+// Firestore (banco de dados NoSQL)
 import { 
   getFirestore, 
   collection, 
@@ -23,15 +18,18 @@ import {
   arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// Importa a função para obter o serviço de Autenticação.
-// A função 'signInAnonymously' foi removida intencionalmente para resolver o problema.
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// Autenticação Firebase
+import { 
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 
 // --- SEÇÃO 2: CONFIGURAÇÃO DO PROJETO FIREBASE ---
-// Este objeto 'firebaseConfig' contém as chaves e identificadores únicos do SEU projeto Firebase.
-// É como o "endereço" que diz ao seu site a qual projeto Firebase ele deve se conectar.
-// Essas chaves são seguras para serem expostas no lado do cliente, pois a segurança é controlada pelas Regras de Segurança (firestore.rules).
+// 🔐 Substitua essas chaves pelas do seu projeto, se necessário.
 const firebaseConfig = {
   apiKey: "AIzaSyCNU5ZEl60OcW5eZyL_ZoD0tFKpweQvhwU",
   authDomain: "crmdoceria-9959e.firebaseapp.com",
@@ -43,24 +41,40 @@ const firebaseConfig = {
 };
 
 
-// --- SEÇÃO 3: INICIALIZAÇÃO DO FIREBASE E SEUS SERVIÇOS ---
-
-// A função 'initializeApp' é chamada com o objeto de configuração.
-// Isso estabelece a conexão inicial com o Firebase e retorna uma instância da aplicação.
+// --- SEÇÃO 3: INICIALIZAÇÃO DO FIREBASE E SERVIÇOS ---
 const app = initializeApp(firebaseConfig);
 
-// A partir da instância da aplicação ('app'), inicializamos os serviços que vamos usar.
-// 'db' será o nosso objeto para interagir com o banco de dados Firestore.
+// Firestore
 const db = getFirestore(app);
-// 'auth' será o nosso objeto para lidar com autenticação, se necessário.
-const auth = getAuth(app); // A instância é mantida, mas não é usada para login nesta página.
+
+// Auth
+const auth = getAuth(app);
 
 
-// --- SEÇÃO 4: EXPORTAÇÃO DOS MÓDULOS ---
-// A palavra-chave 'export' torna as variáveis e funções disponíveis para outros arquivos
-// que importarem este script (como é o caso do seu 'cardapio.html').
-// Isso permite que a página do cardápio acesse o banco de dados ('db') e as funções do Firestore.
+// --- SEÇÃO 4: AUTENTICAÇÃO ANÔNIMA PERSISTENTE ---
+// ✅ Garante que a sessão anônima seja criada apenas uma vez por navegador/dispositivo
+setPersistence(auth, browserLocalPersistence)
+  .then(() => {
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        // Se não existe usuário autenticado, faz login anônimo uma única vez
+        signInAnonymously(auth).catch((error) => {
+          console.error("Erro ao autenticar anonimamente:", error);
+        });
+      } else {
+        console.log("Sessão anônima ativa:", user.uid);
+      }
+    });
+  })
+  .catch((error) => {
+    console.error("Erro ao definir persistência de autenticação:", error);
+  });
+
+
+// --- SEÇÃO 5: EXPORTAÇÕES ---
+// Disponibiliza para uso no restante da aplicação (ex: cardapio.html)
 export { 
+  app, // Adicionado para ser usado no script principal
   db, 
   auth, 
   collection, 
