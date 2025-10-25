@@ -1,7 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css'; // Supondo que você tenha um arquivo de estilos base
+import './index.css';
 import App from './App';
+
+// ✅ Importa o service worker (arquivo que você criará em seguida)
+import * as serviceWorkerRegistration from './serviceWorker';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -9,3 +12,6 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// ✅ Registra o service worker — necessário para ativar o modo PWA
+serviceWorkerRegistration.register();

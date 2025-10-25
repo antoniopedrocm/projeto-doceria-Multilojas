@@ -921,6 +921,12 @@ function App() {
 
   const [currentPage, setCurrentPage] = usePersistentState('currentPage', 'pagina-inicial');
   const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [passwordResetEmail, setPasswordResetEmail] = useState("");
+  const [passwordResetMessage, setPasswordResetMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
