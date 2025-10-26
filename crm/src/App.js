@@ -24,7 +24,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
 import { audioManager } from './utils/AudioManager.js';
-const ALARM_SOUND_URL = "https://soundbible.com/grab.php?id=1598&type=mp3";
+// ✅ CORREÇÃO: URL alterada para o Firebase Storage para evitar erro de CORS
+const ALARM_SOUND_URL = "https://firebasestorage.googleapis.com/v0/b/crmdoceria-9959e.firebasestorage.app/o/audio%2Fmixkit-vintage-warning-alarm-990.wav?alt=media&token=6277f61e-51ab-413e-88d8-afef7835e465"; // <-- URL de exemplo, troque pela sua
 
 // Hook customizado para estado persistente na sessão
 const usePersistentState = (key, defaultValue) => {
@@ -928,7 +929,7 @@ function App() {
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
   const [passwordResetMessage, setPasswordResetMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
-  
+  const [stopAlarmFn, setStopAlarmFn] = useState(null);
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
   const [hasNewPendingOrders, setHasNewPendingOrders] = useState(false);
   const [pendingOrders, setPendingOrders] = useState([]);
@@ -961,47 +962,68 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   // --- SUBSTITUÍDO: Nova função stopAlarm ---
-  const stopAlarm = useCallback(() => {
-    console.log("[App.js] Parando alarme...");
-    if (stopAlarmRef.current) {
-      stopAlarmRef.current(); // Chama a função de parada retornada pelo playSound
-      stopAlarmRef.current = null; // Limpa a referência
-    }
-    setIsAlarmPlaying(false); // Atualiza o estado da UI
-  }, []);
+	const stopAlarm = useCallback(() => {
+		console.log("[App.js] Parando alarme...");
+		if (stopAlarmRef.current) {
+		  stopAlarmRef.current(); // Chama a função de parada
+		  stopAlarmRef.current = null; // Limpa a referência
+		}
+		if (stopAlarmFn) {
+		  stopAlarmFn(); // Também chama a função do estado se existir
+		  setStopAlarmFn(null); // Limpa o estado
+		}
+		setIsAlarmPlaying(false); // Atualiza o estado da UI
+	}, [stopAlarmFn]);
 
   // --- REMOVIDO: Antiga função unlockAudio ---
 
   // --- SUBSTITUÍDO: Nova função playAlarm ---
-  const playAlarm = useCallback(async () => {
-    // Só toca se não estiver em modo soneca
-    if (isSnoozedRef.current) {
-        console.log("[App.js] Alarme em soneca, não tocando.");
-        return;
-    }
-    
-    // Para qualquer alarme que já esteja tocando
-    if (stopAlarmRef.current) {
-      stopAlarmRef.current();
-    }
+	const playAlarm = useCallback(async () => {
+		// Só toca se não estiver em modo soneca
+		if (isSnoozedRef.current) {
+			console.log("[App.js] Alarme em soneca, não tocando.");
+			return;
+		}
+		
+		// Se já está tocando, não faz nada
+		if (isAlarmPlaying) {
+			console.log("[App.js] Alarme já está tocando, ignorando nova chamada.");
+			return;
+		}
 
-    console.log("[App.js] Tentando tocar alarme...");
-    setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
+		console.log("[App.js] Tentando tocar alarme...");
+		setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
 
-    // Chama o AudioManager para tocar o som
-    const stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
+		// Chama o AudioManager para tocar o som
+		// Verifica se o áudio está desbloqueado antes de tentar tocar
+		if (!audioManager.unlocked) {
+		  console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
+		  try {
+			await audioManager.userUnlock();
+		  } catch (e) {
+			console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
+		  }
+		}
 
-    // Se playSound retornou uma função válida (não foi bloqueado)
-    if (stopFn && typeof stopFn === 'function') {
-        stopAlarmRef.current = stopFn; // Armazena a função de parada
-        console.log("[App.js] Alarme iniciado.");
-    } else {
-        // Se foi bloqueado ou falhou, reseta o estado da UI
-        console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
-        setIsAlarmPlaying(false); 
-        // O botão de ativar som aparecerá devido ao estado 'unlocked' do manager
-    }
-  }, []); // Removidas dependências desnecessárias
+		// Só tenta tocar o som se o contexto estiver ativo
+		if (audioManager.unlocked) {
+		  const stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
+		  
+		  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
+		  if (stopFn && typeof stopFn === 'function') {
+			setStopAlarmFn(() => stopFn); // Armazena no estado
+			stopAlarmRef.current = stopFn; // Armazena na ref
+			console.log("[App.js] Alarme iniciado.");
+		  } else {
+			// Se foi bloqueado ou falhou, reseta o estado da UI
+			console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
+			setIsAlarmPlaying(false); 
+		  }
+		} else {
+			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+			setIsAlarmPlaying(false);
+		}
+	}, [isAlarmPlaying]); // Adicione isAlarmPlaying como dependência
 
   // --- SUBSTITUÍDO: Novo useEffect de inicialização do AudioManager ---
   useEffect(() => {
@@ -1073,6 +1095,7 @@ function App() {
   const handleStopAndSnoozeAlarm = useCallback(() => {
     console.log('[App.js] Ativando soneca...');
     stopAlarm(); // Para o alarme atual
+	setStopAlarmFn(null); // Limpa o estado da função de parada
     setIsAlarmSnoozed(true); // Ativa o estado de soneca
     
     const endTime = new Date().getTime() + (5 * 60 * 1000); // 5 minutos a partir de agora
@@ -1132,28 +1155,55 @@ function App() {
 			(snapshot) => {
 			  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 			  
-              setData(prevData => ({ ...prevData, [colName]: items }));
+			  setData(prevData => ({ ...prevData, [colName]: items }));
 
-              if (colName === 'pedidos') {
-                const activeOrders = items.filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
-                setPendingOrders(activeOrders); 
-              
-                if (initialDataLoaded.current) {
-                  const newPendingOrdersDetected = snapshot.docChanges().some(change => 
-                    change.type === 'added' && change.doc.data().status === 'Pendente'
-                  );
-                  
-                  if (newPendingOrdersDetected) {
-                    console.log('[App.js] Novo pedido pendente detectado pelo listener!');
-                    setHasNewPendingOrders(true); 
-                    if (!isSnoozedRef.current) { 
-                      playAlarmRef.current(); // --- CORREÇÃO: Chama via ref ---
-                    } else {
-                      console.log('[App.js] Alarme em modo soneca, não tocando agora.');
-                    }
-                  }
-                }
-              }
+			  if (colName === 'pedidos') {
+				const activeOrders = items.filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
+				setPendingOrders(activeOrders); 
+			  
+				if (initialDataLoaded.current) {
+				  const newPendingOrdersDetected = snapshot.docChanges().some(change => 
+					change.type === 'added' && change.doc.data().status === 'Pendente'
+				  );
+				  
+				  // CORREÇÃO: Só toca alarme se não estiver já tocando
+				  if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
+					console.log('[App.js] Novo pedido pendente detectado pelo listener!');
+					setHasNewPendingOrders(true); 
+					
+					console.log('[App.js] Tentando tocar alarme...');
+					(async () => {
+					  try {
+						// Verifica se o áudio está desbloqueado antes de tentar tocar 
+						if (!audioManager.unlocked) {
+						  console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
+						  try {
+							await audioManager.userUnlock();
+						  } catch (e) {
+							console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
+						  }
+						}
+
+						// Só tenta tocar o som se o contexto estiver ativo
+						if (audioManager.unlocked) {
+						  playAlarmRef.current(); // chama normalmente
+						} else {
+						  console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+						}
+
+					  } catch (error) {
+						console.error("[App.js] Erro ao tentar tocar alarme:", error);
+					  }
+					})();
+				  }
+				  else if (newPendingOrdersDetected && isSnoozedRef.current) {
+					console.log('[App.js] Alarme em modo soneca, não tocando agora.');
+				  }
+				  else if (newPendingOrdersDetected && isAlarmPlaying) {
+					console.log('[App.js] Alarme já está tocando, não iniciando novo.');
+				  }
+				}
+			  }
 			},
 			(error) => {
 			  console.error(`[App.js] Erro ao sincronizar ${colName}:`, error);
@@ -1162,14 +1212,14 @@ function App() {
 		  unsubscribes.push(unsub);
 	  });
 
-      initialDataLoaded.current = true;
-      setLoading(false); 
+	  initialDataLoaded.current = true;
+	  setLoading(false); 
 
 	  return () => {
 		unsubscribes.forEach(unsubscribe => unsubscribe());
 		initialDataLoaded.current = false; 
 	  };
-	}, [user]); // Dependência apenas no 'user'
+	}, [user, isAlarmPlaying]); // ADICIONE isAlarmPlaying aqui
 
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
@@ -1952,6 +2002,19 @@ const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, dele
             fetchFreteConfig();
         }
     }, [activeTab]);
+	
+	//Limpeza quando o componente desmontar
+	useEffect(() => {
+	  return () => {
+		// Para o alarme quando o componente desmontar
+		if (stopAlarmRef.current) {
+		  stopAlarmRef.current();
+		}
+		if (stopAlarmFn) {
+		  stopAlarmFn();
+		}
+	  };
+	}, [stopAlarmFn]);
     
     // Handlers para Usuários
     const handleNewUser = () => { 
@@ -2600,7 +2663,9 @@ const handleSubmit = async (e) => {
                         currentStock = 0;
                     }
 
-                    const quantityChange = Number(item.quantity || 1);
+                    // ✅✅✅ CORREÇÃO APLICADA AQUI ✅✅✅
+                    // 'const' foi mudado para 'let' para permitir reatribuição no 'if' abaixo
+                    let quantityChange = Number(item.quantity || 1);
                      if (isNaN(quantityChange)) {
                         console.warn(`Quantidade inválida para ${item.nome} no pedido. Usando 1.`);
                         quantityChange = 1;
@@ -2980,16 +3045,18 @@ const handleSubmit = async (e) => {
     };
 
     const pedidosDoMes = (data.pedidos || []).filter(p => {
-        // Usa dataEntrega para pedidos de Festa, senão createdAt
-        const relevantDateStr = p.categoria === 'Festa' && p.dataEntrega ? p.dataEntrega : p.createdAt;
-        const pedidoDate = getJSDate(relevantDateStr);
-         // Se for Festa, ajusta para UTC para evitar problemas de fuso no calendário
-        if (p.categoria === 'Festa' && p.dataEntrega) {
-            const [year, month, day] = p.dataEntrega.split('-');
-            pedidoDate = new Date(Date.UTC(year, month - 1, day));
-        }
-        return pedidoDate && pedidoDate.getFullYear() === currentDate.getFullYear() && pedidoDate.getMonth() === currentDate.getMonth();
-    });
+		const relevantDateStr = p.categoria === 'Festa' && p.dataEntrega ? p.dataEntrega : p.createdAt;
+		let pedidoDate = getJSDate(relevantDateStr);
+		if (p.categoria === 'Festa' && p.dataEntrega) {
+			const [year, month, day] = p.dataEntrega.split('-');
+			const y = parseInt(year, 10);
+			const m = parseInt(month, 10) - 1;
+			const d = parseInt(day, 10);
+			pedidoDate = new Date(Date.UTC(y, m, d));
+		  }
+	  return pedidoDate && pedidoDate.getFullYear() === currentDate.getFullYear() &&
+			 pedidoDate.getMonth() === currentDate.getMonth();
+	});
 
     const aniversariantesDoMes = useMemo(() => {
         return (data.clientes || []).filter(cliente => {

@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 
-// ✅ Importa o service worker (arquivo que você criará em seguida)
+// Importa o service worker
 import * as serviceWorkerRegistration from './serviceWorker';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -13,5 +13,7 @@ root.render(
   </React.StrictMode>
 );
 
-// ✅ Registra o service worker — necessário para ativar o modo PWA
-serviceWorkerRegistration.register();
+// ✅ CORREÇÃO:
+// Altera o registro para 'unregister()' para corrigir o erro de
+// MIME type no console do navegador.
+serviceWorkerRegistration.unregister();
