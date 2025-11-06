@@ -17,22 +17,13 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
-<<<<<<< HEAD
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
-=======
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
 import { audioManager } from './utils/AudioManager.js';
-<<<<<<< HEAD
-// ✅ CORREÇÃO: URL alterada para o Firebase Storage para evitar erro de CORS
-const ALARM_SOUND_URL = "https://firebasestorage.googleapis.com/v0/b/crmdoceria-9959e.firebasestorage.app/o/audio%2Fmixkit-vintage-warning-alarm-990.wav?alt=media&token=6277f61e-51ab-413e-88d8-afef7835e465"; // <-- URL de exemplo, troque pela sua
-
-=======
 import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
 
 // --- importação para Android
@@ -97,7 +88,6 @@ const extractStoreIdsFromProfile = (profile) => {
 };
 
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 // Hook customizado para estado persistente na sessão
 const usePersistentState = (key, defaultValue) => {
   // Inicializa o estado apenas uma vez com o valor do sessionStorage
@@ -126,11 +116,7 @@ const usePersistentState = (key, defaultValue) => {
     } catch (error) {
       console.error('Erro ao salvar no sessionStorage', error);
     }
-<<<<<<< HEAD
-  }, [state]); // ⚠️ REMOVIDO 'key' das dependências - essa é a correção principal
-=======
   }, [key, state]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
   return [state, setState];
 };
@@ -240,11 +226,6 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     const [searchTerm, setSearchTerm] = usePersistentState('fornecedores_searchTerm', '');
     
     const [showFornecedorModal, setShowFornecedorModal] = useState(false);
-<<<<<<< HEAD
-	const [showNewOrderAlert, setShowNewOrderAlert] = useState(false);
-=======
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-
     const [editingFornecedor, setEditingFornecedor] = useState(null);
     const [fornecedorFormData, setFornecedorFormData] = useState({});
     
@@ -255,13 +236,6 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     const [showEstoqueModal, setShowEstoqueModal] = useState(false);
     const [editingEstoque, setEditingEstoque] = useState(null);
     const [estoqueFormData, setEstoqueFormData] = useState({});
-<<<<<<< HEAD
-	const [authReady, setAuthReady] = useState(false);
-=======
-
-
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-	
     
     const resetFornecedorForm = () => setFornecedorFormData({ nome: '', cnpj_cpf: '', contato_telefone: '', contato_email: '', contato_whatsapp: '', endereco_completo: '', endereco_cep: '', categoria: 'Insumos', dados_bancarios: '', observacoes: '', status: 'Ativo' });
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
@@ -419,11 +393,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
     const [activeTab, setActiveTab] = usePersistentState('financeiro_activeTab', 'dashboard');
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: null, item: null });
     const [formData, setFormData] = useState({});
-<<<<<<< HEAD
-    const [charts, setCharts] = useState({});
-=======
     const chartsRef = useRef({});
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     const [startDate, setStartDate] = usePersistentState('financeiro_startDate', '');
     const [endDate, setEndDate] = usePersistentState('financeiro_endDate', '');
     const [despesaFilter, setDespesaFilter] = usePersistentState('financeiro_despesaFilter', 'Todas');
@@ -437,11 +407,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 		}
 
 		// Destrói gráficos existentes
-<<<<<<< HEAD
-		const existingCharts = Object.values(charts);
-=======
         const existingCharts = Object.values(chartsRef.current);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 		existingCharts.forEach(chart => {
 			if (chart && typeof chart.destroy === 'function') {
 				chart.destroy();
@@ -510,11 +476,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 			} 
 		});
 
-<<<<<<< HEAD
-		setCharts({ monthlyChart, pieChart });
-=======
         chartsRef.current = { monthlyChart, pieChart };
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
 		return () => {
 			if (monthlyChart) monthlyChart.destroy();
@@ -1039,29 +1001,6 @@ function App() {
 
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, onConfirm: () => {} });
   // ... (outros estados: showLogin, email, password, etc.) ...
-<<<<<<< HEAD
-	const [lightboxImage, setLightboxImage] = useState(null);
-	const [authReady, setAuthReady] = useState(false);
-  
-  const [showPasswordReset, setShowPasswordReset] = useState(false);
-  // ... (outros estados: passwordResetEmail, passwordResetMessage) ...
-
-  // --- REVISADO: Refs de Áudio ---
-  const stopAlarmRef = useRef(null); // Guarda a função de parar o som
-  const snoozeTimerRef = useRef(null);
-  const isSnoozedRef = useRef(false);
-  const initialDataLoaded = useRef(false);
-  // --- REMOVIDO: audioRef e alarmIntervalRef ---
-
-  
-  const [data, setData] = useState({ clientes: [], pedidos: [], produtos: [], contas_a_pagar: [], contas_a_receber: [], fornecedores: [], pedidosCompra: [], estoque: [], logs: [], cupons: [], users: [] });
-  const [loading, setLoading] = useState(true);
-
-  // --- SUBSTITUÍDO: Nova função stopAlarm ---
-	const stopAlarm = useCallback(() => {
-		console.log("[App.js] Parando alarme...");
-		if (stopAlarmRef.current) {
-=======
     const [lightboxImage, setLightboxImage] = useState(null);
   
   const [showPasswordReset, setShowPasswordReset] = useState(false);
@@ -1168,7 +1107,6 @@ function App() {
         const stopAlarm = useCallback(() => {
                 console.log("[App.js] Parando alarme...");
                 if (stopAlarmRef.current) {
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 		  stopAlarmRef.current(); // Chama a função de parada
 		  stopAlarmRef.current = null; // Limpa a referência
 		}
@@ -1182,11 +1120,7 @@ function App() {
   // --- REMOVIDO: Antiga função unlockAudio ---
 
   // --- SUBSTITUÍDO: Nova função playAlarm ---
-<<<<<<< HEAD
-	const playAlarm = useCallback(async () => {
-=======
   const playAlarm = useCallback(async () => {
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 		// Só toca se não estiver em modo soneca
 		if (isSnoozedRef.current) {
 			console.log("[App.js] Alarme em soneca, não tocando.");
@@ -1232,8 +1166,6 @@ function App() {
 			setIsAlarmPlaying(false);
 		}
 	}, [isAlarmPlaying]); // Adicione isAlarmPlaying como dependência
-<<<<<<< HEAD
-=======
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
 	  useEffect(() => {
@@ -1255,8 +1187,6 @@ function App() {
 
 		loadAudio();
 	  }, []);
-
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
   // --- SUBSTITUÍDO: Novo useEffect de inicialização do AudioManager ---
   useEffect(() => {
@@ -1282,20 +1212,10 @@ function App() {
         tryAutoUnlock();
     }
   
-<<<<<<< HEAD
-    // Limpeza do botão se o componente desmontar ou usuário mudar
-    return () => {
-       const existing = document.getElementById('btn-ativar-som');
-       if (existing) existing.remove(); // Remove o botão se existir (caso raro)
-    }
-=======
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
   }, [user]); // Depende do 'user' para saber se deve mostrar o botão
 
   // --- NOVO: Estado para controlar a exibição do botão de ativar som ---
   const [showActivateSoundButton, setShowActivateSoundButton] = useState(false);
-<<<<<<< HEAD
-=======
   
     useEffect(() => {
     if (!user) {
@@ -1379,7 +1299,6 @@ function App() {
 
     requestCapabilities();
   }, [user]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
   // --- NOVO: Effect para verificar e mostrar o botão de ativar som ---
   useEffect(() => {
@@ -1394,11 +1313,8 @@ function App() {
       }, 500); // Meio segundo de espera
 
       return () => clearTimeout(timer);
-<<<<<<< HEAD
-  }, [user, audioManager.unlocked]); // Reavalia quando user muda ou o estado unlocked do manager muda
-=======
+
   }, [user]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
 
   // EFFECT para sincronizar ref com estado isAlarmSnoozed
@@ -1411,8 +1327,6 @@ function App() {
   useEffect(() => {
       playAlarmRef.current = playAlarm;
   }, [playAlarm]);
-<<<<<<< HEAD
-=======
   
     useEffect(() => {
     stopAlarmFnRef.current = stopAlarmFn;
@@ -1495,7 +1409,6 @@ function App() {
       }
     };
   }, [userId, handleIncomingPushNotification]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
   const dataRef = useRef(data);
   useEffect(() => {
@@ -1543,96 +1456,6 @@ function App() {
   }, [stopAlarm]); // Removidas dependências instáveis (data, playAlarm, unlockAudio)
 
   // EFFECT PARA SINCRONIZAR DADOS DO FIREBASE
-<<<<<<< HEAD
-	useEffect(() => {
-	  if (!user) {
-		setData({ clientes: [], pedidos: [], produtos: [], contas_a_pagar: [], contas_a_receber: [], fornecedores: [], pedidosCompra: [], estoque: [], logs: [], cupons: [], users: [] });
-		setLoading(false);
-		initialDataLoaded.current = false;
-		return;
-	  }
-
-	  setLoading(true);
-	  
-	  const collectionsToSync = [
-		'clientes', 'produtos', 'contas_a_pagar', 'contas_a_receber',
-		'fornecedores', 'pedidosCompra', 'estoque', 'logs', 'cupons', 'users', 'pedidos'
-	  ];
-
-	  const unsubscribes = [];
-	  
-	  collectionsToSync.forEach(colName => {
-		  const q = query(collection(db, colName));
-		  const unsub = onSnapshot(q,
-			(snapshot) => {
-			  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-			  
-			  setData(prevData => ({ ...prevData, [colName]: items }));
-
-			  if (colName === 'pedidos') {
-				const activeOrders = items.filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
-				setPendingOrders(activeOrders); 
-			  
-				if (initialDataLoaded.current) {
-				  const newPendingOrdersDetected = snapshot.docChanges().some(change => 
-					change.type === 'added' && change.doc.data().status === 'Pendente'
-				  );
-				  
-				  // CORREÇÃO: Só toca alarme se não estiver já tocando
-				  if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
-					console.log('[App.js] Novo pedido pendente detectado pelo listener!');
-					setHasNewPendingOrders(true); 
-					
-					console.log('[App.js] Tentando tocar alarme...');
-					(async () => {
-					  try {
-						// Verifica se o áudio está desbloqueado antes de tentar tocar 
-						if (!audioManager.unlocked) {
-						  console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
-						  try {
-							await audioManager.userUnlock();
-						  } catch (e) {
-							console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
-						  }
-						}
-
-						// Só tenta tocar o som se o contexto estiver ativo
-						if (audioManager.unlocked) {
-						  playAlarmRef.current(); // chama normalmente
-						} else {
-						  console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
-						}
-
-					  } catch (error) {
-						console.error("[App.js] Erro ao tentar tocar alarme:", error);
-					  }
-					})();
-				  }
-				  else if (newPendingOrdersDetected && isSnoozedRef.current) {
-					console.log('[App.js] Alarme em modo soneca, não tocando agora.');
-				  }
-				  else if (newPendingOrdersDetected && isAlarmPlaying) {
-					console.log('[App.js] Alarme já está tocando, não iniciando novo.');
-				  }
-				}
-			  }
-			},
-			(error) => {
-			  console.error(`[App.js] Erro ao sincronizar ${colName}:`, error);
-			}
-		  );
-		  unsubscribes.push(unsub);
-	  });
-
-	  initialDataLoaded.current = true;
-	  setLoading(false); 
-
-	  return () => {
-		unsubscribes.forEach(unsubscribe => unsubscribe());
-		initialDataLoaded.current = false; 
-	  };
-	}, [user, isAlarmPlaying]); // ADICIONE isAlarmPlaying aqui
-=======
         useEffect(() => {
           const storeIds = resolveStoreIdsForView();
 
@@ -1748,20 +1571,10 @@ function App() {
                 initialDataLoaded.current = false;
           };
         }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
         const hasAnyPending = data.pedidos && data.pedidos.some(p => p.status === 'Pendente');
-<<<<<<< HEAD
-        
-        if (!hasAnyPending && !isAlarmSnoozed) {
-          console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
-          setHasNewPendingOrders(false); 
-          stopAlarm(); 
-        }
-    }, [data.pedidos, isAlarmSnoozed, stopAlarm]); 
-=======
 
         if (!hasAnyPending && !isAlarmSnoozed) {
           console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
@@ -1780,25 +1593,11 @@ function App() {
           playAlarmRef.current();
         }
     }, [pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
     // --- REMOVIDO: Antigo useEffect de desbloqueio ---
     // useEffect(() => { if (audioUnlocked && ...) ... });
 
 
-<<<<<<< HEAD
-  const addItem = async (section, item) => {
-    try {
-        const docRef = await addDoc(collection(db, section), {
-            ...item,
-            createdAt: new Date()
-        });
-        if (user && section !== 'logs') {
-            await addDoc(collection(db, 'logs'), {
-                action: `Novo item adicionado em ${section}`,
-                details: `ID: ${docRef.id}`,
-                userEmail: user?.auth?.email || 'N/A', // Fallback para email
-=======
   const addItem = async (section, item, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
@@ -1813,20 +1612,11 @@ function App() {
                 action: `Novo item adicionado em ${section}`,
                 details: `ID: ${docRef.id}`,
                 userEmail: user?.auth?.email || 'N/A',
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                 timestamp: new Date()
             });
         }
     } catch (e) {
         console.error("Erro ao adicionar documento: ", e);
-<<<<<<< HEAD
-    }
-  };
-
-  const updateItem = async (section, id, updatedItem) => {
-    try {
-        const itemDoc = doc(db, section, id);
-=======
 		if (e && e.message) {
             alert(e.message);
         }
@@ -1837,34 +1627,23 @@ function App() {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
         const itemDoc = doc(db, 'lojas', storeId, section, id);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         if (user && section !== 'logs') {
              const docSnap = await getDoc(itemDoc);
              if (docSnap.exists()) {
                 const oldData = docSnap.data();
                 const changes = {};
                 for (const key in updatedItem) {
-<<<<<<< HEAD
-                    if (Object.prototype.hasOwnProperty.call(updatedItem, key) && 
-=======
+
                     if (Object.prototype.hasOwnProperty.call(updatedItem, key) &&
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                         JSON.stringify(oldData[key]) !== JSON.stringify(updatedItem[key])) {
                         changes[key] = { old: oldData[key], new: updatedItem[key] };
                     }
                 }
                 if (Object.keys(changes).length > 0) {
-<<<<<<< HEAD
-                     await addDoc(collection(db, 'logs'), {
-                        action: `Item atualizado em ${section}`,
-                        details: `ID ${id} com alterações: ${JSON.stringify(changes)}`,
-                        userEmail: user?.auth?.email || 'N/A', // Fallback para email
-=======
                      await addDoc(collection(db, 'lojas', storeId, 'logs'), {
                         action: `Item atualizado em ${section}`,
                         details: `ID ${id} com alterações: ${JSON.stringify(changes)}`,
                         userEmail: user?.auth?.email || 'N/A',
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                         timestamp: new Date()
                     });
                 }
@@ -1873,19 +1652,6 @@ function App() {
         await updateDoc(itemDoc, updatedItem);
     } catch (e) {
         console.error("Erro ao atualizar documento: ", e);
-<<<<<<< HEAD
-    }
-  };
-
-  const deleteItem = async (section, id) => {
-    try {
-        await deleteDoc(doc(db, section, id));
-        if (user && section !== 'logs') {
-            await addDoc(collection(db, 'logs'), {
-                action: `Item deletado de ${section}`,
-                details: `ID: ${id}`,
-                userEmail: user?.auth?.email || 'N/A', // Fallback para email
-=======
 		if (e && e.message) {
             alert(e.message);
         }
@@ -1901,18 +1667,15 @@ function App() {
                 action: `Item deletado de ${section}`,
                 details: `ID: ${id}`,
                 userEmail: user?.auth?.email || 'N/A',
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                 timestamp: new Date()
             });
         }
     } catch (e) {
         console.error("Erro ao deletar documento: ", e);
-<<<<<<< HEAD
-=======
+
 		    if (e && e.message) {
             alert(e.message);
         }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     }
   };
   
@@ -1948,23 +1711,6 @@ function App() {
   
 	useEffect(() => {
 	  const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-<<<<<<< HEAD
-		if (authUser) {
-		  try {
-			const userDocRef = doc(db, "users", authUser.uid);
-			const userDoc = await getDoc(userDocRef);
-			const userData = { 
-			  auth: authUser, 
-			  role: userDoc.exists() ? userDoc.data().role || 'Atendente' : 'Atendente' 
-			};
-			setUser(userData);
-            // Tenta inicializar/resumir o AudioManager APÓS o login
-            try {
-               if (localStorage.getItem("audioUnlocked") === "true") {
-                 await audioManager.init();
-               }
-            } catch(e) { console.error("Erro no init pós-login:", e); }
-=======
 			if (authUser) {
 			  try {
 					const userDocRef = doc(db, "users", authUser.uid);
@@ -1986,24 +1732,10 @@ function App() {
 					console.error("Erro no init pós-login:", e);
 			  });
 			}
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
 		  } catch (error) {
 			console.error("Erro ao carregar dados do usuário:", error);
 		  }
-<<<<<<< HEAD
-		} else {
-		  setUser(null);
-		  setCurrentPage('pagina-inicial'); 
-           // Não remove mais 'audioUnlocked' do localStorage no logout
-           stopAlarm(); // Garante que o alarme pare no logout
-		}
-		setAuthLoading(false);
-	  });
-
-	  return () => unsubscribe();
-	}, [stopAlarm, setCurrentPage]); 
-=======
                 } else {
                   setUser(null);
                   storeCollectionsDataRef.current = {};
@@ -2119,7 +1851,6 @@ function App() {
             active = false;
         };
     }, [availableStores]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
     const handleLogin = async () => {
         setLoginError('');
@@ -2194,19 +1925,6 @@ function App() {
       // O useEffect do onAuthStateChanged agora cuida de resetar a página
   };
 
-<<<<<<< HEAD
-  const allMenuItems = [ 
-    { id: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: ['admin', 'Atendente', null] }, 
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'Atendente'] }, 
-    { id: 'clientes', label: 'Clientes', icon: Users, roles: ['admin', 'Atendente'] }, 
-    { id: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: ['admin', 'Atendente'] }, 
-    { id: 'produtos', label: 'Produtos', icon: Package, roles: ['admin', 'Atendente'] }, 
-    { id: 'agenda', label: 'Agenda', icon: Calendar, roles: ['admin', 'Atendente'] }, 
-    { id: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: ['admin', 'Atendente'] }, 
-    { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'Atendente'] }, 
-    { id: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: ['admin'] }, 
-    { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: ['admin'] }, 
-=======
   const allMenuItems = [
     { id: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, null] },
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [ROLE_OWNER, ROLE_MANAGER] },
@@ -2218,7 +1936,6 @@ function App() {
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
   ];
   const currentUserRole = user ? user.role : null;
   const menuItems = allMenuItems.filter(item => item.roles.includes(currentUserRole));
@@ -2704,19 +2421,7 @@ function App() {
     );
   };
   
-<<<<<<< HEAD
-const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, deleteItem }) => {
-    const [activeTab, setActiveTab] = usePersistentState('configuracoes_activeTab', 'users');
-    
-    // States para Usuários
-    const [usuarios, setUsuarios] = useState([]);
-    const [showUserModal, setShowUserModal] = useState(false); 
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [editingUser, setEditingUser] = useState(null); 
-    const [userFormData, setUserFormData] = useState({ email: "", senha: "", nome: "", role: "user" }); 
-    const [newPassword, setNewPassword] = useState("");
-=======
-const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, deleteItem, availableStores, storeInfoMap, resolveActiveStoreForWrite, selectedStoreId }) => {
+	const Configuracoes = ({ user, setConfirmDelete, data, addItem, updateItem, deleteItem, availableStores, storeInfoMap, resolveActiveStoreForWrite, selectedStoreId }) => {
     const [activeTab, setActiveTab] = usePersistentState('configuracoes_activeTab', 'users');
 
     // States para Usuários
@@ -2753,15 +2458,11 @@ const effectiveStoreName = useMemo(() => {
 	return 'Selecione uma loja para gerenciar';
 }, [effectiveStoreId, storeInfoMap, user, selectedStoreId]);
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-
     // States para Cupons
     const [cupons, setCupons] = useState([]);
     const [showCupomModal, setShowCupomModal] = useState(false);
     const [editingCupom, setEditingCupom] = useState(null);
     const [cupomFormData, setCupomFormData] = useState({});
-<<<<<<< HEAD
-=======
 	
 	    const userRoles = useMemo(() => {
         const roles = new Set((usuarios || []).map((userItem) => userItem.role).filter(Boolean));
@@ -2805,8 +2506,6 @@ const effectiveStoreName = useMemo(() => {
         setUserRoleFilter('all');
     }, []);
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-
     // 🔄 Carregar dados da aba ativa
     useEffect(() => {
         let unsubscribe = () => {}; // Função de cleanup vazia
@@ -2818,9 +2517,6 @@ const effectiveStoreName = useMemo(() => {
             listAllUsersFn()
                 .then((result) => {
                     if (result.data.users) {
-<<<<<<< HEAD
-                        setUsuarios(result.data.users);
-=======
                         const normalizedUsers = result.data.users.map((u) => {
                             const lojas = Array.isArray(u.lojaIds)
                                 ? u.lojaIds
@@ -2838,7 +2534,6 @@ const effectiveStoreName = useMemo(() => {
                             : normalizedUsers.filter(u => (u.lojaIds || []).includes(effectiveStoreId));
 
                         setUsuarios(filteredUsers)
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                     }
                 })
                 .catch((error) => {
@@ -2847,11 +2542,6 @@ const effectiveStoreName = useMemo(() => {
                 });
 
         } else if (activeTab === 'cupons') {
-<<<<<<< HEAD
-            unsubscribe = onSnapshot(collection(db, "cupons"), (snap) => {
-                setCupons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            });
-=======
             if (!effectiveStoreId) {
                 setCupons([]);
             } else {
@@ -2859,7 +2549,6 @@ const effectiveStoreName = useMemo(() => {
                     setCupons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
             }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         }
         
         return () => {
@@ -2867,58 +2556,13 @@ const effectiveStoreName = useMemo(() => {
                 unsubscribe();
             }
         };
-<<<<<<< HEAD
-    }, [activeTab]);
-=======
     }, [activeTab, effectiveStoreId, user]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     
     // States para Configuração de Frete
     const [freteConfig, setFreteConfig] = useState({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
     const [isSavingFrete, setIsSavingFrete] = useState(false);
 
     useEffect(() => {
-<<<<<<< HEAD
-        if (activeTab === 'frete') {
-            const fetchFreteConfig = async () => {
-                try {
-                    const docRef = doc(db, "configuracoes", "frete");
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        setFreteConfig(docSnap.data());
-                    }
-                } catch (error) {
-                    console.error("Erro ao buscar configurações de frete:", error);
-                }
-            };
-            fetchFreteConfig();
-        }
-    }, [activeTab]);
-	
-	//Limpeza quando o componente desmontar
-	useEffect(() => {
-	  return () => {
-		// Para o alarme quando o componente desmontar
-		if (stopAlarmRef.current) {
-		  stopAlarmRef.current();
-		}
-		if (stopAlarmFn) {
-		  stopAlarmFn();
-		}
-	  };
-	}, [stopAlarmFn]);
-    
-    // Handlers para Usuários
-    const handleNewUser = () => { 
-        setEditingUser(null); 
-        setUserFormData({ email: "", senha: "", nome: "", role: "user" }); 
-        setShowUserModal(true); 
-    };
-    const handleEditUser = (userToEdit) => { 
-        setEditingUser(userToEdit); 
-        setUserFormData(userToEdit); 
-        setShowUserModal(true); 
-=======
         if (activeTab !== 'frete') return;
 
         if (!effectiveStoreId) {
@@ -2985,7 +2629,6 @@ const effectiveStoreName = useMemo(() => {
             lojaIds: lojas
         });
         setShowUserModal(true);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     };
 
 	const handleUserSubmit = async (e) => {
@@ -3000,41 +2643,6 @@ const effectiveStoreName = useMemo(() => {
 		alert('A senha é obrigatória e deve ter pelo menos 6 caracteres');
 		return;
 	  }
-<<<<<<< HEAD
-
-	  try {
-		if (editingUser) {
-		  const updateUserFn = httpsCallable(functions, 'updateUser');
-		  await updateUserFn({
-			uid: editingUser.uid,
-			nome: userFormData.nome,
-			role: userFormData.role,
-			email: userFormData.email
-		  });
-		  alert('Usuário atualizado com sucesso!');
-		} else {
-		  const createUserFn = httpsCallable(functions, 'createUser');
-		  await createUserFn({
-			email: userFormData.email,
-			senha: userFormData.senha,
-			nome: userFormData.nome,
-			role: userFormData.role,
-		  });
-		  alert('Usuário criado com sucesso!');
-		}
-		
-		setShowUserModal(false);
-		
-		// Recarrega a lista de usuários
-		const listAllUsersFn = httpsCallable(functions, 'listAllUsers');
-		const result = await listAllUsersFn();
-		setUsuarios(result.data.users);
-		
-	  } catch (error) {
-		console.error('Erro completo:', error);
-		alert("Erro ao salvar usuário: " + error.message);
-	  }
-=======
           try {
                 const selectedRole = normalizeRole(userFormData.role);
                 const singleStoreId = selectedRole === ROLE_OWNER ? null : (userFormData.lojaId || effectiveStoreId);
@@ -3100,7 +2708,6 @@ const effectiveStoreName = useMemo(() => {
                 console.error('Erro completo:', error);
                 alert("Erro ao salvar usuário: " + error.message);
           }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 	};
 
     const handleDeleteUser = async (userToDelete) => {
@@ -3152,10 +2759,6 @@ const effectiveStoreName = useMemo(() => {
     
     const handleCupomSubmit = async (e) => {
       e.preventDefault();
-<<<<<<< HEAD
-      
-      try {
-=======
 
       try {
         if (!effectiveStoreId) {
@@ -3163,7 +2766,6 @@ const effectiveStoreName = useMemo(() => {
             return;
         }
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         const dataToSave = {
           codigo: cupomFormData.codigo.toUpperCase().trim(),
           tipoDesconto: cupomFormData.tipoDesconto,
@@ -3193,15 +2795,7 @@ const effectiveStoreName = useMemo(() => {
         e.preventDefault();
         setIsSavingFrete(true);
         try {
-<<<<<<< HEAD
-            const freteDoc = doc(db, "configuracoes", "frete");
-            await setDoc(freteDoc, {
-                ...freteConfig,
-                valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
-                updatedAt: new Date(),
-                updatedBy: user?.auth?.email || 'Sistema'
-            });
-=======
+
             if (!effectiveStoreId) {
                 alert('Selecione uma loja específica para salvar as configurações.');
                 return;
@@ -3216,7 +2810,6 @@ const effectiveStoreName = useMemo(() => {
                     updatedBy: user?.auth?.email || 'Sistema'
                 }
             }, { merge: true });
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
             alert('Configurações de frete salvas com sucesso!');
         } catch (error) {
             console.error("Erro ao salvar frete:", error);
@@ -3270,24 +2863,15 @@ const effectiveStoreName = useMemo(() => {
                 ...log,
                 user: log.userEmail || 'Não registrado',
                 formattedDetails: formattedDetails,
-<<<<<<< HEAD
-=======
+
                 lojaNome: log.lojaId ? (storeInfoMap[log.lojaId]?.nome || log.lojaId) : effectiveStoreName
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
             };
         }).sort((a, b) => {
             const dateA = getJSDate(a.timestamp) || new Date(0);
             const dateB = getJSDate(b.timestamp) || new Date(0);
             return dateB - dateA;
         });
-<<<<<<< HEAD
-    }, [data]);
-    
-    const userColumns = [ 
-        { header: "Nome", key: "nome" },
-        { header: "Email", key: "email" }, 
-        { header: "Permissão", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>{row.role}</span> } 
-=======
+
     }, [data, storeInfoMap, effectiveStoreName]);
 
     const userColumns = [
@@ -3304,7 +2888,6 @@ const effectiveStoreName = useMemo(() => {
             }
             return lojas.map((id) => storeInfoMap[id]?.nome || id).join(', ');
         } }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     ];
     const userActions = [ 
         { icon: Edit, label: "Editar", onClick: handleEditUser }, 
@@ -3330,11 +2913,8 @@ const effectiveStoreName = useMemo(() => {
             return date ? date.toLocaleString('pt-BR') : '-';
         }},
         { header: "Usuário", key: "user" },
-<<<<<<< HEAD
-=======
 		{ header: "Loja", render: (row) => row.lojaNome || '-' },
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         { header: "Ação", key: "action" },
         { header: "Detalhes", key: "formattedDetails" },
     ];
@@ -3364,12 +2944,6 @@ const effectiveStoreName = useMemo(() => {
             </div>
             
             {activeTab === 'users' && (
-<<<<<<< HEAD
-              <div>
-                <div className="flex justify-end my-4">
-                    <Button onClick={handleNewUser}><Plus className="w-4 h-4" /> Novo Usuário</Button>
-                </div>
-=======
 
             <div>
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 md:p-6 mb-4">
@@ -3425,17 +2999,12 @@ const effectiveStoreName = useMemo(() => {
                     <Button onClick={handleNewUser}><Plus className="w-4 h-4" /> Novo Usuário</Button>
                 </div>
 				
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                 {(!usuarios || usuarios.length === 0) ? (
                     <div className="text-center p-8 bg-white rounded-2xl shadow-lg">
                         <p className="text-gray-500">Nenhum usuário encontrado.</p>
                         <p className="text-sm text-gray-400 mt-2">Clique em "Novo Usuário" para criar o primeiro usuário.</p>
                     </div>
-<<<<<<< HEAD
-                ) : (
-                    <Table columns={userColumns} data={usuarios} actions={userActions} />
-                )}
-=======
+
 				) : (filteredUsuarios.length === 0 ? (
                     <div className="text-center p-8 bg-white rounded-2xl shadow-lg">
                         <p className="text-gray-500">Nenhum usuário corresponde aos filtros selecionados.</p>
@@ -3445,24 +3014,12 @@ const effectiveStoreName = useMemo(() => {
 					<Table columns={userColumns} data={filteredUsuarios} actions={userActions} />
                 ))}
                   
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
               </div>
             )}
             
             {activeTab === 'cupons' && (
               <div>
-<<<<<<< HEAD
-                <div className="flex justify-end my-4">
-                    <Button onClick={handleNewCupom}><Ticket className="w-4 h-4" /> Novo Cupom</Button>
-                </div>
-                {(!cupons || cupons.length === 0) ? (
-                    <div className="text-center p-8 bg-white rounded-2xl shadow-lg">
-                        <p className="text-gray-500">Nenhum cupom cadastrado.</p>
-                        <p className="text-sm text-gray-400 mt-2">Clique em "Novo Cupom" para criar o primeiro cupom.</p>
-                    </div>
-                ) : (
-                    <Table columns={cupomColumns} data={cupons} actions={cupomActions} />
-=======
+
                 {!effectiveStoreId ? (
                     <div className="text-center p-8 bg-white rounded-2xl shadow-lg">
                         <p className="text-gray-500">Selecione uma loja no topo da página para gerenciar os cupons.</p>
@@ -3482,7 +3039,6 @@ const effectiveStoreName = useMemo(() => {
                             <Table columns={cupomColumns} data={cupons} actions={cupomActions} />
                         )}
                     </>
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                 )}
               </div>
             )}
@@ -3501,20 +3057,7 @@ const effectiveStoreName = useMemo(() => {
             )}
             
             {activeTab === 'frete' && (
-<<<<<<< HEAD
-                <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-                    <form onSubmit={handleSaveFreteConfig} className="space-y-4 max-w-lg">
-                        <h3 className="text-xl font-bold text-gray-800">Configurações de Entrega</h3>
-                        <p className="text-sm text-gray-500">
-                            Defina o endereço de partida dos seus pedidos e o valor cobrado por quilômetro. As coordenadas podem ser encontradas no Google Maps.
-                        </p>
-                        <Input 
-                            label="Endereço da Loja (para referência)" 
-                            placeholder="Ex: Av. Comercial, 433, Goiânia"
-                            value={freteConfig.enderecoLoja || ''} 
-                            onChange={e => setFreteConfig({ ...freteConfig, enderecoLoja: e.target.value })} 
-                            required 
-=======
+
                 !effectiveStoreId ? (
                     <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6 text-center text-gray-500">
                         Selecione uma loja no topo da página para configurar o frete.
@@ -3550,7 +3093,6 @@ const effectiveStoreName = useMemo(() => {
                                 value={freteConfig.valorPorKm || ''}
                                 onChange={e => setFreteConfig({ ...freteConfig, valorPorKm: e.target.value })}
                                 required
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                         />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Input 
@@ -3568,24 +3110,6 @@ const effectiveStoreName = useMemo(() => {
                                 required 
                             />
                         </div>
-<<<<<<< HEAD
-                        <Input 
-                            label="Valor por KM (R$)" 
-                            type="number" 
-                            step="0.01" 
-                            placeholder="Ex: 1.50"
-                            value={freteConfig.valorPorKm || ''} 
-                            onChange={e => setFreteConfig({ ...freteConfig, valorPorKm: e.target.value })} 
-                            required 
-                        />
-                        <div className="pt-4">
-                            <Button type="submit" disabled={isSavingFrete}>
-                                <Save className="w-4 h-4" /> {isSavingFrete ? 'Salvando...' : 'Salvar Configurações'}
-                            </Button>
-                        </div>
-                    </form>
-                </div>
-=======
                             <div className="pt-4">
                                 <Button type="submit" disabled={isSavingFrete}>
                                     <Save className="w-4 h-4" /> {isSavingFrete ? 'Salvando...' : 'Salvar Configurações'}
@@ -3594,28 +3118,11 @@ const effectiveStoreName = useMemo(() => {
                         </form>
                     </div>
                 )
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
             )}
             
             <Modal isOpen={showUserModal} onClose={() => setShowUserModal(false)} title={editingUser ? "Editar Usuário" : "Novo Usuário"}>
                  <form onSubmit={handleUserSubmit} className="space-y-4">
                     <Input label="Nome" value={userFormData.nome || ''} onChange={e => setUserFormData({...userFormData, nome: e.target.value})} required />
-<<<<<<< HEAD
-                    <Input 
-                        label="Email" 
-                        type="email" 
-                        value={userFormData.email || ''}
-                        onChange={(e) => setUserFormData({...userFormData, email: e.target.value})} 
-                        required 
-                    />
-                    {!editingUser && (
-                        <Input 
-                            label="Senha" 
-                            type="password" 
-                            value={userFormData.senha || ''} 
-                            onChange={(e) => setUserFormData({...userFormData, senha: e.target.value})} 
-                            required 
-=======
                     <Input
                         label="Email"
                         type="email"
@@ -3630,28 +3137,11 @@ const effectiveStoreName = useMemo(() => {
                             value={userFormData.senha || ''}
                             onChange={(e) => setUserFormData({...userFormData, senha: e.target.value})}
                             required
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                             minLength="6"
                             placeholder="Mínimo 6 caracteres"
                         />
                     )}
-<<<<<<< HEAD
-                    <Select 
-                        label="Permissão" 
-                        value={userFormData.role || 'user'} 
-                        onChange={(e) => setUserFormData({...userFormData, role: e.target.value})} 
-                        required
-                    >
-                        <option value="user">Usuário</option>
-                        <option value="Atendente">Atendente</option>
-                        <option value="admin">Administrador</option>
-                    </Select>
-                    
-                    <div className="flex justify-end gap-3 pt-4">
-                        <Button variant="secondary" type="button" onClick={() => setShowUserModal(false)}>Cancelar</Button>
-                        <Button type="submit">
-                            <Save className="w-4 h-4" /> 
-=======
+
                     <Select
                         label="Permissão"
                         value={userFormData.role || ROLE_ATTENDANT}
@@ -3720,7 +3210,6 @@ const effectiveStoreName = useMemo(() => {
                         <Button variant="secondary" type="button" onClick={() => setShowUserModal(false)}>Cancelar</Button>
                         <Button type="submit">
                             <Save className="w-4 h-4" />
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                             Salvar
                         </Button>
                     </div>
@@ -4015,27 +3504,7 @@ const handleSubmit = async (e) => {
         const total = subtotal - desconto;
         
         // Garante que todos os campos necessários estejam presentes, mesmo que vazios
-<<<<<<< HEAD
-        setFormData({ 
-            clienteId: '', 
-            clienteNome: '', 
-            itens: [], 
-            subtotal: 0, 
-            desconto: 0, 
-            total: 0, 
-            status: 'Pendente', 
-            origem: 'Manual', 
-            categoria: 'Delivery', 
-            dataEntrega: '', 
-            observacao: '', 
-            formaPagamento: 'Pix', 
-            cupom: null,
-            ...order, // Sobrescreve com os dados do pedido
-            subtotal, // Usa os valores calculados
-            desconto, 
-            total,
-            dataEntrega: order.dataEntrega ? (getJSDate(order.dataEntrega)?.toISOString().split('T')[0] || '') : '' // Formata a data
-=======
+
         const defaultOrderData = {
             clienteId: '',
             clienteNome: '',
@@ -4059,7 +3528,6 @@ const handleSubmit = async (e) => {
             desconto,
             total,
             dataEntrega: order.dataEntrega ? (getJSDate(order.dataEntrega)?.toISOString().split('T')[0] || '') : ''
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         });
         
         setDescontoValor(order.desconto && !order.cupom ? String(order.desconto) : ''); // Preenche desconto manual se houver
@@ -4396,14 +3864,9 @@ const handleSubmit = async (e) => {
 			 pedidoDate.getMonth() === currentDate.getMonth();
 	});
 
-<<<<<<< HEAD
-    const aniversariantesDoMes = useMemo(() => {
-        return (data.clientes || []).filter(cliente => {
-=======
     const clientes = data.clientes || [];
     const aniversariantesDoMes = useMemo(() => {
         return clientes.filter(cliente => {
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
             if (!cliente.aniversario || !/^\d{4}-\d{2}-\d{2}$/.test(cliente.aniversario)) return false;
             // Usa UTC para evitar problemas de fuso
             const [year, month, day] = cliente.aniversario.split('-');
@@ -4434,10 +3897,6 @@ const handleSubmit = async (e) => {
                     {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} className="border rounded-lg aspect-square"></div>)}
                     {Array.from({ length: daysInMonth }).map((_, day) => {
                         const dayNumber = day + 1;
-<<<<<<< HEAD
-                        const dateToCheck = new Date(Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), dayNumber));
-=======
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                         
                         const today = new Date();
                         const isToday = today.getDate() === dayNumber && today.getMonth() === currentDate.getMonth() && today.getFullYear() === currentDate.getFullYear();
@@ -4456,13 +3915,9 @@ const handleSubmit = async (e) => {
                         });
 
                         const aniversariantesDoDia = aniversariantesDoMes.filter(c => {
-<<<<<<< HEAD
-                             const [, , day] = c.aniversario.split('-');
-                             return parseInt(day, 10) === dayNumber;
-=======
+
                              const [, , dayString] = c.aniversario.split('-');
                              return parseInt(dayString, 10) === dayNumber;
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                         });
 
                         const hasEvents = pedidosDoDia.length > 0 || aniversariantesDoDia.length > 0;
@@ -4536,11 +3991,6 @@ const handleSubmit = async (e) => {
                     const cliente = data.clientes.find(c => c.id === viewingOrder.clienteId);
                     const endereco = viewingOrder.clienteEndereco || cliente?.enderecos?.[0] || 'Não informado';
                     const telefone = viewingOrder.telefone || cliente?.telefone || '';
-<<<<<<< HEAD
-                    const subtotal = (viewingOrder.itens || []).reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
-                    
-=======
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
                     const handleSendToWhatsApp = () => { /* ... (código igual ao do Pedidos.js) ... */ };
                     const handlePrint = () => { /* ... (código igual ao do Pedidos.js) ... */ };
 
@@ -4583,8 +4033,6 @@ const handleSubmit = async (e) => {
 
 
   const PlaceholderPage = ({ title }) => (<div className="p-6"><h1 className="text-3xl font-bold text-pink-600">{title}</h1><p>Em desenvolvimento...</p></div>);
-<<<<<<< HEAD
-=======
   const userHasRole = useCallback((roles) => {
     if (!user) return false;
     return roles.includes(user.role);
@@ -4606,31 +4054,11 @@ const handleSubmit = async (e) => {
     const info = storeInfoMap[currentStoreIdForDisplay];
     return info?.nome || currentStoreIdForDisplay;
   }, [currentStoreIdForDisplay, storeInfoMap]);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
   const renderCurrentPage = () => {
     if (authLoading || (loading && user)) {
       return (<div className="flex h-full w-full items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-pink-500"></div></div>);
     }
-<<<<<<< HEAD
-    
-    switch (currentPage) {
-      case 'pagina-inicial': return <PaginaInicial />;
-      case 'dashboard': return user ? <Dashboard 
-                                        handleStopAndSnoozeAlarm={handleStopAndSnoozeAlarm}
-                                        isAlarmPlaying={isAlarmPlaying}
-                                        isAlarmSnoozed={isAlarmSnoozed}
-                                        snoozeEndTime={snoozeEndTime} 
-                                        hasNewPendingOrders={hasNewPendingOrders}
-                                        // --- REMOVIDO: unlockAudio e audioUnlocked ---
-                                        /> : <PaginaInicial />;
-      case 'clientes': return user ? <Clientes /> : <PaginaInicial />;
-      case 'produtos': return user ? <Produtos /> : <PaginaInicial />;
-      case 'pedidos': return user ? <Pedidos /> : <PaginaInicial />;
-      case 'agenda': return user ? <Agenda /> : <PaginaInicial />;
-      case 'fornecedores': return user ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
-      case 'relatorios': return user ? <Relatorios data={data} /> : <PaginaInicial />;
-=======
 
     switch (currentPage) {
       case 'pagina-inicial': return <PaginaInicial />;
@@ -4650,7 +4078,6 @@ const handleSubmit = async (e) => {
       case 'relatorios': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Relatorios data={data} /> : <PaginaInicial />;
       case 'financeiro': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
       case 'financeiro': return user?.role === 'admin' ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return user?.role === 'admin' ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} /> : <PaginaInicial />;
       default: return user ? <PlaceholderPage title={allMenuItems.find(i=>i.id===currentPage)?.label || "Página"} /> : <PaginaInicial />;
@@ -4706,13 +4133,7 @@ const handleSubmit = async (e) => {
             <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-pink-50 md:hidden">
                 <Menu className="w-6 h-6 text-gray-600" />
             </button>
-<<<<<<< HEAD
-            <div className="flex-1"></div>
-            <div className="flex items-center gap-4">
-				{user && (
-					<div className="relative">
-						<button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-full hover:bg-gray-100">
-=======
+
             <div className="flex-1 flex items-center justify-center md:justify-start">
                 {user && (
                     user.role === ROLE_OWNER ? (
@@ -4751,7 +4172,6 @@ const handleSubmit = async (e) => {
                                 {user && (
                                         <div className="relative">
                                                 <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-full hover:bg-gray-100">
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 							<Bell className="w-5 h-5 text-gray-600" />
 							{pendingOrders.length > 0 && 
 								<span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center animate-pulse">

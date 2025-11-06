@@ -7,12 +7,8 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-const {onRequest} = require("firebase-functions/v2/https");
-const {onCall, HttpsError} = require("firebase-functions/v2/https");
-<<<<<<< HEAD
-=======
+const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const express = require("express");
@@ -22,8 +18,6 @@ const cors = require("cors");
 admin.initializeApp();
 const db = admin.firestore();
 const auth = admin.auth();
-<<<<<<< HEAD
-=======
 const STORE_INFO_DOC_ID = 'dados';
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
@@ -94,8 +88,6 @@ const requireStoreId = (req, res) => {
   return lojaId;
 };
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-
 // API Express para o Cardápio Online
 const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
@@ -103,15 +95,10 @@ app.use(express.json());
 
 // Rota para buscar todos os produtos ativos
 app.get("/produtos", async (req, res) => {
-<<<<<<< HEAD
-  try {
-    const snapshot = await db.collection("produtos").where("status", "==", "Ativo").get();
-=======
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
     const snapshot = await db.collection("lojas").doc(lojaId).collection("produtos").where("status", "==", "Ativo").get();
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     const products = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
     res.status(200).json(products);
   } catch (error) {
@@ -122,15 +109,10 @@ app.get("/produtos", async (req, res) => {
 
 // Rota para buscar todos os clientes
 app.get("/clientes", async (req, res) => {
-<<<<<<< HEAD
-    try {
-        const snapshot = await db.collection("clientes").get();
-=======
     const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
         const snapshot = await db.collection("lojas").doc(lojaId).collection("clientes").get();
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         const clients = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         res.status(200).json(clients);
     } catch (error) {
@@ -142,19 +124,12 @@ app.get("/clientes", async (req, res) => {
 
 // Rota para criar um novo cliente
 app.post("/clientes", async (req, res) => {
-<<<<<<< HEAD
-    try {
-        const newClient = req.body;
-        const docRef = await db.collection("clientes").add(newClient);
-        res.status(201).json({ id: docRef.id, ...newClient });
-=======
     const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
        const newClient = req.body;
        const docRef = await db.collection("lojas").doc(lojaId).collection("clientes").add({ ...newClient, lojaId });
         res.status(201).json({ id: docRef.id, ...newClient, lojaId });
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     } catch (error) {
         logger.error("Erro ao criar cliente:", error);
         res.status(500).send("Erro ao criar cliente.");
@@ -163,20 +138,12 @@ app.post("/clientes", async (req, res) => {
 
 // Rota para atualizar um cliente (adicionar endereço)
 app.put("/clientes/:id", async (req, res) => {
-<<<<<<< HEAD
-    try {
-        const { id } = req.params;
-        const { newAddress } = req.body;
-        const clientRef = db.collection("clientes").doc(id);
-=======
 	const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
         const { id } = req.params;
         const { newAddress } = req.body;
         const clientRef = db.collection("lojas").doc(lojaId).collection("clientes").doc(id);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
-
         await clientRef.update({
             enderecos: admin.firestore.FieldValue.arrayUnion(newAddress)
         });
@@ -191,14 +158,6 @@ app.put("/clientes/:id", async (req, res) => {
 
 // Rota para criar um novo pedido
 app.post("/pedidos", async (req, res) => {
-<<<<<<< HEAD
-  try {
-    const newOrder = {
-      ...req.body,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Adiciona data de criação
-    };
-    const docRef = await db.collection("pedidos").add(newOrder);
-=======
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
@@ -208,7 +167,6 @@ app.post("/pedidos", async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     const docRef = await db.collection("lojas").doc(lojaId).collection("pedidos").add(newOrder);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     res.status(201).json({id: docRef.id});
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
@@ -218,16 +176,6 @@ app.post("/pedidos", async (req, res) => {
 
 // Rota para calcular frete
 app.post("/frete/calcular", async (req, res) => {
-<<<<<<< HEAD
-    try {
-        const { clienteLat, clienteLng } = req.body;
-
-        const configDoc = await db.collection("configuracoes").doc("frete").get();
-        if (!configDoc.exists) {
-            return res.status(404).json({ message: "Configuração de frete não encontrada." });
-        }
-        const freteConfig = configDoc.data();
-=======
 	const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
@@ -238,7 +186,6 @@ app.post("/frete/calcular", async (req, res) => {
             return res.status(404).json({ message: "Configuração de frete não encontrada." });
         }
         const freteConfig = configDoc.data()?.frete || {};
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         const lojaLat = freteConfig.lat;
         const lojaLng = freteConfig.lng;
         const valorPorKm = freteConfig.valorPorKm;
@@ -273,15 +220,10 @@ app.post("/frete/calcular", async (req, res) => {
 // Rota para verificar cupom
 app.post("/cupons/verificar", async (req, res) => {
     const { codigo, totalCarrinho, telefone } = req.body;
-<<<<<<< HEAD
-    try {
-        const cupomQuery = await db.collection("cupons").where("codigo", "==", codigo.toUpperCase()).limit(1).get();
-=======
 	const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
         const cupomQuery = await db.collection("lojas").doc(lojaId).collection("cupons").where("codigo", "==", codigo.toUpperCase()).limit(1).get();
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         if (cupomQuery.empty) {
             return res.status(404).json({ valido: false, mensagem: "Cupom não encontrado." });
         }
@@ -318,31 +260,11 @@ app.post("/cupons/verificar", async (req, res) => {
 // Exporta o app Express como uma Cloud Function HTTP
 exports.api = onRequest(app);
 
-<<<<<<< HEAD
-
-// --- FUNÇÕES CHAMÁVEIS (CALLABLE FUNCTIONS) PARA GERENCIAMENTO DE USUÁRIOS ---
-
-// Função auxiliar para verificar se o usuário é admin
-const verifyAdmin = async (uid) => {
-    if (!uid) {
-        throw new HttpsError("unauthenticated", "Você precisa estar autenticado.");
-    }
-    const userDoc = await db.collection("users").doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== "admin") {
-        throw new HttpsError("permission-denied", "Você não tem permissão para realizar esta ação.");
-    }
-};
-
-// Lista todos os usuários
-exports.listAllUsers = onCall(async (request) => {
-    await verifyAdmin(request.auth?.uid);
-=======
 // --- FUNÇÕES CHAMÁVEIS (CALLABLE FUNCTIONS) PARA GERENCIAMENTO DE USUÁRIOS ---
 
 // Lista todos os usuários
 exports.listAllUsers = onCall(async (request) => {
     const requester = await verifyManagementAccess(request.auth?.uid);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     try {
         const listUsersResult = await auth.listUsers(1000);
         const usersFromAuth = listUsersResult.users;
@@ -354,22 +276,13 @@ exports.listAllUsers = onCall(async (request) => {
 
         const combinedUsers = usersFromAuth.map((userRecord) => {
             const firestoreData = usersDataFromFirestore[userRecord.uid] || {};
-<<<<<<< HEAD
-=======
 			const role = normalizeRole(firestoreData.role);
             const lojaIds = extractStoreIds(firestoreData);
             const lojaId = lojaIds[0] || null;
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
             return {
                 uid: userRecord.uid,
                 email: userRecord.email,
                 nome: firestoreData.nome || userRecord.displayName || "Sem nome",
-<<<<<<< HEAD
-                role: firestoreData.role || "user",
-            };
-        });
-        return {users: combinedUsers};
-=======
                 role,
                 lojaId,
                 lojaIds
@@ -391,7 +304,6 @@ exports.listAllUsers = onCall(async (request) => {
         });
 
         return {users: filteredUsers};
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     } catch (error) {
         logger.error("Erro ao listar usuários:", error);
         throw new HttpsError("internal", "Não foi possível listar os usuários.");
@@ -400,11 +312,6 @@ exports.listAllUsers = onCall(async (request) => {
 
 // Cria um novo usuário
 exports.createUser = onCall(async (request) => {
-<<<<<<< HEAD
-    await verifyAdmin(request.auth?.uid);
-    const {email, senha, nome, role} = request.data;
-    try {
-=======
     const requester = await verifyManagementAccess(request.auth?.uid);
     const {email, senha, nome, role, lojaId, lojaIds = []} = request.data;
     try {
@@ -437,7 +344,6 @@ exports.createUser = onCall(async (request) => {
                 throw new HttpsError("permission-denied", "Você não pode criar usuários para outras lojas.");
             }
         }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         const userRecord = await auth.createUser({
             email,
             password: senha,
@@ -446,13 +352,9 @@ exports.createUser = onCall(async (request) => {
         await db.collection("users").doc(userRecord.uid).set({
             email,
             nome,
-<<<<<<< HEAD
-            role,
-=======
             role: normalizedRole,
             lojaId: targetStores[0] || null,
             lojaIds: targetStores
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         });
         return {uid: userRecord.uid, message: "Usuário criado com sucesso!"};
     } catch (error) {
@@ -463,21 +365,16 @@ exports.createUser = onCall(async (request) => {
 
 // Atualiza um usuário
 exports.updateUser = onCall(async (request) => {
-<<<<<<< HEAD
-    await verifyAdmin(request.auth?.uid);
-    const { uid, nome, role, email } = request.data;
-=======
+
     const requester = await verifyManagementAccess(request.auth?.uid);
     const { uid, nome, role, email, lojaId, lojaIds = [] } = request.data;
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
     if (!uid || !nome || !role || !email) {
         throw new HttpsError("invalid-argument", "Dados incompletos. UID, nome, role e email são obrigatórios.");
     }
 
     try {
-<<<<<<< HEAD
-=======
+
 		const normalizedRole = normalizeRole(role);
         if (normalizedRole === ROLE_OWNER && requester.role !== ROLE_OWNER) {
             throw new HttpsError("permission-denied", "Somente donos podem atualizar dados de um dono.");
@@ -514,7 +411,6 @@ exports.updateUser = onCall(async (request) => {
             }
         }
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         const authUpdatePayload = {
             displayName: nome,
         };
@@ -531,15 +427,10 @@ exports.updateUser = onCall(async (request) => {
         // caso o documento do usuário não exista no Firestore.
         await db.collection("users").doc(uid).set({
             nome: nome,
-<<<<<<< HEAD
-            role: role,
-            email: email,
-=======
             role: normalizedRole,
             email: email,
 			lojaId: targetStores[0] || null,
             lojaIds: targetStores
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         }, { merge: true });
 
         return { message: "Usuário atualizado com sucesso!" };
@@ -562,11 +453,6 @@ exports.updateUser = onCall(async (request) => {
 
 // Deleta um usuário
 exports.deleteUser = onCall(async (request) => {
-<<<<<<< HEAD
-    await verifyAdmin(request.auth?.uid);
-    const {uid} = request.data;
-    try {
-=======
     const requester = await verifyManagementAccess(request.auth?.uid);
     const {uid} = request.data;
     try {
@@ -583,7 +469,6 @@ exports.deleteUser = onCall(async (request) => {
             throw new HttpsError("permission-denied", "Você não pode remover usuários de outra loja.");
         }
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         await auth.deleteUser(uid);
         await db.collection("users").doc(uid).delete();
         return {message: "Usuário deletado com sucesso!"};
@@ -595,11 +480,6 @@ exports.deleteUser = onCall(async (request) => {
 
 // Atualiza a senha de um usuário
 exports.updateUserPassword = onCall(async (request) => {
-<<<<<<< HEAD
-    await verifyAdmin(request.auth?.uid);
-    const {uid, newPassword} = request.data;
-    try {
-=======
     const requester = await verifyManagementAccess(request.auth?.uid);
     const {uid, newPassword} = request.data;
     try {
@@ -614,7 +494,6 @@ exports.updateUserPassword = onCall(async (request) => {
                 throw new HttpsError("permission-denied", "Você não pode alterar usuários de outra loja.");
             }
         }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
         await auth.updateUser(uid, {password: newPassword});
         return {message: "Senha alterada com sucesso!"};
     } catch (error) {
@@ -623,8 +502,7 @@ exports.updateUserPassword = onCall(async (request) => {
     }
 });
 
-<<<<<<< HEAD
-=======
+
 exports.notifyNewOrder = onDocumentCreated({
     document: "pedidos/{pedidoId}",
     region: "southamerica-east1",
@@ -736,4 +614,3 @@ exports.notifyNewOrder = onDocumentCreated({
         logger.error("Erro ao enviar notificações de novo pedido:", error);
     }
 });
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)

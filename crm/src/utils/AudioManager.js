@@ -1,6 +1,5 @@
 // src/utils/AudioManager.js
-<<<<<<< HEAD
-=======
+
 import { Capacitor } from '@capacitor/core';
 import { NativeAudio } from '@capacitor-community/native-audio';
 
@@ -8,33 +7,20 @@ const NATIVE_ASSET_ID = 'pedido';
 const NATIVE_ASSET_PATH = 'mixkit_vintage_warning_alarm_990.wav';
 const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'keydown', 'pointerdown'];
 
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 class AudioManager {
   constructor() {
     this.audioCtx = null;
     this.unlocked = false;
     this.cache = new Map();
-<<<<<<< HEAD
-=======
 	this.htmlAudioPlayers = new Set();
     this.nativeAudioReady = false;
     this.nativePreloadPromise = null;
     this._visibilityHandler = this._handleVisibilityChange.bind(this);
     this._focusHandler = this._handleVisibilityChange.bind(this);
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
     this._setupAutoUnlockListener();
   }
 
   _setupAutoUnlockListener() {
-<<<<<<< HEAD
-    // Escuta o primeiro clique, toque ou tecla para desbloquear o áudio
-    const unlockEvents = ["click", "touchstart", "keydown"];
-    const unlockHandler = async () => {
-      await this.userUnlock();
-      unlockEvents.forEach(ev => document.removeEventListener(ev, unlockHandler));
-    };
-    unlockEvents.forEach(ev => document.addEventListener(ev, unlockHandler, { once: true }));
-=======
 
     const unlockHandler = async () => {
       await this.userUnlock();
@@ -65,7 +51,6 @@ class AudioManager {
           console.warn('[AudioManager] Não foi possível retomar AudioContext:', error);
         });
     }
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
   }
 
   async init() {
@@ -113,9 +98,6 @@ class AudioManager {
       return;
     }
   }
-<<<<<<< HEAD
-
-=======
   
 async _ensureNativePreload() {
     if (this.nativeAudioReady) {
@@ -148,7 +130,6 @@ async _ensureNativePreload() {
     return this.nativePreloadPromise;
   }
   
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
   async userUnlock() {
     if (!this.audioCtx || this.audioCtx.state === "closed") {
       await this.init();
@@ -198,31 +179,6 @@ async _ensureNativePreload() {
   async playSound(url, { loop = false, volume = 1 } = {}) {
     await this.init();
 
-<<<<<<< HEAD
-    if (!this.audioCtx || this.audioCtx.state !== "running") {
-      console.warn("[AudioManager] play blocked: AudioContext not running. State:", this.audioCtx?.state);
-      this.unlocked = false;
-      return () => {};
-    }
-
-    this.unlocked = true;
-
-    try {
-      const buffer = await this._fetchAndDecode(url);
-      if (!buffer) return () => {};
-
-      const src = this.audioCtx.createBufferSource();
-      src.buffer = buffer;
-
-      const gain = this.audioCtx.createGain();
-      gain.gain.setValueAtTime(volume, this.audioCtx.currentTime);
-
-      src.connect(gain);
-      gain.connect(this.audioCtx.destination);
-
-      src.loop = loop;
-      src.start(0);
-=======
     // --- Suporte a Capacitor (Android/iOS) ---
     if (Capacitor.getPlatform() === 'android' || Capacitor.getPlatform() === 'ios') {
       try {
@@ -315,28 +271,17 @@ async _ensureNativePreload() {
 
       this.unlocked = true;
       localStorage.setItem('audioUnlocked', 'true');
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
 
       console.log("[AudioManager] Sound started:", url);
 
       return () => {
         try {
-<<<<<<< HEAD
-          src.stop();
-          src.disconnect();
-          gain.disconnect();
-          console.log("[AudioManager] Sound stopped:", url);
-        } catch {
-          /* ignora erro de parada duplicada */
-        }
-=======
           audioElement.pause();
           audioElement.currentTime = 0;
     } catch (error) {
       console.error('[AudioManager] Falha no fallback de HTMLAudio:', error);
         }
         this.htmlAudioPlayers.delete(audioElement);	
->>>>>>> a7c9ca3f (Atualizações multilojas - correções locais)
       };
     } catch (e) {
       console.error("[AudioManager] Error playing sound:", e);

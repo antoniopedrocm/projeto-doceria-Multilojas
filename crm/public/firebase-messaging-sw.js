@@ -97,13 +97,13 @@ importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyCNU5ZEl60OcW5eZyL_ZoD0tFKpweQvhwU',
+  apiKey: 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
   storageBucket: 'ana-guimaraes.firebasestorage.app',
-  messagingSenderId: '389481198252',
-  appId: '1:389481198252:web:429bff3cc5d4f353bea509',
-  measurementId: 'G-XJ7LPG0229'
+  messagingSenderId: '847824537421',
+  appId: '1:847824537421:web:75861057fd6f998ee49904',
+  measurementId: 'G-F8BVTNLEW7'
 };
 
 if (!firebase.apps.length) {
