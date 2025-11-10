@@ -43,6 +43,7 @@ const STORE_ALL_KEY = '__all__';
 const COLLECTIONS_TO_SYNC = [
   'clientes',
   'produtos',
+  'subcategorias',
   'contas_a_pagar',
   'contas_a_receber',
   'fornecedores',
@@ -57,6 +58,7 @@ const getInitialDataState = () => ({
   clientes: [],
   pedidos: [],
   produtos: [],
+  subcategorias: [],
   contas_a_pagar: [],
   contas_a_receber: [],
   fornecedores: [],
@@ -1024,6 +1026,8 @@ function App() {
   
   const [data, setData] = useState(getInitialDataState());
   const [loading, setLoading] = useState(true);
+  const userId = user?.auth?.uid || null;
+
   
    const resolveStoreIdsForView = useCallback(() => {
     if (!user) return [];
@@ -2341,20 +2345,111 @@ function App() {
     const [imageFile, setImageFile] = useState(null); 
     const [imagePreview, setImagePreview] = useState(null); 
     const [isUploading, setIsUploading] = useState(false);
-    
-    const subcategorias = useMemo(() => ({
+    const [isAddingSubcategory, setIsAddingSubcategory] = useState(false);
+    const [newSubcategory, setNewSubcategory] = useState("");
+    const [isSavingSubcategory, setIsSavingSubcategory] = useState(false);
+
+    const defaultSubcategorias = useMemo(() => ({
       Delivery: [ 'Queridinhos', 'Mousse', 'Palha Italiana', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado' ],
       Festa: [ 'Bolo', 'Docinhos', 'Bombom', 'Doces finos', 'Bem casados', 'Cupcakes' ]
     }), []);
+	
+	  const subcategoriasPorCategoria = useMemo(() => {
+      const map = Object.keys(defaultSubcategorias).reduce((acc, categoria) => {
+        acc[categoria] = [...defaultSubcategorias[categoria]];
+        return acc;
+      }, {});
+
+      (data.subcategorias || []).forEach((item) => {
+        if (!item || !item.categoria || !item.nome) return;
+        const categoria = item.categoria;
+        if (!map[categoria]) {
+          map[categoria] = [];
+        }
+        map[categoria].push(item.nome);
+      });
+
+      Object.keys(map).forEach((categoria) => {
+        const uniqueValues = Array.from(new Set(map[categoria].filter(Boolean)));
+        map[categoria] = uniqueValues.sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+      });
+
+      return map;
+    }, [data.subcategorias, defaultSubcategorias]);
+
+    const availableSubcategories = useMemo(() => {
+      const list = subcategoriasPorCategoria[formData.categoria] || [];
+      if (formData.subcategoria && !list.includes(formData.subcategoria)) {
+        return [...list, formData.subcategoria];
+      }
+      return list;
+    }, [formData.categoria, formData.subcategoria, subcategoriasPorCategoria]);
+
 
     useEffect(() => {
-      if (formData.categoria && subcategorias[formData.categoria] && !subcategorias[formData.categoria].includes(formData.subcategoria)) {
-          setFormData(prev => ({ ...prev, subcategoria: '' }));
+      if (formData.categoria && formData.subcategoria && !availableSubcategories.includes(formData.subcategoria)) {
+        setFormData(prev => ({ ...prev, subcategoria: '' }));
       }
-    }, [formData.categoria, formData.subcategoria, subcategorias]);
+    }, [formData.categoria, formData.subcategoria, availableSubcategories]);
+
+    useEffect(() => {
+      setIsAddingSubcategory(false);
+      setNewSubcategory("");
+    }, [formData.categoria]);
+
+    const handleSubcategoriaChange = (e) => {
+      const value = e.target.value;
+      if (value === '__add_new__') {
+        setIsAddingSubcategory(true);
+        setNewSubcategory("");
+        setFormData(prev => ({ ...prev, subcategoria: '' }));
+        return;
+      }
+      setIsAddingSubcategory(false);
+      setNewSubcategory("");
+      setFormData(prev => ({ ...prev, subcategoria: value }));
+    };
+
+    const handleCreateSubcategory = async () => {
+      const trimmed = newSubcategory.trim();
+      if (!trimmed) {
+        alert('Informe o nome da nova subcategoria.');
+        return;
+      }
+
+      const existing = availableSubcategories.find(sub => sub.toLowerCase() === trimmed.toLowerCase());
+      if (existing) {
+        alert('Esta subcategoria já existe para a categoria selecionada.');
+        setFormData(prev => ({ ...prev, subcategoria: existing }));
+        setIsAddingSubcategory(false);
+        setNewSubcategory("");
+        return;
+      }
+
+      try {
+        setIsSavingSubcategory(true);
+        await addItem('subcategorias', { nome: trimmed, categoria: formData.categoria });
+        setFormData(prev => ({ ...prev, subcategoria: trimmed }));
+        setIsAddingSubcategory(false);
+        setNewSubcategory("");
+      } catch (error) {
+        console.error('Erro ao criar subcategoria:', error);
+      } finally {
+        setIsSavingSubcategory(false);
+      }
+    };
 
     const filteredProducts = (data.produtos || []).filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
-    const resetForm = () => { setShowModal(false); setEditingProduct(null); setFormData({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" }); setImageFile(null); setImagePreview(null); };
+    const resetForm = () => {
+      setShowModal(false);
+      setEditingProduct(null);
+      setFormData({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" });
+      setImageFile(null);
+      setImagePreview(null);
+      setIsAddingSubcategory(false);
+      setNewSubcategory("");
+      setIsSavingSubcategory(false);
+    };
     const handleImageChange = (e) => { if (e.target.files[0]) { const file = e.target.files[0]; setImageFile(file); setImagePreview(URL.createObjectURL(file)); } };
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -2375,7 +2470,15 @@ function App() {
         setIsUploading(false);
         resetForm();
     };
-    const handleEdit = (product) => { setEditingProduct(product); setFormData({ ...product, preco: String(product.preco), custo: String(product.custo), estoque: String(product.estoque) }); setImagePreview(product.imageUrl || null); setShowModal(true); };
+    const handleEdit = (product) => {
+      setEditingProduct(product);
+      setFormData({ ...product, preco: String(product.preco), custo: String(product.custo), estoque: String(product.estoque) });
+      setImagePreview(product.imageUrl || null);
+      setIsAddingSubcategory(false);
+      setNewSubcategory("");
+      setIsSavingSubcategory(false);
+      setShowModal(true);
+    };
     const columns = [ { header: "Produto", render: (row) => (<div className="flex items-center gap-3"><img src={row.imageUrl || 'https://placehold.co/40x40/FFC0CB/FFFFFF?text=Doce'} alt={row.nome} className="w-10 h-10 rounded-xl object-cover shadow-md" onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/40x40/FFC0CB/FFFFFF?text=Erro'; }}/><div><p className="font-semibold text-gray-800">{row.nome}</p><p className="text-sm text-gray-500">{row.categoria} / {row.subcategoria}</p></div></div>)}, { header: "Preço", render: (row) => <span className="font-semibold text-green-600">R$ {(row.preco || 0).toFixed(2)}</span> }, { header: "Estoque", render: (row) => <span className={`font-medium ${row.estoque < 10 ? 'text-red-600' : 'text-gray-800'}`}>{row.estoque} un</span> }, { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{row.status}</span> } ];
     const actions = [ { icon: Edit, label: "Editar", onClick: handleEdit }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('produtos', row.id) }) } ];
     
@@ -2391,7 +2494,32 @@ function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Input label="Nome do Produto" value={formData.nome} onChange={(e) => setFormData({...formData, nome: e.target.value})} required />
                   <Select label="Categoria" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})} required><option value="Delivery">Delivery</option><option value="Festa">Festa</option></Select>
-                  <Select label="Subcategoria" value={formData.subcategoria} onChange={e => setFormData({...formData, subcategoria: e.target.value})} required><option value="">Selecione...</option>{subcategorias[formData.categoria]?.map(sub => (<option key={sub} value={sub}>{sub}</option>))}</Select>
+					<Select label="Subcategoria" value={formData.subcategoria} onChange={handleSubcategoriaChange} required>
+						<option value="">Selecione...</option>
+						{availableSubcategories.map(sub => (
+						  <option key={sub} value={sub}>{sub}</option>
+						))}
+						<option value="__add_new__">+ Adicionar nova subcategoria</option>
+					  </Select>
+					  {isAddingSubcategory && (
+						<div className="md:col-span-2 bg-pink-50/80 border border-pink-100 rounded-2xl p-4 space-y-4">
+						  <div className="flex items-center justify-between flex-wrap gap-2">
+							<p className="text-sm font-semibold text-pink-700">Cadastrar nova subcategoria para "{formData.categoria}"</p>
+							<button type="button" className="text-xs text-pink-600 hover:underline" onClick={() => { setIsAddingSubcategory(false); setNewSubcategory(""); }}>Cancelar</button>
+						  </div>
+						  <div className="md:grid md:grid-cols-3 md:gap-4 space-y-4 md:space-y-0">
+							<div className="md:col-span-2">
+							  <Input label="Nova Subcategoria" placeholder="Digite o nome da subcategoria" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} />
+							</div>
+							<div className="flex gap-2 items-end justify-end">
+							  <Button type="button" onClick={handleCreateSubcategory} disabled={isSavingSubcategory} className="w-full md:w-auto">
+								<PackagePlus className="w-4 h-4" />
+								{isSavingSubcategory ? 'Salvando...' : 'Salvar'}
+							  </Button>
+							</div>
+						  </div>
+						</div>
+					  )}
                   <Input label="Preço (R$)" type="number" step="0.01" value={formData.preco} onChange={(e) => setFormData({...formData, preco: e.target.value})} />
                   <Input label="Custo (R$)" type="number" step="0.01" value={formData.custo} onChange={(e) => setFormData({...formData, custo: e.target.value})} />
                   <Input label="Estoque" type="number" value={formData.estoque} onChange={(e) => setFormData({...formData, estoque: e.target.value})} />
