@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, arrayUnion } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -207,6 +207,176 @@ const Table = ({ columns, data, actions = [] }) => (
         </div>
     </>
 );
+
+const generateStoreId = (value) => {
+  if (!value) return '';
+  const cleaned = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+  return cleaned || `loja-${Date.now()}`;
+};
+
+const StoreManagerModal = ({
+  isOpen,
+  onClose,
+  availableStores,
+  storeInfoMap,
+  onCreateStore,
+  onSelectStore,
+  canCreate,
+  allowAllOption,
+  currentStoreId,
+  isCreatingStore
+}) => {
+  const [storeName, setStoreName] = useState('');
+  const [storeIdInput, setStoreIdInput] = useState('');
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStoreName('');
+      setStoreIdInput('');
+      setError('');
+      setSuccessMessage('');
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!canCreate) return;
+
+    setError('');
+    setSuccessMessage('');
+
+    const name = storeName.trim();
+    if (!name) {
+      setError('Informe o nome da loja.');
+      return;
+    }
+
+    let finalId = storeIdInput.trim();
+    if (finalId) {
+      finalId = generateStoreId(finalId);
+    } else {
+      finalId = generateStoreId(name);
+    }
+
+    if (finalId === STORE_ALL_KEY) {
+      setError('Identificador inválido.');
+      return;
+    }
+
+    if (!finalId) {
+      setError('Não foi possível gerar um identificador para a loja.');
+      return;
+    }
+
+    if (availableStores.includes(finalId)) {
+      setError('Já existe uma loja com esse identificador.');
+      return;
+    }
+
+    try {
+      await onCreateStore({ storeId: finalId, nome: name });
+      setSuccessMessage(`Loja "${name}" criada com sucesso!`);
+      setStoreName('');
+      setStoreIdInput('');
+    } catch (createError) {
+      setError(createError.message || 'Não foi possível criar a loja.');
+    }
+  };
+
+  const handleSelect = (value) => {
+    onSelectStore(value);
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Gerenciar lojas" size="lg">
+      <div className="space-y-6">
+        {canCreate && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Adicionar nova loja</h3>
+              <p className="text-sm text-gray-500">Informe um nome para identificar a loja. Você pode ajustar o identificador se necessário.</p>
+            </div>
+            <Input
+              label="Nome da loja"
+              value={storeName}
+              onChange={(e) => setStoreName(e.target.value)}
+              placeholder="Ex: Loja Centro"
+              required
+            />
+            <Input
+              label="Identificador (opcional)"
+              value={storeIdInput}
+              onChange={(e) => setStoreIdInput(e.target.value)}
+              placeholder="Ex: loja-centro"
+            />
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            {successMessage && <p className="text-sm text-green-600">{successMessage}</p>}
+            <div className="flex justify-end">
+              <Button type="submit" disabled={isCreatingStore}>
+                <Plus className="w-4 h-4" />
+                {isCreatingStore ? 'Salvando...' : 'Criar loja'}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        <div className="space-y-3">
+          <h3 className="text-lg font-semibold text-gray-800">Lojas disponíveis</h3>
+
+          {allowAllOption && availableStores.length > 0 && (
+            <div className="p-4 border border-gray-200 rounded-xl flex items-center justify-between bg-gray-50">
+              <div>
+                <p className="font-semibold text-gray-800">Visão Geral</p>
+                <p className="text-xs text-gray-500">Exibe dados combinados de todas as lojas.</p>
+              </div>
+              <Button
+                size="sm"
+                variant={currentStoreId === STORE_ALL_KEY ? 'secondary' : 'primary'}
+                onClick={() => handleSelect(STORE_ALL_KEY)}
+                disabled={currentStoreId === STORE_ALL_KEY}
+              >
+                {currentStoreId === STORE_ALL_KEY ? 'Selecionada' : 'Selecionar'}
+              </Button>
+            </div>
+          )}
+
+          {availableStores.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhuma loja cadastrada até o momento.</p>
+          ) : (
+            availableStores.map((storeId) => {
+              const info = storeInfoMap[storeId] || {};
+              return (
+                <div key={storeId} className="p-4 border border-gray-200 rounded-xl flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-gray-800">{info.nome || storeId}</p>
+                    <p className="text-xs text-gray-500">ID: {storeId}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={currentStoreId === storeId ? 'secondary' : 'primary'}
+                    onClick={() => handleSelect(storeId)}
+                    disabled={currentStoreId === storeId}
+                  >
+                    {currentStoreId === storeId ? 'Selecionada' : 'Selecionar'}
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 
 // Helper function
@@ -1011,6 +1181,8 @@ function App() {
   const [availableStores, setAvailableStores] = useState([]);
   const [storeInfoMap, setStoreInfoMap] = useState({});
   const [selectedStoreId, setSelectedStoreId] = usePersistentState('selectedStoreId', null);
+  const [showStoreManager, setShowStoreManager] = useState(false);
+  const [isCreatingStore, setIsCreatingStore] = useState(false);
 
 
   // --- REVISADO: Refs de Áudio ---
@@ -1095,17 +1267,87 @@ function App() {
 
 	return storeId;
   }, [user, selectedStoreId, availableStores]);
+  
+  const selectStoreById = useCallback((value) => {
+        if (value === STORE_ALL_KEY) {
+          setSelectedStoreId(STORE_ALL_KEY);
+        } else if (value) {
+          setSelectedStoreId(value);
+        } else {
+          setSelectedStoreId(null);
+        }
+  }, [setSelectedStoreId]);
 
   const handleStoreChange = useCallback((event) => {
-	const value = event.target.value;
-	if (value === STORE_ALL_KEY) {
-	  setSelectedStoreId(STORE_ALL_KEY);
-	} else if (value) {
-	  setSelectedStoreId(value);
-	} else {
-	  setSelectedStoreId(null);
-	}
-  }, [setSelectedStoreId]); 
+        selectStoreById(event.target.value);
+  }, [selectStoreById]);
+
+  const handleCreateStore = useCallback(async ({ storeId, nome }) => {
+        const trimmedId = (storeId || '').trim();
+        const trimmedName = (nome || '').trim();
+
+        if (!trimmedId || !trimmedName) {
+          throw new Error('Nome e identificador são obrigatórios.');
+        }
+
+        setIsCreatingStore(true);
+
+        const normalizedId = generateStoreId(trimmedId);
+        if (normalizedId === STORE_ALL_KEY) {
+          setIsCreatingStore(false);
+          throw new Error('Identificador inválido.');
+        }
+        try {
+          const storeDocRef = doc(db, 'lojas', normalizedId);
+          const existingDoc = await getDoc(storeDocRef);
+          if (existingDoc.exists()) {
+            throw new Error('Já existe uma loja com esse identificador.');
+          }
+
+          const payload = {
+            nome: trimmedName,
+            criadoEm: new Date().toISOString()
+          };
+
+          await setDoc(storeDocRef, payload);
+          await setDoc(doc(db, 'lojas', normalizedId, 'info', STORE_INFO_DOC_ID), payload, { merge: true });
+
+          setAvailableStores((prev) => (prev.includes(normalizedId) ? prev : [...prev, normalizedId]));
+          setStoreInfoMap((prev) => ({
+            ...prev,
+            [normalizedId]: { ...(prev[normalizedId] || {}), ...payload }
+          }));
+
+          selectStoreById(normalizedId);
+
+          if (user?.role === ROLE_OWNER && !user.canAccessAllStores && user.auth?.uid) {
+            try {
+              const userRef = doc(db, 'users', user.auth.uid);
+              await updateDoc(userRef, {
+                lojaIds: arrayUnion(normalizedId)
+              });
+            } catch (userUpdateError) {
+              console.error('Erro ao vincular loja ao usuário:', userUpdateError);
+            }
+
+            setUser((prev) => {
+              if (!prev) return prev;
+              if ((prev.lojaIds || []).includes(normalizedId)) return prev;
+              const updatedIds = [...(prev.lojaIds || []), normalizedId];
+              return {
+                ...prev,
+                lojaIds: updatedIds,
+                lojaId: prev.lojaId || normalizedId
+              };
+            });
+          }
+        } catch (error) {
+          console.error('Erro ao criar loja:', error);
+          throw error;
+        } finally {
+          setIsCreatingStore(false);
+        }
+  }, [selectStoreById, user, setUser]);
 
   // --- SUBSTITUÍDO: Nova função stopAlarm ---
         const stopAlarm = useCallback(() => {
@@ -1248,19 +1490,6 @@ function App() {
         });
       };
 
-      const requestMicrophone = async () => {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          return;
-        }
-
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach((track) => track.stop());
-        } catch (error) {
-          console.warn('[App.js] Usuário negou acesso ao microfone ou dispositivo indisponível:', error);
-        }
-      };
-
       try {
         if (navigator.permissions?.query) {
           try {
@@ -1279,27 +1508,7 @@ function App() {
       } catch (error) {
         console.warn('[App.js] Erro ao solicitar geolocalização:', error);
       }
-
-      try {
-        if (navigator.permissions?.query) {
-          try {
-            const micStatus = await navigator.permissions.query({ name: 'microphone' });
-            if (micStatus.state === 'prompt') {
-              await requestMicrophone();
-            } else if (micStatus.state === 'granted') {
-              // Nada a fazer, mas garante que dispositivos sejam liberados
-              await requestMicrophone();
-            }
-          } catch (error) {
-            await requestMicrophone();
-          }
-        } else {
-          await requestMicrophone();
-        }
-      } catch (error) {
-        console.warn('[App.js] Erro ao solicitar permissão do microfone:', error);
-      }
-    };
+	};
 
     requestCapabilities();
   }, [user]);
@@ -1746,6 +1955,8 @@ function App() {
                   setAvailableStores([]);
                   setStoreInfoMap({});
                   setSelectedStoreId(null);
+				  setShowStoreManager(false);
+                  setIsCreatingStore(false);
                   setCurrentPage('pagina-inicial');
            // Não remove mais 'audioUnlocked' do localStorage no logout
            stopAlarm(); // Garante que o alarme pare no logout
@@ -4265,28 +4476,68 @@ const handleSubmit = async (e) => {
             <div className="flex-1 flex items-center justify-center md:justify-start">
                 {user && (
                     user.role === ROLE_OWNER ? (
-                        availableStores.length > 0 ? (
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-500 hidden sm:block">Visão:</span>
-                                <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
-                                    <option value={STORE_ALL_KEY}>Visão Geral</option>
-                                    {availableStores.map(storeId => (
-                                        <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        ) : (
-                            <span className="text-sm text-gray-500">Nenhuma loja configurada</span>
-                        )
+                        <div className="flex items-center gap-3">
+                            {availableStores.length > 0 ? (
+                                <>
+                                    <span className="text-sm text-gray-500 hidden sm:block">Visão:</span>
+                                    <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
+                                        <option value={STORE_ALL_KEY}>Visão Geral</option>
+                                        {availableStores.map(storeId => (
+                                            <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
+                                        ))}
+                                    </select>
+                                </>
+                            ) : (
+                                <span className="text-sm text-gray-500">Nenhuma loja configurada</span>
+                            )}
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setShowStoreManager(true)}
+                                className="hidden sm:flex"
+                            >
+                                <MapPin className="w-4 h-4" />
+                                {availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}
+                            </Button>
+                            <button
+                                type="button"
+                                onClick={() => setShowStoreManager(true)}
+                                className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                title={availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}
+                            >
+                                <MapPin className="w-5 h-5" />
+                                <span className="sr-only">{availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}</span>
+                            </button>
+                        </div>
                     ) : (
                         availableStores.length > 1 ? (
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-500 hidden sm:block">Loja:</span>
-                                <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
-                                    {availableStores.map(storeId => (
-                                        <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
-                                    ))}
-                                </select>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-500 hidden sm:block">Loja:</span>
+                                    <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
+                                        {availableStores.map(storeId => (
+                                            <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setShowStoreManager(true)}
+                                    className="hidden sm:flex"
+                                >
+                                    <MapPin className="w-4 h-4" />
+                                    Trocar loja
+                                </Button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowStoreManager(true)}
+                                    className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                    title="Trocar loja"
+                                >
+                                    <MapPin className="w-5 h-5" />
+                                    <span className="sr-only">Trocar loja</span>
+                                </button>
                             </div>
                         ) : (
                             <div className="text-sm text-gray-600 font-semibold bg-gray-100 px-3 py-1 rounded-lg">
@@ -4356,6 +4607,19 @@ const handleSubmit = async (e) => {
             {renderCurrentPage()}
         </main>
       </div>
+
+      <StoreManagerModal
+        isOpen={showStoreManager}
+        onClose={() => setShowStoreManager(false)}
+        availableStores={availableStores}
+        storeInfoMap={storeInfoMap}
+        onCreateStore={handleCreateStore}
+        onSelectStore={selectStoreById}
+        canCreate={user?.role === ROLE_OWNER}
+        allowAllOption={user?.role === ROLE_OWNER}
+        currentStoreId={currentStoreIdForDisplay}
+        isCreatingStore={isCreatingStore}
+      />
 
       <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' });}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm">
         {showPasswordReset ? (
