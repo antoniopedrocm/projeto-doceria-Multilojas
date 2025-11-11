@@ -71,11 +71,66 @@ const getInitialDataState = () => ({
 
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_DEFAULT;
-  const value = role.toLowerCase();
+
+  const value = role.trim().toLowerCase();
+  if (!value) return ROLE_DEFAULT;
+
+  const normalizedValue = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const ownerAliases = new Set([
+    ROLE_OWNER,
+    'owner',
+    'proprietario',
+    'proprietaria',
+    'admin',
+    'adm',
+    'administrador',
+    'administradora',
+    'adminstrador',
+    'adminstradora',
+    'superadmin',
+    'superadministrador',
+    'superadministradora'
+  ]);
+
+  const managerAliases = new Set([
+    ROLE_MANAGER,
+    'manager',
+    'gerencia',
+    'gerente',
+    'gestor',
+    'gestora'
+  ]);
+
+  const attendantAliases = new Set([
+    ROLE_ATTENDANT,
+    'atendente',
+    'colaborador',
+    'colaboradora',
+    'funcionario',
+    'funcionaria',
+    'vendedor',
+    'vendedora'
+  ]);
+
+  if (ownerAliases.has(normalizedValue)) {
+    return ROLE_OWNER;
+  }
+
+  if (managerAliases.has(normalizedValue)) {
+    return ROLE_MANAGER;
+  }
+
+  if (attendantAliases.has(normalizedValue)) {
+    return ROLE_ATTENDANT;
+  }
+
   if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT].includes(value)) {
     return value;
   }
-  if (value === 'admin') return ROLE_OWNER;
+
   return ROLE_DEFAULT;
 };
 
