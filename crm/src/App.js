@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -1338,71 +1338,63 @@ function App() {
   }, [selectStoreById]);
 
   const handleCreateStore = useCallback(async ({ storeId, nome }) => {
-        const trimmedId = (storeId || '').trim();
-        const trimmedName = (nome || '').trim();
+        const trimmedId = typeof storeId === 'string' ? storeId.trim() : '';
+        const trimmedName = typeof nome === 'string' ? nome.trim() : '';
 
-        if (!trimmedId || !trimmedName) {
+        if (!trimmedName) {
           throw new Error('Nome e identificador são obrigatórios.');
         }
 
         setIsCreatingStore(true);
 
-        const normalizedId = generateStoreId(trimmedId);
-        if (normalizedId === STORE_ALL_KEY) {
-          setIsCreatingStore(false);
-          throw new Error('Identificador inválido.');
-        }
         try {
-          const storeDocRef = doc(db, 'lojas', normalizedId);
-          const existingDoc = await getDoc(storeDocRef);
-          if (existingDoc.exists()) {
-            throw new Error('Já existe uma loja com esse identificador.');
+          const createStoreFn = httpsCallable(functions, 'createStore');
+          const result = await createStoreFn({ storeId: trimmedId, nome: trimmedName });
+          const response = (result && result.data) || {};
+
+          const createdStoreId = response.storeId || generateStoreId(trimmedId || trimmedName);
+
+          if (!createdStoreId || createdStoreId === STORE_ALL_KEY) {
+            throw new Error('Identificador inválido para a loja.');
           }
 
-          const payload = {
-            nome: trimmedName,
-            criadoEm: new Date().toISOString()
-          };
+          const storeData = response.storeData || { nome: trimmedName };
 
-          await setDoc(storeDocRef, payload);
-          await setDoc(doc(db, 'lojas', normalizedId, 'info', STORE_INFO_DOC_ID), payload, { merge: true });
-
-          setAvailableStores((prev) => (prev.includes(normalizedId) ? prev : [...prev, normalizedId]));
+          setAvailableStores((prev) => (prev.includes(createdStoreId) ? prev : [...prev, createdStoreId]));
           setStoreInfoMap((prev) => ({
             ...prev,
-            [normalizedId]: { ...(prev[normalizedId] || {}), ...payload }
+            [createdStoreId]: { ...(prev[createdStoreId] || {}), ...storeData }
           }));
 
-          selectStoreById(normalizedId);
+          selectStoreById(createdStoreId);
 
-          if (user?.role === ROLE_OWNER && !user.canAccessAllStores && user.auth?.uid) {
-            try {
-              const userRef = doc(db, 'users', user.auth.uid);
-              await updateDoc(userRef, {
-                lojaIds: arrayUnion(normalizedId)
-              });
-            } catch (userUpdateError) {
-              console.error('Erro ao vincular loja ao usuário:', userUpdateError);
-            }
-
+          if (Array.isArray(response.assignedStoreIds)) {
             setUser((prev) => {
               if (!prev) return prev;
-              if ((prev.lojaIds || []).includes(normalizedId)) return prev;
-              const updatedIds = [...(prev.lojaIds || []), normalizedId];
+              const uniqueIds = Array.from(new Set(response.assignedStoreIds));
+              const nextPrimary = response.primaryStoreId || prev.lojaId || uniqueIds[0] || null;
+
               return {
                 ...prev,
-                lojaIds: updatedIds,
-                lojaId: prev.lojaId || normalizedId
+                lojaIds: uniqueIds,
+                lojaId: nextPrimary,
+                canAccessAllStores: typeof response.canAccessAllStores === 'boolean'
+                  ? response.canAccessAllStores
+                  : prev.canAccessAllStores
               };
             });
           }
         } catch (error) {
           console.error('Erro ao criar loja:', error);
-          throw error;
+          if (error && typeof error.message === 'string') {
+            const cleanedMessage = error.message.replace(/^FirebaseError:\s*/i, '').trim();
+            throw new Error(cleanedMessage || 'Não foi possível criar a loja.');
+          }
+          throw new Error('Não foi possível criar a loja.');
         } finally {
           setIsCreatingStore(false);
         }
-  }, [selectStoreById, user, setUser]);
+  }, [selectStoreById, setUser]);
 
   // --- SUBSTITUÍDO: Nova função stopAlarm ---
         const stopAlarm = useCallback(() => {

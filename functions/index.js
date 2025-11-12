@@ -19,6 +19,7 @@ admin.initializeApp();
 const db = admin.firestore();
 const auth = admin.auth();
 const STORE_INFO_DOC_ID = 'dados';
+const STORE_ALL_KEY = '__all__';
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
@@ -86,6 +87,18 @@ const requireStoreId = (req, res) => {
     return null;
   }
   return lojaId;
+};
+
+const generateStoreId = (value) => {
+  if (!value) return '';
+
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || `loja-${Date.now()}`;
 };
 
 // API Express para o Cardápio Online
@@ -259,6 +272,91 @@ app.post("/cupons/verificar", async (req, res) => {
 
 // Exporta o app Express como uma Cloud Function HTTP
 exports.api = onRequest(app);
+
+// Cria uma nova loja e garante que os dados fiquem isolados por loja
+exports.createStore = onCall(async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+        throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
+    }
+
+    const requester = await verifyManagementAccess(uid);
+
+    if (requester.role !== ROLE_OWNER) {
+        throw new HttpsError('permission-denied', 'Apenas donos podem criar novas lojas.');
+    }
+
+    const rawName = typeof request.data?.nome === 'string' ? request.data.nome.trim() : '';
+    const rawId = typeof request.data?.storeId === 'string' ? request.data.storeId.trim() : '';
+
+    if (!rawName) {
+        throw new HttpsError('invalid-argument', 'Informe o nome da loja.');
+    }
+
+    const normalizedId = generateStoreId(rawId || rawName);
+
+    if (!normalizedId || normalizedId === STORE_ALL_KEY) {
+        throw new HttpsError('invalid-argument', 'Identificador inválido para a loja.');
+    }
+
+    const storeDocRef = db.collection('lojas').doc(normalizedId);
+    const existingDoc = await storeDocRef.get();
+
+    if (existingDoc.exists) {
+        throw new HttpsError('already-exists', 'Já existe uma loja com esse identificador.');
+    }
+
+    const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+    const storePayload = {
+        nome: rawName,
+        criadoEm: timestamp,
+        criadoPor: uid,
+    };
+
+    await storeDocRef.set(storePayload);
+
+    await storeDocRef.collection('info').doc(STORE_INFO_DOC_ID).set({
+        nome: rawName,
+        criadoEm: timestamp,
+        criadoPor: uid,
+    }, {merge: true});
+
+    const profile = await getUserProfile(uid);
+    let assignedStoreIds = null;
+    let primaryStoreId = profile.lojaId || null;
+
+    if (!requester.allStores) {
+        const existingIds = extractStoreIds(profile);
+        const updatedStoreIds = Array.from(new Set([...existingIds, normalizedId]));
+        const userUpdate = {
+            lojaIds: updatedStoreIds,
+        };
+
+        if (!profile.lojaId) {
+            userUpdate.lojaId = normalizedId;
+            primaryStoreId = normalizedId;
+        }
+
+        await db.collection('users').doc(uid).set(userUpdate, {merge: true});
+        assignedStoreIds = updatedStoreIds;
+
+        if (!primaryStoreId) {
+            primaryStoreId = updatedStoreIds[0] || null;
+        }
+    }
+
+    return {
+        storeId: normalizedId,
+        storeData: {
+            nome: rawName,
+        },
+        assignedStoreIds,
+        primaryStoreId,
+        canAccessAllStores: requester.allStores,
+    };
+});
 
 // --- FUNÇÕES CHAMÁVEIS (CALLABLE FUNCTIONS) PARA GERENCIAMENTO DE USUÁRIOS ---
 
