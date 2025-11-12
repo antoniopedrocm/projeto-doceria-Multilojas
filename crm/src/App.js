@@ -4442,13 +4442,6 @@ const handleSubmit = async (e) => {
     return ids.length ? ids[0] : null;
   }, [user, selectedStoreId, resolveStoreIdsForView]);
 
-  const currentStoreName = useMemo(() => {
-    if (currentStoreIdForDisplay === STORE_ALL_KEY) return 'Visão Geral';
-    if (!currentStoreIdForDisplay) return 'Nenhuma loja selecionada';
-    const info = storeInfoMap[currentStoreIdForDisplay];
-    return info?.nome || currentStoreIdForDisplay;
-  }, [currentStoreIdForDisplay, storeInfoMap]);
-
   const renderCurrentPage = () => {
     if (authLoading || (loading && user)) {
       return (<div className="flex h-full w-full items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-pink-500"></div></div>);
@@ -4531,8 +4524,8 @@ const handleSubmit = async (e) => {
             <div className="flex-1 flex items-center justify-center md:justify-start">
                 {user && (
                     user.role === ROLE_OWNER ? (
-                        <div className="flex items-center gap-3">
-                            {availableStores.length > 0 ? (
+                        <div className="flex items-center gap-3 flex-wrap">
+                            {availableStores.length > 0 && (
                                 <>
                                     <span className="text-sm text-gray-500 hidden sm:block">Visão:</span>
                                     <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
@@ -4542,31 +4535,29 @@ const handleSubmit = async (e) => {
                                         ))}
                                     </select>
                                 </>
-                            ) : (
-                                <span className="text-sm text-gray-500">Nenhuma loja configurada</span>
                             )}
                             <Button
                                 variant="secondary"
                                 size="sm"
                                 onClick={() => setShowStoreManager(true)}
-                                className="hidden sm:flex"
+                                className="hidden sm:flex items-center gap-2"
                             >
-                                <MapPin className="w-4 h-4" />
-                                {availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}
+                                <Plus className="w-4 h-4" />
+                                + Adicionar Loja
                             </Button>
                             <button
                                 type="button"
                                 onClick={() => setShowStoreManager(true)}
                                 className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                title={availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}
+                                title="+ Adicionar Loja"
                             >
-                                <MapPin className="w-5 h-5" />
-                                <span className="sr-only">{availableStores.length > 0 ? 'Gerenciar lojas' : 'Criar loja'}</span>
+                                <Plus className="w-5 h-5" />
+                                <span className="sr-only">+ Adicionar Loja</span>
                             </button>
                         </div>
                     ) : (
-                        availableStores.length > 1 ? (
-                            <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                            {availableStores.length > 0 ? (
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-gray-500 hidden sm:block">Loja:</span>
                                     <select value={currentStoreIdForDisplay || ''} onChange={handleStoreChange} className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-500">
@@ -4575,30 +4566,28 @@ const handleSubmit = async (e) => {
                                         ))}
                                     </select>
                                 </div>
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() => setShowStoreManager(true)}
-                                    className="hidden sm:flex"
-                                >
-                                    <MapPin className="w-4 h-4" />
-                                    Trocar loja
-                                </Button>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowStoreManager(true)}
-                                    className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                    title="Trocar loja"
-                                >
-                                    <MapPin className="w-5 h-5" />
-                                    <span className="sr-only">Trocar loja</span>
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="text-sm text-gray-600 font-semibold bg-gray-100 px-3 py-1 rounded-lg">
-                                {currentStoreName}
-                            </div>
-                        )
+                            ) : (
+                                <span className="text-sm text-gray-500 hidden sm:block">Nenhuma loja cadastrada</span>
+                            )}
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setShowStoreManager(true)}
+                                className="hidden sm:flex items-center gap-2"
+                            >
+                                <Plus className="w-4 h-4" />
+                                + Adicionar Loja
+                            </Button>
+                            <button
+                                type="button"
+                                onClick={() => setShowStoreManager(true)}
+                                className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                title="+ Adicionar Loja"
+                            >
+                                <Plus className="w-5 h-5" />
+                                <span className="sr-only">+ Adicionar Loja</span>
+                            </button>
+                        </div>
                     )
                 )}
             </div>
