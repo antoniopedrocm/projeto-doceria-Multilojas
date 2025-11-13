@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -1970,21 +1970,49 @@ function App() {
   
 	useEffect(() => {
 	  const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-			if (authUser) {
-			  try {
-					const userDocRef = doc(db, "users", authUser.uid);
-					const userDoc = await getDoc(userDocRef);
-					const profile = userDoc.exists() ? userDoc.data() : {};
-					const role = normalizeRole(profile.role);
-					const lojaIds = extractStoreIdsFromProfile(profile);
-					const userData = {
-					  auth: authUser,
-					  role,
-					  lojaIds,
-					  lojaId: lojaIds[0] || null,
-					  canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0
-					};
-					setUser(userData)
+                        if (authUser) {
+                          try {
+                                        const userDocRef = doc(db, "users", authUser.uid);
+                                        const userDoc = await getDoc(userDocRef);
+
+                                        let profile;
+
+                                        if (userDoc.exists()) {
+                                          profile = userDoc.data() || {};
+                                        } else {
+                                          let initialRole = ROLE_DEFAULT;
+
+                                          try {
+                                            const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));
+                                            if (anyUserSnap.empty) {
+                                              initialRole = ROLE_OWNER;
+                                            }
+                                          } catch (roleCheckError) {
+                                            console.error("Erro ao verificar usuários existentes:", roleCheckError);
+                                            initialRole = ROLE_OWNER;
+                                          }
+
+                                          profile = {
+                                            email: authUser.email || "",
+                                            nome: authUser.displayName || authUser.email || "Usuário",
+                                            role: initialRole,
+                                            lojaId: null,
+                                            lojaIds: [],
+                                          };
+
+                                          await setDoc(userDocRef, profile, { merge: true });
+                                        }
+
+                                        const role = normalizeRole(profile.role);
+                                        const lojaIds = extractStoreIdsFromProfile(profile);
+                                        const userData = {
+                                          auth: authUser,
+                                          role,
+                                          lojaIds,
+                                          lojaId: lojaIds[0] || null,
+                                          canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0
+                                        };
+                                        setUser(userData)
 			// Tenta inicializar/resumir o AudioManager APÓS o login
 			if (localStorage.getItem("audioUnlocked") === "true") {
 			  audioManager.init().catch((e) => {
