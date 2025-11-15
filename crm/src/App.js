@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   LayoutDashboard, Users, ShoppingCart, Package, Calendar, Truck, DollarSign, BarChart3,
   Search, Bell, Menu, User as UserIcon, Settings, LogOut, Plus, Heart,
-  Clock, Edit, Trash2, Eye, X, Save, MessageCircle, Cake, Gift, ChevronLeft, ChevronRight, Printer, Home, BookOpen, Instagram, MapPin, Image as ImageIcon, MessageSquare, VolumeX, ArrowUpCircle, ArrowDownCircle, Banknote, PackagePlus, Ticket,
+  Clock, Edit, Trash2, Eye, X, Save, MessageCircle, Cake, Gift, ChevronLeft, ChevronRight, Printer, Home, Store, BookOpen, Instagram, MapPin, Image as ImageIcon, MessageSquare, VolumeX, ArrowUpCircle, ArrowDownCircle, Banknote, PackagePlus, Ticket,
   Key // Ícone adicionado
 } from 'lucide-react';
 
@@ -291,6 +291,7 @@ const StoreManagerModal = ({
   const [storeIdInput, setStoreIdInput] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -298,8 +299,16 @@ const StoreManagerModal = ({
       setStoreIdInput('');
       setError('');
       setSuccessMessage('');
+	  setShowForm(false);
+
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && canCreate && availableStores.length === 0) {
+      setShowForm(true);
+    }
+  }, [isOpen, canCreate, availableStores.length]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -341,6 +350,8 @@ const StoreManagerModal = ({
       setSuccessMessage(`Loja "${name}" criada com sucesso!`);
       setStoreName('');
       setStoreIdInput('');
+	  setShowForm(false);
+
     } catch (createError) {
       setError(createError.message || 'Não foi possível criar a loja.');
     }
@@ -355,33 +366,69 @@ const StoreManagerModal = ({
     <Modal isOpen={isOpen} onClose={onClose} title="Gerenciar lojas" size="lg">
       <div className="space-y-6">
         {canCreate && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Adicionar nova loja</h3>
-              <p className="text-sm text-gray-500">Informe um nome para identificar a loja. Você pode ajustar o identificador se necessário.</p>
-            </div>
-            <Input
-              label="Nome da loja"
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="Ex: Loja Centro"
-              required
-            />
-            <Input
-              label="Identificador (opcional)"
-              value={storeIdInput}
-              onChange={(e) => setStoreIdInput(e.target.value)}
-              placeholder="Ex: loja-centro"
-            />
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            {successMessage && <p className="text-sm text-green-600">{successMessage}</p>}
-            <div className="flex justify-end">
-              <Button type="submit" disabled={isCreatingStore}>
-                <Plus className="w-4 h-4" />
-                {isCreatingStore ? 'Salvando...' : 'Criar loja'}
-              </Button>
-            </div>
-          </form>
+          <div className="space-y-4">
+            {showForm ? (
+              <form onSubmit={handleSubmit} className="space-y-4 p-4 border border-gray-200 rounded-xl bg-white shadow-sm">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Adicionar nova loja</h3>
+                  <p className="text-sm text-gray-500">Informe um nome para identificar a loja. Você pode ajustar o identificador se necessário.</p>
+                </div>
+                <Input
+                  label="Nome da loja"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                  placeholder="Ex: Loja Centro"
+                  required
+                />
+                <Input
+                  label="Identificador (opcional)"
+                  value={storeIdInput}
+                  onChange={(e) => setStoreIdInput(e.target.value)}
+                  placeholder="Ex: loja-centro"
+                />
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                <div className="flex justify-end gap-3">
+                  {availableStores.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setShowForm(false);
+                        setStoreName('');
+                        setStoreIdInput('');
+                        setError('');
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                  <Button type="submit" disabled={isCreatingStore}>
+                    <Plus className="w-4 h-4" />
+                    {isCreatingStore ? 'Salvando...' : 'Criar loja'}
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <div className="p-4 border border-gray-200 rounded-xl flex items-center justify-between bg-white shadow-sm">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Adicionar nova loja</h3>
+                  <p className="text-sm text-gray-500">Crie lojas para organizar suas unidades. Você pode adicionar quantas quiser.</p>
+                </div>
+                <Button
+                  onClick={() => {
+                    setShowForm(true);
+                    setError('');
+                    setSuccessMessage('');
+                  }}
+                >
+                  <Plus className="w-4 h-4" /> Nova loja
+                </Button>
+              </div>
+            )}
+            {successMessage && !showForm && (
+              <p className="text-sm text-green-600">{successMessage}</p>
+            )}
+          </div>
         )}
 
         <div className="space-y-3">
@@ -405,7 +452,22 @@ const StoreManagerModal = ({
           )}
 
           {availableStores.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhuma loja cadastrada até o momento.</p>
+            <div className="p-6 border border-dashed border-gray-300 rounded-xl text-center space-y-3 bg-gray-50">
+              <Store className="w-10 h-10 mx-auto text-gray-400" />
+              <p className="text-base font-semibold text-gray-700">Nenhuma loja cadastrada</p>
+              <p className="text-sm text-gray-500">Crie sua primeira loja para começar a organizar sua operação.</p>
+              {canCreate && (
+                <Button
+                  onClick={() => {
+                    setShowForm(true);
+                    setError('');
+                    setSuccessMessage('');
+                  }}
+                >
+                  <Plus className="w-4 h-4" /> Criar primeira loja
+                </Button>
+              )}
+            </div>
           ) : (
             availableStores.map((storeId) => {
               const info = storeInfoMap[storeId] || {};
