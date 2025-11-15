@@ -283,8 +283,8 @@ exports.createStore = onCall(async (request) => {
 
     const requester = await verifyManagementAccess(uid);
 
-    if (requester.role !== ROLE_OWNER) {
-        throw new HttpsError('permission-denied', 'Apenas donos podem criar novas lojas.');
+    if (![ROLE_OWNER, ROLE_MANAGER].includes(requester.role)) {
+        throw new HttpsError('permission-denied', 'Apenas donos ou gerentes podem criar novas lojas.');
     }
 
     const rawName = typeof request.data?.nome === 'string' ? request.data.nome.trim() : '';
