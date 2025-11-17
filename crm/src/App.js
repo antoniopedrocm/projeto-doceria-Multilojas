@@ -4513,6 +4513,11 @@ const handleSubmit = async (e) => {
     return roles.includes(user.role);
   }, [user]);
 
+  const canCreateStores = useMemo(() => {
+    if (!user) return false;
+    return user.role === ROLE_OWNER || user.role === ROLE_MANAGER;
+  }, [user]);
+
   const currentStoreIdForDisplay = useMemo(() => {
     if (!user) return null;
     if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
@@ -4740,7 +4745,7 @@ const handleSubmit = async (e) => {
         storeInfoMap={storeInfoMap}
         onCreateStore={handleCreateStore}
         onSelectStore={selectStoreById}
-        canCreate={user?.role === ROLE_OWNER}
+        canCreate={canCreateStores}
         allowAllOption={user?.role === ROLE_OWNER}
         currentStoreId={currentStoreIdForDisplay}
         isCreatingStore={isCreatingStore}
