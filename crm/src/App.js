@@ -4629,16 +4629,16 @@ const handleSubmit = async (e) => {
                                 className="hidden sm:flex items-center gap-2"
                             >
                                 <Plus className="w-4 h-4" />
-                                + Adicionar Loja
+                                Adicionar Loja
                             </Button>
                             <button
                                 type="button"
                                 onClick={() => setShowStoreManager(true)}
                                 className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                title="+ Adicionar Loja"
+                                title="Adicionar Loja"
                             >
                                 <Plus className="w-5 h-5" />
-                                <span className="sr-only">+ Adicionar Loja</span>
+                                <span className="sr-only">Adicionar Loja</span>
                             </button>
                         </div>
                     ) : (
@@ -4662,16 +4662,16 @@ const handleSubmit = async (e) => {
                                 className="hidden sm:flex items-center gap-2"
                             >
                                 <Plus className="w-4 h-4" />
-                                + Adicionar Loja
+                                Adicionar Loja
                             </Button>
                             <button
                                 type="button"
                                 onClick={() => setShowStoreManager(true)}
                                 className="sm:hidden inline-flex items-center justify-center p-2 rounded-lg border border-gray-300 text-pink-600 hover:bg-pink-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                title="+ Adicionar Loja"
+                                title="Adicionar Loja"
                             >
                                 <Plus className="w-5 h-5" />
-                                <span className="sr-only">+ Adicionar Loja</span>
+                                <span className="sr-only">Adicionar Loja</span>
                             </button>
                         </div>
                     )
