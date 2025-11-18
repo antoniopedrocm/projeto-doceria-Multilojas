@@ -316,7 +316,7 @@
     <!-- CABEÇALHO -->
     <header class="bg-white shadow-md sticky top-0 z-20">
         <div class="container mx-auto px-3 py-4 flex justify-between items-center">
-            <a href="https://ana-guimaraes.web.app/" class="flex items-center space-x-4">
+            <a href="https://www.anaguimaraesdoceria.com.br" class="flex items-center space-x-4">
                 <img src="/logotipo.png" alt="Logotipo" class="h-10">
                 <h1 class="text-2xl font-bold text-pink-600">Nosso Cardápio</h1>
             </a>
@@ -601,30 +601,37 @@
                     <div id="guest-address-map-container" class="relative">
                         <!-- O mapa será inserido aqui -->
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label for="guest-address-street" class="block text-sm font-medium text-gray-700">Rua*</label>
-                            <input id="guest-address-street" type="text" placeholder="Nome da rua" class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                    <div class="space-y-4 mt-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="guest-address-street" class="block text-sm font-medium text-gray-700 mb-2">Rua *</label>
+                                <input id="guest-address-street" type="text" placeholder="Rua" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
+                            <div>
+                                <label for="guest-address-number" class="block text-sm font-medium text-gray-700 mb-2">Número/Quadra, Lote *</label>
+                                <input id="guest-address-number" type="text" placeholder="Número/Quadra, Lote" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label for="guest-address-complement" class="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
+                                <input id="guest-address-complement" type="text" placeholder="Apto, Bloco, etc." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
                         </div>
-                        <div>
-                            <label for="guest-address-neighborhood" class="block text-sm font-medium text-gray-700">Bairro/Setor*</label>
-                            <input id="guest-address-neighborhood" type="text" placeholder="Nome do bairro" class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label for="guest-address-neighborhood" class="block text-sm font-medium text-gray-700 mb-2">Bairro *</label>
+                                <input id="guest-address-neighborhood" type="text" placeholder="Bairro" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
+                            <div>
+                                <label for="guest-address-city" class="block text-sm font-medium text-gray-700 mb-2">Cidade *</label>
+                                <input id="guest-address-city" type="text" placeholder="Cidade" value="Goiânia" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
+                            <div>
+                                <label for="guest-address-zip" class="block text-sm font-medium text-gray-700 mb-2">CEP</label>
+                                <input id="guest-address-zip" type="text" placeholder="CEP" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
                         </div>
-                        <div>
-                            <label for="guest-address-number" class="block text-sm font-medium text-gray-700">Número</label>
-                            <input id="guest-address-number" type="text" placeholder="Nº" class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
-                        </div>
-                        <div>
-                            <label for="guest-address-complement" class="block text-sm font-medium text-gray-700">Complemento</label>
-                            <input id="guest-address-complement" type="text" placeholder="Apto, bloco, etc." class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
-                        </div>
-                        <div>
-                            <label for="guest-address-block" class="block text-sm font-medium text-gray-700">Quadra*</label>
-                            <input id="guest-address-block" type="text" placeholder="Qd." class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
-                        </div>
-                        <div>
-                            <label for="guest-address-lot" class="block text-sm font-medium text-gray-700">Lote*</label>
-                            <input id="guest-address-lot" type="text" placeholder="Lt." class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                            <label for="guest-address-nickname" class="block text-sm font-medium text-gray-700 mb-2">Apelido do endereço *</label>
+                            <input id="guest-address-nickname" type="text" placeholder="Como você chama este endereço? (Ex: Casa, Trabalho)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
                         </div>
                     </div>
                     <input id="guest-address-full" type="hidden"> <!-- Campo oculto para endereço completo -->
@@ -700,38 +707,23 @@
 	  // Variável global para armazenar os dados de frete
 	  window.dadosFrete = null;
 
-	  const STORE_INFO_DOC_ID = 'dados';
-	  const DEFAULT_STORE_ID = 'loja_matriz';
-	  const params = new URLSearchParams(window.location.search);
-	  const lojaQuery = params.get('loja');
-	  const pathSegments = window.location.pathname.split('/').filter(Boolean);
-	  let lojaSlug = null;
-	  if (pathSegments.length >= 2 && pathSegments[pathSegments.length - 2].includes('cardapio')) {
-			lojaSlug = pathSegments[pathSegments.length - 1];
-	  } else if (pathSegments.length >= 1 && !pathSegments[pathSegments.length - 1].includes('cardapio')) {
-			lojaSlug = pathSegments[pathSegments.length - 1];
-	  }
-	  const currentStoreId = decodeURIComponent(lojaQuery || lojaSlug || DEFAULT_STORE_ID);
-	  window.currentStoreId = currentStoreId;
-
 	  async function carregarConfiguracoesFrete() {
-			try {
-			  const freteRef = doc(db, 'lojas', currentStoreId, 'info', STORE_INFO_DOC_ID);
-			  const freteSnap = await getDoc(freteRef);
-			  if (freteSnap.exists()) {
-					const infoData = freteSnap.data();
-					window.dadosFrete = infoData?.frete || {};
-					console.log(`✅ Configurações de frete da loja "${currentStoreId}" carregadas:`, window.dadosFrete);
-			  } else {
-					console.error(`❌ Configurações de frete da loja "${currentStoreId}" não encontradas`);
-			  }
-			} catch (error) {
-			  console.error("Erro ao carregar frete:", error);
-			}
+		try {
+		  const freteRef = doc(db, "configuracoes", "frete");
+		  const freteSnap = await getDoc(freteRef);
+		  if (freteSnap.exists()) {
+			window.dadosFrete = freteSnap.data();
+			console.log("✅ Configurações de frete carregadas:", window.dadosFrete);
+		  } else {
+			console.error("❌ Documento 'frete' não encontrado");
+		  }
+		} catch (error) {
+		  console.error("Erro ao carregar frete:", error);
+		}
 	  }
 
-          document.addEventListener("DOMContentLoaded", carregarConfiguracoesFrete);
-        </script>
+	  document.addEventListener("DOMContentLoaded", carregarConfiguracoesFrete);
+	</script>
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
@@ -881,24 +873,49 @@
 		});
 	}
 
-	function fillAddressFields(place) {
-	  const components = place.addressComponents || [];
-	  const get = (type) => components.find(c => c.types.includes(type))?.longName || '';
-	  
-      const addressInput = document.getElementById('manual-address-street');
-	  const numberInput = document.getElementById('manual-address-number');
-	  const neighborhoodInput = document.getElementById('manual-address-neighborhood');
-	  const cityInput = document.getElementById('manual-address-city');
-	  const zipInput = document.getElementById('manual-address-zip');
-	  
-	  if (!addressInput.value) addressInput.value = get('route');
-	  if (!numberInput.value) numberInput.value = get('street_number');
-	  if (!neighborhoodInput.value) neighborhoodInput.value = get('sublocality_level_1') || get('neighborhood') || get('political');
-	  if (!cityInput.value) cityInput.value = get('administrative_area_level_2') || 'Goiânia';
-	  if (!zipInput.value) zipInput.value = get('postal_code');
-	  
-	  validateAddressForm();
-	}
+        function fillAddressFields(place) {
+          const rawComponents = place?.addressComponents || place?.address_components || [];
+          const normalizeComponent = (component) => {
+            if (!component) return null;
+            const name = component.long_name || component.longName || component.name || component.short_name || component.shortName;
+            return {
+              value: name || '',
+              types: component.types || [],
+            };
+          };
+
+          const components = rawComponents
+            .map(normalizeComponent)
+            .filter(Boolean);
+
+          const get = (type) => {
+            const component = components.find((c) => c.types.includes(type));
+            return component?.value?.trim() || '';
+          };
+
+          const formattedAddress = place?.formattedAddress || place?.formatted_address || '';
+          const streetFromPlace = get('route') || formattedAddress.split(',')[0]?.trim();
+          const numberFromPlace = get('street_number');
+          const neighborhoodFromPlace = get('sublocality_level_1') || get('neighborhood') || get('political');
+          const cityFromPlace = get('administrative_area_level_2');
+          const zipFromPlace = get('postal_code');
+
+          const addressInput = document.getElementById('manual-address-street');
+          const numberInput = document.getElementById('manual-address-number');
+          const neighborhoodInput = document.getElementById('manual-address-neighborhood');
+          const cityInput = document.getElementById('manual-address-city');
+          const zipInput = document.getElementById('manual-address-zip');
+
+          if (streetFromPlace && addressInput) addressInput.value = streetFromPlace;
+          if (numberFromPlace && numberInput && !numberInput.value) numberInput.value = numberFromPlace;
+          if (neighborhoodFromPlace && neighborhoodInput) neighborhoodInput.value = neighborhoodFromPlace;
+          if (cityInput && (cityFromPlace || !cityInput.value)) {
+            cityInput.value = cityFromPlace || cityInput.value || 'Goiânia';
+          }
+          if (zipFromPlace && zipInput && !zipInput.value) zipInput.value = zipFromPlace;
+
+          validateAddressForm();
+        }
 
     document.getElementById('show-new-address-btn').addEventListener('click', () => {
         setTimeout(initAddressMap, 300);
@@ -922,26 +939,12 @@
         } from "./firebaseClientConfig.js";
 
         // --- VARIÁVEIS GLOBAIS ---
-        let WHATSAPP_NUMBER = '5562991056075';
+        const WHATSAPP_NUMBER = '5562991056075';
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
+		window.guestCurrentLatLng = null;
         let storeConfig = {};
-		
-        const STORE_INFO_DOC_ID = 'dados';
-        const DEFAULT_STORE_ID = 'loja_matriz';
-        const urlParams = new URLSearchParams(window.location.search);
-        const lojaFromQuery = urlParams.get('loja');
-        const pathSegments = window.location.pathname.split('/').filter(Boolean);
-        let lojaSlug = null;
-        if (pathSegments.length >= 2 && pathSegments[pathSegments.length - 2].includes('cardapio')) {
-            lojaSlug = pathSegments[pathSegments.length - 1];
-        } else if (pathSegments.length >= 1 && !pathSegments[pathSegments.length - 1].includes('cardapio')) {
-            lojaSlug = pathSegments[pathSegments.length - 1];
-        }
-        const currentStoreId = decodeURIComponent(lojaFromQuery || lojaSlug || DEFAULT_STORE_ID);
-        window.currentStoreId = currentStoreId;
-        console.log(`📦 Loja selecionada: ${currentStoreId}`);
 
         // --- SELEÇÃO DE ELEMENTOS DOM ---
         const productList = document.getElementById('product-list'),
@@ -1041,32 +1044,10 @@
         async function fetchStoreConfig() {
             try {
                 const { db, doc, getDoc } = await import('./firebaseClientConfig.js');
-                const infoDocRef = doc(db, 'lojas', currentStoreId, 'info', STORE_INFO_DOC_ID);
-                const infoDoc = await getDoc(infoDocRef);
-                if (infoDoc.exists()) {
-                    const infoData = infoDoc.data();
-                    const freteConfig = infoData?.frete || {};
-                    storeConfig = {
-                        ...freteConfig,
-                        nomeLoja: infoData?.nome || '',
-                        enderecoLoja: freteConfig?.enderecoLoja || '',
-                        lat: freteConfig?.lat || '',
-                        lng: freteConfig?.lng || '',
-                        valorPorKm: typeof freteConfig?.valorPorKm === 'number' ? freteConfig.valorPorKm : parseFloat(freteConfig?.valorPorKm || 0)
-                    };
-
-                    const whatsappField = infoData?.whatsapp || infoData?.telefoneWhatsapp || infoData?.telefone;
-                    if (whatsappField) {
-                        WHATSAPP_NUMBER = String(whatsappField).replace(/\D/g, '') || WHATSAPP_NUMBER;
-                    }
-
-                    if (infoData?.nome) {
-                        document.title = `Cardápio - ${infoData.nome}`;
-                    }
-
-                    console.log(`✅ Configurações da loja "${currentStoreId}" carregadas:`, storeConfig);
-                } else {
-                    console.warn(`⚠️ Documento de informações da loja "${currentStoreId}" não encontrado.`);
+                const configDoc = await getDoc(doc(db, "configuracoes", "frete"));
+                if (configDoc.exists()) {
+                    storeConfig = configDoc.data();
+                    console.log("✅ Configurações da loja carregadas:", storeConfig);
                 }
             } catch (error) {
                 console.error("Erro ao carregar configurações:", error);
@@ -1078,15 +1059,16 @@
                 console.log("🔄 Buscando produtos do Firebase...");
                 
                 const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
-                const q = query(collection(db, "lojas", currentStoreId, "produtos"), where("status", "==", "Ativo"));
+                
+                const q = query(collection(db, "produtos"), where("status", "==", "Ativo"));
                 const querySnapshot = await getDocs(q);
-                allProducts = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    lojaId: currentStoreId
+                allProducts = querySnapshot.docs.map(doc => ({ 
+                    id: doc.id, 
+                    ...doc.data() 
                 }));
                 
-                console.log(`✅ ${allProducts.length} produtos carregados para ${currentStoreId}`);              
+                console.log(`✅ ${allProducts.length} produtos carregados`);
+                
                 if (allProducts.length === 0) {
                     throw new Error('Nenhum produto encontrado');
                 }
@@ -1300,7 +1282,6 @@
 				cartShipping.textContent = `R$ ${window.valorFrete.toFixed(2)}`;
 				cartShippingLine.classList.remove('hidden');
 			} else {
-
                 // Modificação para mostrar R$ 0,00 se o frete for zero, mesmo se a linha não estiver oculta (caso de retirada)
 				cartShipping.textContent = `R$ 0,00`; 
                 // A linha só fica oculta se não for retirada na loja E o frete for zero.
@@ -1385,14 +1366,19 @@
                 currentClient = null; 
             });
 
-            continueGuestButton.addEventListener('click', () => { 
+            continueGuestButton.addEventListener('click', () => {
                 identificationModal.classList.add('hidden');
                 guestCheckoutModal.classList.remove('hidden');
+                window.valorFrete = 0;
+                window.guestCurrentLatLng = null;
                 updateGuestSummary();
                 setTimeout(window.initGuestAddressMap, 300);
             });
 
-            closeGuestCheckoutModal.addEventListener('click', () => guestCheckoutModal.classList.add('hidden'));
+            closeGuestCheckoutModal.addEventListener('click', () => {
+                guestCheckoutModal.classList.add('hidden');
+                window.guestCurrentLatLng = null;
+            });
 
             searchPhoneButton.addEventListener('click', handlePhoneSearch);
 
@@ -1437,18 +1423,18 @@
             guestVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('guest'));
             paymentVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('payment'));
         
-            ['guest-address-street', 'guest-address-neighborhood', 'guest-address-block', 'guest-address-lot'].forEach(id => {
+            ['guest-address-street', 'guest-address-number', 'guest-address-neighborhood', 'guest-address-city'].forEach(id => {
                 const input = document.getElementById(id);
                 if (input) {
                     input.addEventListener('blur', async () => {
                         const street = document.getElementById('guest-address-street').value.trim();
+						const number = document.getElementById('guest-address-number').value.trim();
                         const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
-                        const block = document.getElementById('guest-address-block').value.trim();
-                        const lot = document.getElementById('guest-address-lot').value.trim();
+                        const city = document.getElementById('guest-address-city').value.trim() || 'Goiânia';
 
-                        if (street && neighborhood && block && lot) {
-                            const fullAddressForGeocode = `${street}, ${neighborhood}, Goiânia`;
-                            
+                        if (street && number && neighborhood && city) {
+                            const fullAddressForGeocode = `${street}, ${number}, ${neighborhood}, ${city}`;
+
                             try {
                                 await window.aguardarGoogleMaps();
                                 const geocoder = new google.maps.Geocoder();
@@ -1456,6 +1442,8 @@
                                     if (status === 'OK' && results[0]) {
                                         const location = results[0].geometry.location;
                                         const latlng = { lat: location.lat(), lng: location.lng() };
+                                        fillGuestAddressFields(results[0]);
+                                        window.guestCurrentLatLng = latlng;
                                         window.updateGuestShippingAndSummary(latlng);
                                     } else {
                                         console.warn('Não foi possível geocodificar o endereço digitado:', status);
@@ -1465,6 +1453,10 @@
                             } catch (error) {
                                 console.error('Erro ao geocodificar endereço do visitante:', error);
                             }
+                        } else {
+                            window.guestCurrentLatLng = null;
+                            window.valorFrete = 0;
+                            updateGuestSummary();
                         }
                     });
                 }
@@ -1514,7 +1506,8 @@
 
             try {
                 const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-                const clientDocRef = doc(db, 'lojas', currentStoreId, 'clientes', currentClient.id);
+                const clientDocRef = doc(db, "clientes", currentClient.id);
+                
                 const clientSnap = await getDoc(clientDocRef);
                 if (!clientSnap.exists()) {
                     throw new Error("Cliente não encontrado para atualizar endereço.");
@@ -1604,7 +1597,6 @@
 					addressDiv.querySelector('.delete-address-btn').onclick = (e) => { e.stopPropagation(); deleteAddress(index); };
 					addressList.appendChild(addressDiv);
 				});
-
 			} 
             // O 'else' block que exibia "Nenhum endereço cadastrado" foi removido 
             // para não apagar a opção "Retirar na Loja".
@@ -1616,7 +1608,7 @@
 
 			try {
 				const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-                           const clientDocRef = doc(db, 'lojas', currentStoreId, 'clientes', currentClient.id);
+				const clientDocRef = doc(db, 'clientes', currentClient.id);
 				const clientSnap = await getDoc(clientDocRef);
 				if (!clientSnap.exists()) {
                     throw new Error('Cliente não encontrado.');
@@ -1727,7 +1719,7 @@
 
                 try {
                     const { db, doc, updateDoc } = await import('./firebaseClientConfig.js');
-                    const clientRef = doc(db, 'lojas', currentStoreId, 'clientes', client.id);
+                    const clientRef = doc(db, 'clientes', client.id);
                     await updateDoc(clientRef, { nome: newName, aniversario: newBirthdate });
                     
                     currentClient.nome = newName;
@@ -1784,10 +1776,9 @@
                         aniversario: newBirthdate,
                         telefone: phone.replace(/\D/g, ''),
                         enderecos: [],
-                        createdAt: serverTimestamp(),
-                        lojaId: currentStoreId
+                        createdAt: serverTimestamp()
                     };
-                    const docRef = await addDoc(collection(db, 'lojas', currentStoreId, 'clientes'), newClientData);
+                    const docRef = await addDoc(collection(db, "clientes"), newClientData);
                     currentClient = { id: docRef.id, ...newClientData };
                     showToast("Novo cliente criado com sucesso!");
                     modal.classList.add('hidden');
@@ -1822,7 +1813,7 @@
             
             try {
                 const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
-                const q = query(collection(db, 'lojas', currentStoreId, 'clientes'), where("telefone", "==", phoneDigits));
+                const q = query(collection(db, "clientes"), where("telefone", "==", phoneDigits));
                 const querySnapshot = await getDocs(q);
                 
                 phoneLoginModal.classList.add('hidden');
@@ -1889,14 +1880,19 @@
 			document.getElementById('guest-discount-row').classList.toggle('hidden', discount === 0);
 			if (discount > 0) document.getElementById('guest-discount').textContent = `- R$ ${discount.toFixed(2)}`;
 			
-			if (window.valorFrete > 0) {
-				document.getElementById('guest-shipping').textContent = `R$ ${window.valorFrete.toFixed(2)}`;
-				document.getElementById('guest-shipping-row').classList.remove('hidden');
-			} else {
-                document.getElementById('guest-shipping-row').classList.remove('hidden');
-				document.getElementById('guest-shipping').textContent = `Aguardando endereço...`;
-			}
-		}
+                        const shippingRow = document.getElementById('guest-shipping-row');
+                        const shippingValue = document.getElementById('guest-shipping');
+                        if (window.valorFrete > 0) {
+                                shippingValue.textContent = `R$ ${window.valorFrete.toFixed(2)}`;
+                                shippingRow.classList.remove('hidden');
+                        } else if (window.guestCurrentLatLng) {
+                                shippingValue.textContent = 'R$ 0,00';
+                                shippingRow.classList.remove('hidden');
+                        } else {
+                                shippingRow.classList.remove('hidden');
+                                shippingValue.textContent = 'Aguardando endereço...';
+                        }
+                }
         window.updateGuestSummary = updateGuestSummary;
 
         async function handleVerifyCupom(type) {
@@ -1920,13 +1916,13 @@
                 const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
 
                 if (!isGuest && currentClient?.id) {
-                const clientDoc = await getDoc(doc(db, 'lojas', currentStoreId, 'clientes', currentClient.id));
+                    const clientDoc = await getDoc(doc(db, "clientes", currentClient.id));
                     if (clientDoc.exists() && clientDoc.data().cuponsUsados?.includes(codigo)) {
                         throw new Error('Você já utilizou este cupom.');
                     }
                 }
                 
-                const q = query(collection(db, 'lojas', currentStoreId, 'cupons'), where("codigo", "==", codigo));
+                const q = query(collection(db, "cupons"), where("codigo", "==", codigo));
                 const cupomSnapshot = await getDocs(q);
                 if (cupomSnapshot.empty) throw new Error('Cupom inválido.');
                 
@@ -1971,19 +1967,28 @@
             const phone = guestPhoneInput.value.trim();
             const paymentMethod = guestPaymentMethodSelect.value;
             const street = document.getElementById('guest-address-street').value.trim();
-            const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
             const number = document.getElementById('guest-address-number').value.trim();
-            const block = document.getElementById('guest-address-block').value.trim();
-            const lot = document.getElementById('guest-address-lot').value.trim();
             const complement = document.getElementById('guest-address-complement').value.trim();
+            const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
+            const city = document.getElementById('guest-address-city').value.trim();
+            const zip = document.getElementById('guest-address-zip').value.trim();
+            const nickname = document.getElementById('guest-address-nickname').value.trim();
 
-            if (!name || !phone || !paymentMethod || !street || !neighborhood || !block || !lot) {
+            if (!name || !phone || !paymentMethod || !street || !number || !neighborhood || !city || !nickname) {
                 showToast('Preencha todos os campos obrigatórios (*).', true);
                 return;
             }
             
-            let fullAddress = `${street}, ${number ? 'Nº ' + number : 'S/N'}, ${neighborhood}, Qd. ${block}, Lt. ${lot}`;
-            if (complement) fullAddress += ` - ${complement}`;
+
+            if (!window.guestCurrentLatLng || typeof window.guestCurrentLatLng.lat === 'undefined' || typeof window.guestCurrentLatLng.lng === 'undefined') {
+                showToast('Confirme a localização no mapa antes de finalizar.', true);
+                return;
+            }
+
+            let fullAddress = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
+            if (nickname) fullAddress += ` (${nickname})`;
+
+            document.getElementById('guest-address-full').value = fullAddress;
 			
 			sendWhatsappButton.disabled = true;
 			sendWhatsappButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
@@ -2051,12 +2056,12 @@
             };
 
             try {
-                const docRef = await addDoc(collection(db, 'lojas', currentStoreId, 'pedidos'), { ...orderData, lojaId: currentStoreId });
+                const docRef = await addDoc(collection(db, "pedidos"), orderData);
 
                 // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE ESTOQUE ---
                 for (const item of cart) {
                     try {
-                        const productRef = doc(db, 'lojas', currentStoreId, 'produtos', item.id);
+                        const productRef = doc(db, "produtos", item.id);
                         const productSnap = await getDoc(productRef);
 
                         if (productSnap.exists()) {
@@ -2077,9 +2082,9 @@
 
                 if (clientId && appliedCupom) {
                     try {
-                        const clientDocRef = doc(db, 'lojas', currentStoreId, 'clientes', clientId);
+                        const clientDocRef = doc(db, "clientes", clientId);
                         await updateDoc(clientDocRef, { cuponsUsados: arrayUnion(appliedCupom.codigo) });
-                        const cupomDocRef = doc(db, 'lojas', currentStoreId, 'cupons', appliedCupom.id);
+                        const cupomDocRef = doc(db, "cupons", appliedCupom.id);
                         const cupomDoc = await getDoc(cupomDocRef);
                         if (cupomDoc.exists()) {
                             await updateDoc(cupomDocRef, { usos: (cupomDoc.data().usos || 0) + 1 });
@@ -2126,16 +2131,48 @@
 	<script>
 	// ==================== CÁLCULO DE FRETE E MAPA PARA VISITANTES ====================
     let guestMap, guestMarker, guestGeocoder, guestPlaceAutocomplete;
+	
+    function normalizeGuestLatLng(latlng) {
+        try {
+            if (!latlng) return null;
+            if (typeof latlng.lat === 'function' && typeof latlng.lng === 'function') {
+                return { lat: latlng.lat(), lng: latlng.lng() };
+            }
+            if (typeof latlng.lat === 'number' && typeof latlng.lng === 'number') {
+                return { lat: latlng.lat, lng: latlng.lng };
+            }
+            if (latlng.toJSON) {
+                const json = latlng.toJSON();
+                if (typeof json.lat === 'number' && typeof json.lng === 'number') {
+                    return { lat: json.lat, lng: json.lng };
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao normalizar coordenadas de visitante:', error, latlng);
+        }
+        return null;
+    }
 
     async function updateGuestShippingAndSummary(latlng) {
+        const normalizedLatLng = normalizeGuestLatLng(latlng);
+        if (!normalizedLatLng) {
+            console.warn('Coordenadas inválidas para cálculo de frete do visitante:', latlng);
+            window.guestCurrentLatLng = null;
+            window.valorFrete = 0;
+        window.guestCurrentLatLng = normalizedLatLng;
+            window.updateGuestSummary();
+            return;
+        }
+
         document.getElementById('guest-shipping').textContent = 'Calculando...';
         window.valorFrete = 0;
         window.updateGuestSummary();
 
         try {
             await window.aguardarGoogleMaps();
-            const resultado = await window.calcularFreteParaEndereco(latlng);
-            window.valorFrete = parseFloat(resultado.valorFrete);
+            const resultado = await window.calcularFreteParaEndereco(normalizedLatLng);
+            const valorCalculado = parseFloat(resultado.valorFrete);
+            window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
         } catch (error) {
             console.error('Falha ao calcular frete para visitante:', error);
@@ -2148,21 +2185,60 @@
     window.updateGuestShippingAndSummary = updateGuestShippingAndSummary;
 
     function fillGuestAddressFields(place) {
-        const components = place.addressComponents || [];
-        const get = (type) => components.find(c => c.types.includes(type))?.longName || '';
-        
-        document.getElementById('guest-address-street').value = get('route');
-        document.getElementById('guest-address-neighborhood').value = get('sublocality_level_1') || get('political');
-        document.getElementById('guest-address-number').value = get('street_number');
-        document.getElementById('guest-address-full').value = place.formattedAddress || '';
+        const rawComponents = place?.addressComponents || place?.address_components || [];
+        const normalizeComponent = (component) => {
+            if (!component) return null;
+            const name = component.long_name || component.longName || component.name || component.short_name || component.shortName;
+            return {
+                value: name || '',
+                types: component.types || [],
+            };
+        };
+
+        const components = rawComponents.map(normalizeComponent).filter(Boolean);
+        const get = (type) => components.find((c) => c.types.includes(type))?.value?.trim() || '';
+
+        const formattedAddress = place?.formattedAddress || place?.formatted_address || '';
+        const streetFromPlace = get('route') || formattedAddress.split(',')[0]?.trim();
+        const numberFromPlace = get('street_number');
+        const neighborhoodFromPlace = get('sublocality_level_1') || get('neighborhood') || get('political');
+        const cityFromPlace = get('administrative_area_level_2');
+        const zipFromPlace = get('postal_code');
+
+        const streetInput = document.getElementById('guest-address-street');
+        const numberInput = document.getElementById('guest-address-number');
+        const neighborhoodInput = document.getElementById('guest-address-neighborhood');
+        const cityInput = document.getElementById('guest-address-city');
+        const zipInput = document.getElementById('guest-address-zip');
+
+        if (streetFromPlace && streetInput) streetInput.value = streetFromPlace;
+        if (numberFromPlace && numberInput && !numberInput.value) numberInput.value = numberFromPlace;
+        if (neighborhoodFromPlace && neighborhoodInput) neighborhoodInput.value = neighborhoodFromPlace;
+        if (cityInput) {
+            cityInput.value = cityFromPlace || cityInput.value || 'Goiânia';
+        }
+        if (zipFromPlace && zipInput && !zipInput.value) zipInput.value = zipFromPlace;
+
+        const fullInput = document.getElementById('guest-address-full');
+        if (fullInput) fullInput.value = formattedAddress || fullInput.value || '';
     }
 
     function reverseGeocodeGuest(latlng) {
-        guestGeocoder.geocode({ location: latlng }, (results, status) => {
-            if (status === 'OK' && results[0]) {
+        const normalizedLatLng = normalizeGuestLatLng(latlng);
+        if (!normalizedLatLng) {
+            showToast('Erro ao obter coordenadas do endereço. Tente novamente.', true);
+            return;
+        }
+
+        if (!guestGeocoder) {
+            guestGeocoder = new google.maps.Geocoder();
+        }
+
+        guestGeocoder.geocode({ location: normalizedLatLng }, (results, status) => {
+		if (status === 'OK' && results[0]) {
                 fillGuestAddressFields(results[0]);
             }
-            updateGuestShippingAndSummary(latlng);
+            updateGuestShippingAndSummary(normalizedLatLng);
         });
     }
 
@@ -2198,10 +2274,10 @@
                 const place = placePrediction.toPlace();
                 await place.fetchFields({ fields: ['location', 'formattedAddress', 'addressComponents'] });
                 if (place.location) {
-                    const newPosition = { lat: place.location.lat(), lng: place.location.lng };
+                    const newPosition = { lat: place.location.lat(), lng: place.location.lng() };
                     guestMap.setCenter(newPosition);
                     guestMap.setZoom(18);
-                    guestStoreInfoWindow.close();				
+                    guestStoreInfoWindow.close();
                     guestMarker.position = newPosition;
                     fillGuestAddressFields(place);
                     updateGuestShippingAndSummary(newPosition);
@@ -2218,7 +2294,7 @@
                         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                         guestMap.panTo(coords);
                         guestMap.setZoom(17);
-						guestStoreInfoWindow.close();
+                                                guestStoreInfoWindow.close();
                         guestMarker.position = coords;
                         reverseGeocodeGuest(coords);
                     });
@@ -2310,3 +2386,5 @@
 
 </body>
 </html>
+
+

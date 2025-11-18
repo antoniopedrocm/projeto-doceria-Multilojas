@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -39,11 +39,13 @@ const ROLE_ATTENDANT = 'atendente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_INFO_DOC_ID = 'dados';
 const STORE_ALL_KEY = '__all__';
+const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 
 const COLLECTIONS_TO_SYNC = [
   'clientes',
   'produtos',
   'subcategorias',
+  'categoriasFornecedores',
   'contas_a_pagar',
   'contas_a_receber',
   'fornecedores',
@@ -59,6 +61,7 @@ const getInitialDataState = () => ({
   pedidos: [],
   produtos: [],
   subcategorias: [],
+  categoriasFornecedores: [],
   contas_a_pagar: [],
   contas_a_receber: [],
   fornecedores: [],
@@ -144,6 +147,80 @@ const extractStoreIdsFromProfile = (profile) => {
   return [];
 };
 
+const formatPhoneForWhatsApp = (phone) => {
+  if (!phone) return '';
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('55')) {
+    return digits.length >= 12 ? digits : digits;
+  }
+  if (digits.length >= 11) {
+    return `55${digits}`;
+  }
+  if (digits.length === 10) {
+    return `55${digits}`;
+  }
+  return '';
+};
+
+const getOrderAddressDetails = (order, clientes = []) => {
+  if (!order) return { cliente: null, enderecoTexto: '', locationLink: '' };
+
+  const cliente = clientes.find((c) => c.id === order.clienteId) || null;
+  const normalizeEnderecoObj = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string') return { enderecoCompleto: value };
+    if (typeof value === 'object') return value;
+    return null;
+  };
+
+  let enderecoTexto = '';
+  if (typeof order.clienteEndereco === 'string') {
+    enderecoTexto = order.clienteEndereco;
+  } else if (typeof order.clienteEndereco === 'object' && order.clienteEndereco !== null) {
+    enderecoTexto = order.clienteEndereco.enderecoCompleto || order.clienteEndereco.texto || '';
+  }
+
+  if (!enderecoTexto && cliente) {
+    if (Array.isArray(cliente.enderecos) && cliente.enderecos.length > 0) {
+      const primeiroEndereco = normalizeEnderecoObj(cliente.enderecos[0]);
+      enderecoTexto = primeiroEndereco?.enderecoCompleto || '';
+    } else if (cliente.endereco) {
+      enderecoTexto = cliente.endereco;
+    }
+  }
+
+  if (!enderecoTexto) {
+    enderecoTexto = 'Não informado';
+  }
+
+  let enderecoSelecionado = null;
+  if (cliente && Array.isArray(cliente.enderecos)) {
+    enderecoSelecionado = cliente.enderecos.find((item) => {
+      const normalizado = normalizeEnderecoObj(item);
+      if (!normalizado) return false;
+      if (!enderecoTexto || enderecoTexto === 'Não informado') return false;
+      return normalizado.enderecoCompleto === enderecoTexto;
+    }) || null;
+  }
+
+  let lat = null;
+  let lng = null;
+  if (enderecoSelecionado && typeof enderecoSelecionado === 'object') {
+    const latNumber = parseFloat(enderecoSelecionado.lat);
+    const lngNumber = parseFloat(enderecoSelecionado.lng);
+    lat = Number.isNaN(latNumber) ? null : latNumber;
+    lng = Number.isNaN(lngNumber) ? null : lngNumber;
+  }
+
+  const locationLink = lat !== null && lng !== null
+    ? `https://www.google.com/maps?q=${lat},${lng}`
+    : enderecoTexto && enderecoTexto !== 'Não informado'
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoTexto)}`
+      : '';
+
+  return { cliente, enderecoTexto, locationLink };
+};
 
 // Hook customizado para estado persistente na sessão
 const usePersistentState = (key, defaultValue) => {
@@ -262,6 +339,124 @@ const Table = ({ columns, data, actions = [] }) => (
         </div>
     </>
 );
+
+const DeliveryModal = ({ isOpen, onClose, order, clientes = [], fornecedores = [] }) => {
+  const [selectedDeliverer, setSelectedDeliverer] = useState('');
+  const [error, setError] = useState('');
+  const availableDeliverers = useMemo(
+    () => (fornecedores || []).filter((f) => (f.status || 'Ativo') !== 'Inativo'),
+    [fornecedores]
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedDeliverer('');
+      setError('');
+    }
+  }, [isOpen, order?.id]);
+
+  if (!isOpen || !order) return null;
+
+  const { enderecoTexto, locationLink } = getOrderAddressDetails(order, clientes);
+  const canSend =
+    availableDeliverers.length > 0 &&
+    enderecoTexto &&
+    enderecoTexto !== 'Não informado' &&
+    enderecoTexto !== 'Retirar na Loja';
+
+  const handleSend = () => {
+    if (!selectedDeliverer) {
+      setError('Selecione um entregador.');
+      return;
+    }
+    const deliverer = availableDeliverers.find((f) => f.id === selectedDeliverer);
+    const whatsappNumber = formatPhoneForWhatsApp(deliverer?.contato_whatsapp || deliverer?.contato_telefone);
+    if (!deliverer || !whatsappNumber) {
+      setError('O entregador selecionado não possui um telefone/WhatsApp válido.');
+      return;
+    }
+    if (!canSend) {
+      setError('Este pedido não possui um endereço válido para entrega.');
+      return;
+    }
+
+    let message = `Olá ${deliverer.nome?.split(' ')[0] || 'entregador'}, segue o endereço para entrega.\n\n`;
+    message += `Pedido: ${order.id?.substring(0, 8) || '-'}\n`;
+    message += `Cliente: ${order.clienteNome || 'Cliente'}\n`;
+    message += `Endereço: ${enderecoTexto}\n`;
+    if (locationLink) {
+      message += `Localização: ${locationLink}\n`;
+    }
+    if (order.telefone) {
+      message += `Telefone do cliente: ${order.telefone}\n`;
+    }
+    if (order.observacao) {
+      message += `Observações: ${order.observacao}\n`;
+    }
+    if (order.formaPagamento) {
+      message += `Pagamento: ${order.formaPagamento}\n`;
+    }
+    if (order.total) {
+      message += `Total: R$ ${(order.total || 0).toFixed(2)}\n`;
+    }
+
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Enviar endereço para entregador" size="md">
+      <div className="space-y-4 text-sm text-gray-700">
+        <div className="p-3 bg-gray-50 rounded-xl space-y-1">
+          <p><strong>Cliente:</strong> {order.clienteNome || 'Cliente'}</p>
+          <p><strong>Endereço:</strong> {enderecoTexto}</p>
+          {locationLink && (
+            <p className="truncate">
+              <strong>Localização:</strong>{' '}
+              <a href={locationLink} target="_blank" rel="noreferrer" className="text-pink-600 underline">
+                Abrir no mapa
+              </a>
+            </p>
+          )}
+        </div>
+
+        {availableDeliverers.length === 0 ? (
+          <p className="text-sm text-red-500">Nenhum entregador cadastrado nos fornecedores.</p>
+        ) : (
+          <Select
+            label="Selecione o entregador"
+            value={selectedDeliverer}
+            onChange={(e) => {
+              setSelectedDeliverer(e.target.value);
+              setError('');
+            }}
+          >
+            <option value="">Escolha um entregador</option>
+            {availableDeliverers.map((deliverer) => (
+              <option key={deliverer.id} value={deliverer.id}>
+                {deliverer.nome} {deliverer.categoria ? `(${deliverer.categoria})` : ''}
+              </option>
+            ))}
+          </Select>
+        )}
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button
+            onClick={handleSend}
+            disabled={!canSend || availableDeliverers.length === 0}
+            className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700"
+          >
+            <Truck className="w-4 h-4" /> Enviar via WhatsApp
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 const generateStoreId = (value) => {
   if (!value) return '';
@@ -526,9 +721,52 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     const [editingEstoque, setEditingEstoque] = useState(null);
     const [estoqueFormData, setEstoqueFormData] = useState({});
     
-    const resetFornecedorForm = () => setFornecedorFormData({ nome: '', cnpj_cpf: '', contato_telefone: '', contato_email: '', contato_whatsapp: '', endereco_completo: '', endereco_cep: '', categoria: 'Insumos', dados_bancarios: '', observacoes: '', status: 'Ativo' });
+    const [isAddingFornecedorCategoria, setIsAddingFornecedorCategoria] = useState(false);
+    const [newFornecedorCategoria, setNewFornecedorCategoria] = useState('');
+    const [isSavingFornecedorCategoria, setIsSavingFornecedorCategoria] = useState(false);
+    const [previousFornecedorCategoria, setPreviousFornecedorCategoria] = useState('');
+
+    const resetFornecedorForm = () => {
+        setFornecedorFormData({ nome: '', cnpj_cpf: '', contato_telefone: '', contato_email: '', contato_whatsapp: '', endereco_completo: '', endereco_cep: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], dados_bancarios: '', observacoes: '', status: 'Ativo' });
+        setIsAddingFornecedorCategoria(false);
+        setNewFornecedorCategoria('');
+        setIsSavingFornecedorCategoria(false);
+        setPreviousFornecedorCategoria('');
+    };
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
-    const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: 'Insumos', fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
+    const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
+
+    const fornecedorCategories = useMemo(() => {
+        const customCategories = (data.categoriasFornecedores || [])
+            .map(item => {
+                if (!item) return null;
+                if (typeof item === 'string') return item;
+                return item.nome;
+            })
+            .filter(Boolean);
+
+        const combined = [...DEFAULT_FORNECEDOR_CATEGORIES, ...customCategories];
+        if (fornecedorFormData.categoria && fornecedorFormData.categoria.trim()) {
+            combined.push(fornecedorFormData.categoria.trim());
+        }
+        if (estoqueFormData.categoria && estoqueFormData.categoria.trim()) {
+            combined.push(estoqueFormData.categoria.trim());
+        }
+
+        const seen = new Set();
+        const unique = [];
+        combined.forEach(cat => {
+            const normalized = typeof cat === 'string' ? cat.trim() : '';
+            if (!normalized) return;
+            const key = normalized.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                unique.push(normalized);
+            }
+        });
+
+        return unique;
+    }, [data.categoriasFornecedores, fornecedorFormData.categoria, estoqueFormData.categoria]);
     
 	useEffect(() => {
 		const total = (pedidoFormData.itens || []).reduce((sum, item) => 
@@ -549,8 +787,62 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
 
     // Handlers Fornecedores
     const handleNewFornecedor = () => { setEditingFornecedor(null); resetFornecedorForm(); setShowFornecedorModal(true); };
-    const handleEditFornecedor = (fornecedor) => { setEditingFornecedor(fornecedor); setFornecedorFormData(fornecedor); setShowFornecedorModal(true); };
+    const handleEditFornecedor = (fornecedor) => { setEditingFornecedor(fornecedor); setFornecedorFormData(fornecedor); setIsAddingFornecedorCategoria(false); setNewFornecedorCategoria(''); setIsSavingFornecedorCategoria(false); setPreviousFornecedorCategoria(''); setShowFornecedorModal(true); };
     const handleFornecedorSubmit = async (e) => { e.preventDefault(); if (editingFornecedor) { await updateItem('fornecedores', editingFornecedor.id, fornecedorFormData); } else { await addItem('fornecedores', fornecedorFormData); } setShowFornecedorModal(false); };
+
+    const handleFornecedorCategoriaChange = (e) => {
+        const value = e.target.value;
+        if (value === '__add_new__') {
+            setIsAddingFornecedorCategoria(true);
+            setNewFornecedorCategoria('');
+            setPreviousFornecedorCategoria(fornecedorFormData.categoria || DEFAULT_FORNECEDOR_CATEGORIES[0]);
+            setFornecedorFormData(prev => ({ ...prev, categoria: '' }));
+            return;
+        }
+        setIsAddingFornecedorCategoria(false);
+        setNewFornecedorCategoria('');
+        setPreviousFornecedorCategoria('');
+        setFornecedorFormData(prev => ({ ...prev, categoria: value || DEFAULT_FORNECEDOR_CATEGORIES[0] }));
+    };
+
+    const handleCancelFornecedorCategoria = () => {
+        setIsAddingFornecedorCategoria(false);
+        setNewFornecedorCategoria('');
+        setIsSavingFornecedorCategoria(false);
+        setFornecedorFormData(prev => ({ ...prev, categoria: previousFornecedorCategoria || DEFAULT_FORNECEDOR_CATEGORIES[0] }));
+        setPreviousFornecedorCategoria('');
+    };
+
+    const handleCreateFornecedorCategoria = async () => {
+        const trimmed = newFornecedorCategoria.trim();
+        if (!trimmed) {
+            alert('Informe o nome da nova categoria.');
+            return;
+        }
+
+        const existing = fornecedorCategories.find(cat => cat.toLowerCase() === trimmed.toLowerCase());
+        if (existing) {
+            alert('Esta categoria já existe.');
+            setFornecedorFormData(prev => ({ ...prev, categoria: existing }));
+            setIsAddingFornecedorCategoria(false);
+            setNewFornecedorCategoria('');
+            return;
+        }
+
+        try {
+            setIsSavingFornecedorCategoria(true);
+            await addItem('categoriasFornecedores', { nome: trimmed });
+            setFornecedorFormData(prev => ({ ...prev, categoria: trimmed }));
+            setIsAddingFornecedorCategoria(false);
+            setNewFornecedorCategoria('');
+            setPreviousFornecedorCategoria('');
+        } catch (error) {
+            console.error('Erro ao criar categoria de fornecedor:', error);
+            alert('Não foi possível salvar a nova categoria. Tente novamente.');
+        } finally {
+            setIsSavingFornecedorCategoria(false);
+        }
+    };
 
     // Handlers Pedidos de Compra
     const handleNewPedido = () => { setEditingPedido(null); resetPedidoForm(); setShowPedidoModal(true); };
@@ -618,7 +910,36 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
 
             <Modal isOpen={showFornecedorModal} onClose={() => setShowFornecedorModal(false)} title={editingFornecedor ? 'Editar Fornecedor' : 'Novo Fornecedor'} size="lg">
                 <form onSubmit={handleFornecedorSubmit} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><Input label="Nome/Razão Social" value={fornecedorFormData.nome || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, nome: e.target.value})} required/><Input label="CNPJ/CPF" value={fornecedorFormData.cnpj_cpf || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, cnpj_cpf: e.target.value})}/><Input label="Telefone" value={fornecedorFormData.contato_telefone || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, contato_telefone: e.target.value})}/><Input label="Email" type="email" value={fornecedorFormData.contato_email || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, contato_email: e.target.value})}/><Input label="Endereço Completo" value={fornecedorFormData.endereco_completo || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, endereco_completo: e.target.value})}/><Select label="Categoria" value={fornecedorFormData.categoria || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, categoria: e.target.value})}><option>Insumos</option><option>Embalagens</option><option>Bebidas</option><option>Decoração</option><option>Serviços</option></Select></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input label="Nome/Razão Social" value={fornecedorFormData.nome || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, nome: e.target.value})} required/>
+                        <Input label="CNPJ/CPF" value={fornecedorFormData.cnpj_cpf || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, cnpj_cpf: e.target.value})}/>
+                        <Input label="Telefone" value={fornecedorFormData.contato_telefone || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, contato_telefone: e.target.value})}/>
+                        <Input label="Email" type="email" value={fornecedorFormData.contato_email || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, contato_email: e.target.value})}/>
+                        <Input label="Endereço Completo" value={fornecedorFormData.endereco_completo || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, endereco_completo: e.target.value})}/>
+                        <Select label="Categoria" value={fornecedorFormData.categoria || ''} onChange={handleFornecedorCategoriaChange}>
+                            <option value="">Selecione...</option>
+                            {fornecedorCategories.map(categoria => (
+                                <option key={categoria} value={categoria}>{categoria}</option>
+                            ))}
+                            <option value="__add_new__">+ Adicionar nova categoria</option>
+                        </Select>
+                        {isAddingFornecedorCategoria && (
+                            <div className="md:col-span-2 bg-pink-50 border border-pink-100 rounded-2xl p-4 space-y-3">
+                                <div className="flex flex-col md:flex-row gap-3">
+                                    <div className="flex-1">
+                                        <Input label="Nova Categoria" placeholder="Digite o nome da categoria" value={newFornecedorCategoria} onChange={(e) => setNewFornecedorCategoria(e.target.value)} />
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button type="button" variant="secondary" onClick={handleCancelFornecedorCategoria} className="whitespace-nowrap">Cancelar</Button>
+                                        <Button type="button" onClick={handleCreateFornecedorCategoria} disabled={isSavingFornecedorCategoria} className="whitespace-nowrap">
+                                            {isSavingFornecedorCategoria ? 'Salvando...' : 'Salvar Categoria'}
+                                        </Button>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-pink-700">A nova categoria ficará disponível automaticamente para todos os cadastros desta loja.</p>
+                            </div>
+                        )}
+                    </div>
                     <Textarea label="Dados Bancários" rows="2" value={fornecedorFormData.dados_bancarios || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, dados_bancarios: e.target.value})}/>
                     <Textarea label="Observações" rows="2" value={fornecedorFormData.observacoes || ''} onChange={e => setFornecedorFormData({...fornecedorFormData, observacoes: e.target.value})}/>
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowFornecedorModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar</Button></div>
@@ -663,7 +984,11 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
                 <form onSubmit={handleEstoqueSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Input label="Nome do Item" value={estoqueFormData.nome || ''} onChange={e => setEstoqueFormData({...estoqueFormData, nome: e.target.value})} required/>
-                        <Select label="Categoria" value={estoqueFormData.categoria || ''} onChange={e => setEstoqueFormData({...estoqueFormData, categoria: e.target.value})}><option>Insumos</option><option>Embalagens</option><option>Bebidas</option><option>Decoração</option></Select>
+                        <Select label="Categoria" value={estoqueFormData.categoria || ''} onChange={e => setEstoqueFormData({...estoqueFormData, categoria: e.target.value})}>
+                            {fornecedorCategories.map(categoria => (
+                                <option key={categoria} value={categoria}>{categoria}</option>
+                            ))}
+                        </Select>
                         <Select label="Fornecedor Principal" value={estoqueFormData.fornecedorId || ''} onChange={e => setEstoqueFormData({...estoqueFormData, fornecedorId: e.target.value})}><option value="">Nenhum</option>{data.fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</Select>
                         <Input label="Custo por Unidade (R$)" type="number" step="0.01" value={estoqueFormData.custoUnitario || ''} onChange={e => setEstoqueFormData({...estoqueFormData, custoUnitario: e.target.value})} />
                         <Input label="Quantidade Atual" type="number" value={estoqueFormData.quantidade || ''} onChange={e => setEstoqueFormData({...estoqueFormData, quantidade: e.target.value})} required/>
@@ -2285,6 +2610,7 @@ function App() {
     { id: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
   ];
@@ -2363,6 +2689,557 @@ function App() {
                 </div>
             </div>
         </div>
+      </div>
+    );
+  };
+
+  const MeuEspaco = ({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay }) => {
+    const now = new Date();
+    const initialMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+    const [companyInfo, setCompanyInfo] = useState({
+      nome: '',
+      endereco: '',
+      cnpj: '',
+      atividade: '',
+      horarioTrabalho: '',
+      competencia: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
+      gestorResponsavel: ''
+    });
+    const [companyLoading, setCompanyLoading] = useState(false);
+    const [companySaving, setCompanySaving] = useState(false);
+    const [records, setRecords] = useState([]);
+    const [recordsLoading, setRecordsLoading] = useState(false);
+    const [registerLoading, setRegisterLoading] = useState(false);
+    const [registerMessage, setRegisterMessage] = useState(null);
+    const [selectedEmployee, setSelectedEmployee] = useState('self');
+    const [employees, setEmployees] = useState([]);
+    const [employeesLoading, setEmployeesLoading] = useState(false);
+    const [editingRecord, setEditingRecord] = useState(null);
+    const [editForm, setEditForm] = useState({ horaEntrada: '', horaSaida: '', irregularidade: '', qtde: '', justificativa: '' });
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [todayRecordData, setTodayRecordData] = useState(null);
+
+    const isManager = user ? [ROLE_OWNER, ROLE_MANAGER].includes(user.role) : false;
+    const userId = user?.auth?.uid || '';
+    const userName = user?.auth?.displayName || user?.auth?.email || 'Gestor';
+
+    const competenciaLabel = useMemo(() => {
+      const [year, month] = selectedMonth.split('-');
+      return `${month}/${year}`;
+    }, [selectedMonth]);
+
+    useEffect(() => {
+      if (isManager) {
+        setSelectedEmployee('all');
+      } else if (userId) {
+        setSelectedEmployee(userId);
+      }
+    }, [isManager, userId]);
+
+    useEffect(() => {
+      setCompanyInfo((prev) => ({ ...prev, competencia: competenciaLabel }));
+    }, [competenciaLabel]);
+
+    useEffect(() => {
+      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+        setCompanyInfo((prev) => ({ ...prev, nome: '', endereco: '', cnpj: '', atividade: '', horarioTrabalho: '', gestorResponsavel: '' }));
+        return;
+      }
+
+      setCompanyLoading(true);
+      const companyDoc = doc(db, 'lojas', currentStoreIdForDisplay, 'meuEspaco', 'empresa');
+      const unsubscribe = onSnapshot(companyDoc, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          setCompanyInfo((prev) => ({
+            ...prev,
+            ...data,
+            competencia: competenciaLabel,
+          }));
+        } else {
+          setCompanyInfo((prev) => ({ ...prev, nome: '', endereco: '', cnpj: '', atividade: '', horarioTrabalho: '', gestorResponsavel: '' }));
+        }
+        setCompanyLoading(false);
+      }, (error) => {
+        console.error('Erro ao carregar dados da empresa', error);
+        setCompanyLoading(false);
+      });
+
+      return () => unsubscribe();
+    }, [currentStoreIdForDisplay, competenciaLabel]);
+
+    useEffect(() => {
+      if (!isManager || !currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+        setEmployees([]);
+        setEmployeesLoading(false);
+        return;
+      }
+
+      setEmployeesLoading(true);
+      const fetchEmployees = async () => {
+        try {
+          const snap = await getDocs(collection(db, 'users'));
+          const list = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+          const filtered = list.filter(item => {
+            const lojas = Array.isArray(item.lojaIds) ? item.lojaIds : (item.lojaId ? [item.lojaId] : []);
+            return lojas.includes(currentStoreIdForDisplay);
+          });
+          setEmployees(filtered);
+        } catch (error) {
+          console.error('Erro ao buscar colaboradores', error);
+        } finally {
+          setEmployeesLoading(false);
+        }
+      };
+
+      fetchEmployees();
+    }, [isManager, currentStoreIdForDisplay]);
+
+    useEffect(() => {
+      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+        setRecords([]);
+        return;
+      }
+
+      setRecordsLoading(true);
+      const pontosRef = collection(db, 'lojas', currentStoreIdForDisplay, 'pontos');
+      const pontosQuery = query(pontosRef, where('competencia', '==', selectedMonth));
+      const unsubscribe = onSnapshot(pontosQuery, (snapshot) => {
+        const data = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        setRecords(data);
+        setRecordsLoading(false);
+      }, (error) => {
+        console.error('Erro ao carregar registros de ponto', error);
+        setRecords([]);
+        setRecordsLoading(false);
+      });
+
+      return () => unsubscribe();
+    }, [currentStoreIdForDisplay, selectedMonth]);
+
+    useEffect(() => {
+      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY || !userId) {
+        setTodayRecordData(null);
+        return;
+      }
+      const today = new Date();
+      const dayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const competenciaKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      const pontosRef = collection(db, 'lojas', currentStoreIdForDisplay, 'pontos');
+      const todayQuery = query(
+        pontosRef,
+        where('funcionarioId', '==', userId),
+        where('dia', '==', dayKey),
+        where('competencia', '==', competenciaKey),
+        limit(1)
+      );
+      const unsubscribe = onSnapshot(todayQuery, (snapshot) => {
+        if (!snapshot.empty) {
+          setTodayRecordData({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+        } else {
+          setTodayRecordData(null);
+        }
+      }, () => setTodayRecordData(null));
+      return () => unsubscribe();
+    }, [currentStoreIdForDisplay, userId]);
+
+    const getDayInfo = (record) => {
+      if (record.dia) {
+        const date = new Date(record.dia);
+        return date;
+      }
+      if (record.data && typeof record.data.toDate === 'function') {
+        return record.data.toDate();
+      }
+      return null;
+    };
+
+    const formatTime = (value) => value || '--:--';
+
+    const getWorkedTime = (registro) => {
+      if (registro.qtde) return registro.qtde;
+      if (!registro.horaEntrada || !registro.horaSaida) return '-';
+      const [hIn, mIn] = registro.horaEntrada.split(':').map(Number);
+      const [hOut, mOut] = registro.horaSaida.split(':').map(Number);
+      const minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      if (Number.isNaN(minutes) || minutes <= 0) return '-';
+      const hrs = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+    };
+
+    const filteredRecords = useMemo(() => {
+      const sorted = [...records].sort((a, b) => {
+        const dateA = getDayInfo(a);
+        const dateB = getDayInfo(b);
+        if (!dateA || !dateB) return 0;
+        return dateA - dateB;
+      });
+      if (isManager) {
+        if (selectedEmployee === 'all') return sorted;
+        return sorted.filter(item => item.funcionarioId === selectedEmployee);
+      }
+      return sorted.filter(item => item.funcionarioId === userId);
+    }, [records, isManager, selectedEmployee, userId]);
+
+    const todayRecord = todayRecordData;
+
+    const requestLocation = () => new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Seu navegador não suporta geolocalização.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    });
+
+    const formatTimeString = (dateObj) => dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    const handleRegisterPoint = async (type) => {
+      try {
+        setRegisterLoading(true);
+        setRegisterMessage(null);
+        const position = await requestLocation();
+        const coords = {
+          latitude: Number(position.coords.latitude.toFixed(6)),
+          longitude: Number(position.coords.longitude.toFixed(6)),
+          capturedAt: new Date().toISOString()
+        };
+        const storeId = resolveActiveStoreForWrite();
+        const pontosRef = collection(db, 'lojas', storeId, 'pontos');
+        const currentDate = new Date();
+        const dayKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+        const competenciaKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        if (selectedMonth !== competenciaKey) {
+          setSelectedMonth(competenciaKey);
+        }
+        const existingQuery = query(
+          pontosRef,
+          where('funcionarioId', '==', userId),
+          where('dia', '==', dayKey),
+          where('competencia', '==', competenciaKey),
+          limit(1)
+        );
+        const snapshot = await getDocs(existingQuery);
+        const payload = type === 'entrada'
+          ? { horaEntrada: formatTimeString(new Date()), localizacaoEntrada: coords }
+          : { horaSaida: formatTimeString(new Date()), localizacaoSaida: coords };
+
+        if (snapshot.empty) {
+          if (type === 'saida') {
+            throw new Error('Registre a entrada antes de registrar a saída.');
+          }
+          await addDoc(pontosRef, {
+            funcionarioId: userId,
+            funcionarioNome: userName,
+            dia: dayKey,
+            data: Timestamp.now(),
+            horaEntrada: payload.horaEntrada,
+            horaSaida: '',
+            localizacaoEntrada: payload.localizacaoEntrada,
+            localizacaoSaida: null,
+            irregularidade: '',
+            qtde: '',
+            justificativa: '',
+            competencia: competenciaKey,
+            empresaId: currentStoreIdForDisplay,
+            historicoAlteracoes: [],
+            createdAt: serverTimestamp()
+          });
+        } else {
+          const docRef = snapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            ...payload,
+            updatedAt: serverTimestamp()
+          });
+        }
+        setRegisterMessage({ type: 'success', text: `Ponto de ${type === 'entrada' ? 'entrada' : 'saída'} registrado com sucesso!` });
+      } catch (error) {
+        console.error('Erro ao registrar ponto', error);
+        setRegisterMessage({ type: 'error', text: error.message || 'Não foi possível registrar o ponto.' });
+      } finally {
+        setRegisterLoading(false);
+      }
+    };
+
+    const handleSaveCompanyInfo = async (event) => {
+      event.preventDefault();
+      if (!isManager) return;
+      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+        alert('Selecione uma loja para salvar as informações.');
+        return;
+      }
+
+      try {
+        setCompanySaving(true);
+        const storeId = resolveActiveStoreForWrite();
+        const companyDoc = doc(db, 'lojas', storeId, 'meuEspaco', 'empresa');
+        await setDoc(companyDoc, {
+          nome: companyInfo.nome || '',
+          endereco: companyInfo.endereco || '',
+          cnpj: companyInfo.cnpj || '',
+          atividade: companyInfo.atividade || '',
+          horarioTrabalho: companyInfo.horarioTrabalho || '',
+          competencia: competenciaLabel,
+          gestorResponsavel: companyInfo.gestorResponsavel || userName,
+          gestorId: userId,
+          atualizadoEm: serverTimestamp()
+        }, { merge: true });
+        setRegisterMessage({ type: 'success', text: 'Informações da empresa salvas com sucesso!' });
+      } catch (error) {
+        console.error('Erro ao salvar dados da empresa', error);
+        setRegisterMessage({ type: 'error', text: 'Não foi possível salvar as informações da empresa.' });
+      } finally {
+        setCompanySaving(false);
+      }
+    };
+
+    const openEditModal = (record) => {
+      setEditingRecord(record);
+      setEditForm({
+        horaEntrada: record.horaEntrada || '',
+        horaSaida: record.horaSaida || '',
+        irregularidade: record.irregularidade || '',
+        qtde: record.qtde || '',
+        justificativa: record.justificativa || ''
+      });
+    };
+
+    const handleSaveEdit = async () => {
+      if (!editingRecord) return;
+      try {
+        setSavingEdit(true);
+        const storeId = resolveActiveStoreForWrite();
+        const recordRef = doc(db, 'lojas', storeId, 'pontos', editingRecord.id);
+        const nowDate = new Date();
+        await updateDoc(recordRef, {
+          horaEntrada: editForm.horaEntrada || '',
+          horaSaida: editForm.horaSaida || '',
+          irregularidade: editForm.irregularidade || '',
+          qtde: editForm.qtde || '',
+          justificativa: editForm.justificativa || '',
+          gestorId: userId,
+          dataAjuste: serverTimestamp(),
+          historicoAlteracoes: arrayUnion({
+            data: nowDate.toISOString(),
+            gestor: userName,
+            alteracoes: { ...editForm }
+          })
+        });
+        setRegisterMessage({ type: 'success', text: 'Registro de ponto atualizado.' });
+        setEditingRecord(null);
+      } catch (error) {
+        console.error('Erro ao atualizar registro', error);
+        setRegisterMessage({ type: 'error', text: 'Não foi possível atualizar o registro.' });
+      } finally {
+        setSavingEdit(false);
+      }
+    };
+
+    if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+      return (
+        <div className="p-4 md:p-6">
+          <div className="bg-white rounded-2xl shadow p-6 text-center">
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">Selecione uma loja</h2>
+            <p className="text-gray-600">Para acessar o Meu Espaço, escolha uma loja específica no topo do sistema.</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/20 to-rose-50/20 min-h-screen">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold text-gray-800">Meu Espaço</h1>
+          <p className="text-gray-600">Registre seu ponto e acompanhe os horários do mês atual.</p>
+        </div>
+
+        {registerMessage && (
+          <div className={`p-4 rounded-2xl ${registerMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            {registerMessage.text}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-800">Registro de ponto</h2>
+                <p className="text-gray-500 text-sm">A localização é capturada automaticamente.</p>
+              </div>
+              <Clock className="w-10 h-10 text-pink-500" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button
+                onClick={() => handleRegisterPoint('entrada')}
+                disabled={registerLoading}
+              >
+                Registrar entrada
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleRegisterPoint('saida')}
+                disabled={registerLoading || !todayRecord?.horaEntrada}
+              >
+                Registrar saída
+              </Button>
+            </div>
+            {todayRecord && (
+              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-xl p-4">
+                <div>
+                  <p className="text-gray-500">Entrada</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaEntrada)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Saída</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaSaida)}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSaveCompanyInfo} className="bg-white rounded-2xl shadow p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-800">Informações da empresa</h2>
+                <p className="text-gray-500 text-sm">Dados exibidos no cabeçalho do relatório.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label="Nome da empresa" value={companyInfo.nome} onChange={(e) => setCompanyInfo({ ...companyInfo, nome: e.target.value })} disabled={!isManager} required={isManager} />
+              <Input label="CNPJ" value={companyInfo.cnpj} onChange={(e) => setCompanyInfo({ ...companyInfo, cnpj: e.target.value })} disabled={!isManager} />
+              <Input label="Endereço" value={companyInfo.endereco} onChange={(e) => setCompanyInfo({ ...companyInfo, endereco: e.target.value })} disabled={!isManager} />
+              <Input label="Atividade econômica" value={companyInfo.atividade} onChange={(e) => setCompanyInfo({ ...companyInfo, atividade: e.target.value })} disabled={!isManager} />
+              <Input label="Horário de trabalho" value={companyInfo.horarioTrabalho} onChange={(e) => setCompanyInfo({ ...companyInfo, horarioTrabalho: e.target.value })} disabled={!isManager} />
+              <Input label="Competência" value={competenciaLabel} disabled readOnly />
+              <Input label="Gestor responsável" value={companyInfo.gestorResponsavel || userName} onChange={(e) => setCompanyInfo({ ...companyInfo, gestorResponsavel: e.target.value })} disabled={!isManager} />
+            </div>
+            {isManager && (
+              <div className="flex justify-end">
+                <Button type="submit" disabled={companyLoading || companySaving}>{companySaving ? 'Salvando...' : 'Salvar informações'}</Button>
+              </div>
+            )}
+          </form>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-800">Registros do mês</h2>
+              <p className="text-gray-500 text-sm">Visualização automática do mês selecionado.</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Input
+                type="month"
+                label="Mês"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="min-w-[160px]"
+              />
+              {isManager && (
+                <Select label="Colaborador" value={selectedEmployee} onChange={(e) => setSelectedEmployee(e.target.value)} disabled={employeesLoading} className="min-w-[200px]">
+                  {employeesLoading ? (
+                    <option>Carregando...</option>
+                  ) : (
+                    <>
+                      <option value="all">Todos</option>
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>{employee.nome || employee.email || employee.id}</option>
+                      ))}
+                    </>
+                  )}
+                </Select>
+              )}
+            </div>
+          </div>
+
+          {recordsLoading ? (
+            <div className="py-10 text-center text-gray-500">Carregando registros...</div>
+          ) : filteredRecords.length === 0 ? (
+            <div className="py-10 text-center text-gray-500">Nenhum registro encontrado para o período selecionado.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500">
+                    <th className="py-3 px-4">Dia da semana</th>
+                    <th className="py-3 px-4">Dia</th>
+                    <th className="py-3 px-4">Entrada</th>
+                    <th className="py-3 px-4">Saída</th>
+                    <th className="py-3 px-4">Irregularidade</th>
+                    <th className="py-3 px-4">Qtde</th>
+                    <th className="py-3 px-4">Justificativa</th>
+                    <th className="py-3 px-4">Localização</th>
+                    {isManager && <th className="py-3 px-4">Ações</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredRecords.map((registro) => {
+                    const date = getDayInfo(registro);
+                    const diaSemana = date ? date.toLocaleDateString('pt-BR', { weekday: 'long' }) : '-';
+                    const diaMes = date ? String(date.getDate()).padStart(2, '0') : '-';
+                    return (
+                      <tr key={registro.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 capitalize">{diaSemana}</td>
+                        <td className="py-3 px-4">{diaMes}</td>
+                        <td className="py-3 px-4 font-semibold">{formatTime(registro.horaEntrada)}</td>
+                        <td className="py-3 px-4 font-semibold">{formatTime(registro.horaSaida)}</td>
+                        <td className="py-3 px-4">{registro.irregularidade || '-'}</td>
+                        <td className="py-3 px-4">{getWorkedTime(registro)}</td>
+                        <td className="py-3 px-4 max-w-xs">{registro.justificativa || '-'}</td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1 text-xs">
+                            {registro.localizacaoEntrada && (
+                              <a
+                                href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-pink-600 hover:underline"
+                              >
+                                <MapPin className="w-4 h-4" /> Entrada
+                              </a>
+                            )}
+                            {registro.localizacaoSaida && (
+                              <a
+                                href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-emerald-600 hover:underline"
+                              >
+                                <MapPin className="w-4 h-4" /> Saída
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                        {isManager && (
+                          <td className="py-3 px-4">
+                            <Button size="sm" variant="secondary" onClick={() => openEditModal(registro)}>Editar</Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <Modal isOpen={Boolean(editingRecord)} onClose={() => setEditingRecord(null)} title="Editar registro" size="lg">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input label="Hora de entrada" type="time" value={editForm.horaEntrada} onChange={(e) => setEditForm({ ...editForm, horaEntrada: e.target.value })} />
+              <Input label="Hora de saída" type="time" value={editForm.horaSaida} onChange={(e) => setEditForm({ ...editForm, horaSaida: e.target.value })} />
+              <Input label="Irregularidade" value={editForm.irregularidade} onChange={(e) => setEditForm({ ...editForm, irregularidade: e.target.value })} />
+              <Input label="Quantidade (horas)" value={editForm.qtde} onChange={(e) => setEditForm({ ...editForm, qtde: e.target.value })} />
+            </div>
+            <Textarea label="Justificativa" value={editForm.justificativa} onChange={(e) => setEditForm({ ...editForm, justificativa: e.target.value })} />
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setEditingRecord(null)}>Cancelar</Button>
+              <Button onClick={handleSaveEdit} disabled={savingEdit}>{savingEdit ? 'Salvando...' : 'Salvar ajustes'}</Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     );
   };
@@ -2746,12 +3623,6 @@ function App() {
 
     const handleSubcategoriaChange = (e) => {
       const value = e.target.value;
-      if (value === '__add_new__') {
-        setIsAddingSubcategory(true);
-        setNewSubcategory("");
-        setFormData(prev => ({ ...prev, subcategoria: '' }));
-        return;
-      }
       setIsAddingSubcategory(false);
       setNewSubcategory("");
       setFormData(prev => ({ ...prev, subcategoria: value }));
@@ -2841,13 +3712,33 @@ function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Input label="Nome do Produto" value={formData.nome} onChange={(e) => setFormData({...formData, nome: e.target.value})} required />
                   <Select label="Categoria" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value})} required><option value="Delivery">Delivery</option><option value="Festa">Festa</option></Select>
-					<Select label="Subcategoria" value={formData.subcategoria} onChange={handleSubcategoriaChange} required>
-						<option value="">Selecione...</option>
-						{availableSubcategories.map(sub => (
-						  <option key={sub} value={sub}>{sub}</option>
-						))}
-						<option value="__add_new__">+ Adicionar nova subcategoria</option>
-					  </Select>
+                  <div className="space-y-1 w-full">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700">Subcategoria</label>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-pink-600 hover:text-pink-700"
+                        onClick={() => {
+                          setIsAddingSubcategory(true);
+                          setNewSubcategory("");
+                          setFormData(prev => ({ ...prev, subcategoria: '' }));
+                        }}
+                      >
+                        + Nova subcategoria
+                      </button>
+                    </div>
+                    <select
+                      value={formData.subcategoria}
+                      onChange={handleSubcategoriaChange}
+                      required
+                      className="w-full px-4 py-3 border rounded-xl transition-all focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white border-gray-300"
+                    >
+                      <option value="">Selecione...</option>
+                      {availableSubcategories.map(sub => (
+                        <option key={sub} value={sub}>{sub}</option>
+                      ))}
+                    </select>
+                  </div>
 					  {isAddingSubcategory && (
 						<div className="md:col-span-2 bg-pink-50/80 border border-pink-100 rounded-2xl p-4 space-y-4">
 						  <div className="flex items-center justify-between flex-wrap gap-2">
@@ -3753,8 +4644,23 @@ const effectiveStoreName = useMemo(() => {
     const [editingOrder, setEditingOrder] = useState(null);
     const [formData, setFormData] = useState({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
     const [viewingOrder, setViewingOrder] = useState(null);
+	    const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
     const [descontoValor, setDescontoValor] = useState('');
     const [descontoPercentual, setDescontoPercentual] = useState('');
+
+    const deliveryProviders = useMemo(
+        () => (data.fornecedores || []).filter(f => (f.status || 'Ativo') !== 'Inativo'),
+        [data.fornecedores]
+    );
+
+    const canSendToDeliverer = (order) => {
+        if (!order) return false;
+        const { enderecoTexto } = getOrderAddressDetails(order, data.clientes);
+        if (!enderecoTexto || enderecoTexto === 'Não informado' || enderecoTexto === 'Retirar na Loja') {
+            return false;
+        }
+        return deliveryProviders.length > 0;
+    };
 
     const pedidosComNomes = (data.pedidos || []).map(pedido => {
         const cliente = data.clientes.find(c => c.id === pedido.clienteId);
@@ -4119,6 +5025,8 @@ const handleSubmit = async (e) => {
                     const endereco = viewingOrder.clienteEndereco || cliente?.enderecos?.[0] || 'Não informado';
                     const telefone = viewingOrder.telefone || cliente?.telefone || '';
                     const subtotal = (viewingOrder.itens || []).reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
+					const frete = parseFloat(viewingOrder.valorFrete ?? viewingOrder.frete ?? 0) || 0;
+
                     
                     const handleSendToWhatsApp = () => {
                         if (!telefone) {
@@ -4148,7 +5056,8 @@ const handleSubmit = async (e) => {
                              message += `*Subtotal:* R$ ${subtotal.toFixed(2)}\n`;
                              message += `*Desconto Manual:* - R$ ${viewingOrder.desconto.toFixed(2)}\n`;
                         }
-                        
+
+                        message += `*Frete:* R$ ${frete.toFixed(2)}\n`;
                         message += `*Total:* R$ ${(viewingOrder.total || 0).toFixed(2)}\n`;
                         if(viewingOrder.formaPagamento) message += `*Pagamento:* ${viewingOrder.formaPagamento}\n`;
                         message += `*Status:* ${viewingOrder.status}\n\n`;
@@ -4260,6 +5169,7 @@ const handleSubmit = async (e) => {
                                         </p>
                                     </>
                                 )}
+                                <p className="text-sm text-gray-600">Frete: R$ {frete.toFixed(2)}</p>
                                 <p className="font-bold text-2xl text-pink-600">
                                     Total: R$ ${(viewingOrder.total || 0).toFixed(2)}
                                 </p>
@@ -4274,20 +5184,36 @@ const handleSubmit = async (e) => {
                                     <Printer className="w-4 h-4" />
                                     Imprimir Cupom
                                 </Button>
-                                <Button 
-                                    onClick={handleSendToWhatsApp} 
-                                    disabled={!telefone} 
+                                <Button
+                                    onClick={handleSendToWhatsApp}
+                                    disabled={!telefone}
                                     className="bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none disabled:transform-none"
                                     size="sm"
                                 >
                                     <MessageCircle className="w-4 h-4" />
                                     Enviar Resumo Cliente
                                 </Button>
+                                <Button
+                                    onClick={() => setOrderToSendToDeliverer(viewingOrder)}
+                                    disabled={!canSendToDeliverer(viewingOrder)}
+                                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700"
+                                    size="sm"
+                                >
+                                    <Truck className="w-4 h-4" />
+                                    Enviar Endereço para Entregador
+                                </Button>
                             </div>
                         </div>
                     );
                 })()}
             </Modal>
+            <DeliveryModal
+                isOpen={!!orderToSendToDeliverer}
+                order={orderToSendToDeliverer}
+                clientes={data.clientes}
+                fornecedores={data.fornecedores}
+                onClose={() => setOrderToSendToDeliverer(null)}
+            />
         </div>
     );
   }
@@ -4296,6 +5222,21 @@ const handleSubmit = async (e) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDay, setSelectedDay] = useState(null);
     const [viewingOrder, setViewingOrder] = useState(null);
+    const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
+
+    const deliveryProviders = useMemo(
+        () => (data.fornecedores || []).filter(f => (f.status || 'Ativo') !== 'Inativo'),
+        [data.fornecedores]
+    );
+
+    const canSendToDeliverer = (order) => {
+        if (!order) return false;
+        const { enderecoTexto } = getOrderAddressDetails(order, data.clientes);
+        if (!enderecoTexto || enderecoTexto === 'Não informado' || enderecoTexto === 'Retirar na Loja') {
+            return false;
+        }
+        return deliveryProviders.length > 0;
+    };
     
     const getStatusClass = (status) => { 
         switch (status) { 
@@ -4488,20 +5429,36 @@ const handleSubmit = async (e) => {
                                     <Printer className="w-4 h-4" />
                                     Imprimir Cupom
                                 </Button>
-                                <Button 
-                                    onClick={handleSendToWhatsApp} 
-                                    disabled={!telefone} 
-                                    className="bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none disabled:transform-none"
-                                    size="sm"
-                                >
-                                    <MessageCircle className="w-4 h-4" />
-                                    Enviar Resumo Cliente
-                                </Button>
-                            </div>
-                        </div>
-                     );
-                 })()}
-             </Modal>
+                        <Button
+                    onClick={handleSendToWhatsApp}
+                    disabled={!telefone}
+                    className="bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none disabled:transform-none"
+                    size="sm"
+                >
+                    <MessageCircle className="w-4 h-4" />
+                    Enviar Resumo Cliente
+                </Button>
+                <Button
+                    onClick={() => setOrderToSendToDeliverer(viewingOrder)}
+                    disabled={!canSendToDeliverer(viewingOrder)}
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700"
+                    size="sm"
+                >
+                    <Truck className="w-4 h-4" />
+                    Enviar Endereço para Entregador
+                </Button>
+              </div>
+            </div>
+         );
+      })()}
+    </Modal>
+    <DeliveryModal
+        isOpen={!!orderToSendToDeliverer}
+        order={orderToSendToDeliverer}
+        clientes={data.clientes}
+        fornecedores={data.fornecedores}
+        onClose={() => setOrderToSendToDeliverer(null)}
+    />
         </div>
     );
   };
@@ -4549,7 +5506,14 @@ const handleSubmit = async (e) => {
       case 'agenda': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? <Agenda /> : <PaginaInicial />;
       case 'fornecedores': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'relatorios': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Relatorios data={data} /> : <PaginaInicial />;
-      case 'financeiro': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
+      case 'meu-espaco': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? (
+        <MeuEspaco
+          user={user}
+          resolveActiveStoreForWrite={resolveActiveStoreForWrite}
+          currentStoreIdForDisplay={currentStoreIdForDisplay}
+        />
+      ) : <PaginaInicial />;
+	  case 'financeiro': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
       case 'financeiro': return user?.role === 'admin' ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return user?.role === 'admin' ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} /> : <PaginaInicial />;
