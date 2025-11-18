@@ -2893,6 +2893,41 @@ function App() {
       navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     });
 
+    const getAddressFromCoordinates = async ({ latitude, longitude }) => {
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') return '';
+      const params = new URLSearchParams({
+        format: 'jsonv2',
+        lat: String(latitude),
+        lon: String(longitude),
+        'accept-language': 'pt-BR'
+      });
+
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+          headers: {
+            'Accept-Language': 'pt-BR'
+          }
+        });
+        if (!response.ok) {
+          throw new Error('Falha ao buscar endereço.');
+        }
+        const data = await response.json();
+        if (data?.display_name) return data.display_name;
+        if (data?.address) {
+          const { road, neighbourhood, suburb, city, town, state, postcode } = data.address;
+          const parts = [road, neighbourhood || suburb, city || town, state, postcode];
+          const filtered = parts.filter(Boolean);
+          if (filtered.length) {
+            return filtered.join(', ');
+          }
+        }
+        return '';
+      } catch (error) {
+        console.error('Erro ao obter endereço da localização', error);
+        return '';
+      }
+    };
+
     const formatTimeString = (dateObj) => dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const handleRegisterPoint = async (type) => {
@@ -2905,6 +2940,7 @@ function App() {
           longitude: Number(position.coords.longitude.toFixed(6)),
           capturedAt: new Date().toISOString()
         };
+        const capturedAddress = await getAddressFromCoordinates(coords);
         const storeId = resolveActiveStoreForWrite();
         const pontosRef = collection(db, 'lojas', storeId, 'pontos');
         const currentDate = new Date();
@@ -2922,8 +2958,16 @@ function App() {
         );
         const snapshot = await getDocs(existingQuery);
         const payload = type === 'entrada'
-          ? { horaEntrada: formatTimeString(new Date()), localizacaoEntrada: coords }
-          : { horaSaida: formatTimeString(new Date()), localizacaoSaida: coords };
+          ? {
+            horaEntrada: formatTimeString(new Date()),
+            localizacaoEntrada: coords,
+            localizacaoEntradaEndereco: capturedAddress || ''
+          }
+          : {
+            horaSaida: formatTimeString(new Date()),
+            localizacaoSaida: coords,
+            localizacaoSaidaEndereco: capturedAddress || ''
+          };
 
         if (snapshot.empty) {
           if (type === 'saida') {
@@ -2937,7 +2981,9 @@ function App() {
             horaEntrada: payload.horaEntrada,
             horaSaida: '',
             localizacaoEntrada: payload.localizacaoEntrada,
+            localizacaoEntradaEndereco: payload.localizacaoEntradaEndereco || '',
             localizacaoSaida: null,
+            localizacaoSaidaEndereco: '',
             irregularidade: '',
             qtde: '',
             justificativa: '',
@@ -3188,26 +3234,42 @@ function App() {
                         <td className="py-3 px-4">{getWorkedTime(registro)}</td>
                         <td className="py-3 px-4 max-w-xs">{registro.justificativa || '-'}</td>
                         <td className="py-3 px-4">
-                          <div className="space-y-1 text-xs">
+                          <div className="space-y-3 text-xs">
                             {registro.localizacaoEntrada && (
-                              <a
-                                href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-pink-600 hover:underline"
-                              >
-                                <MapPin className="w-4 h-4" /> Entrada
-                              </a>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 font-semibold text-pink-600">
+                                  <MapPin className="w-4 h-4" /> Entrada
+                                </div>
+                                <p className="text-gray-600">
+                                  {registro.localizacaoEntradaEndereco || 'Endereço não disponível'}
+                                </p>
+                                <a
+                                  href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-pink-600 hover:underline"
+                                >
+                                  Ver no mapa
+                                </a>
+                              </div>
                             )}
                             {registro.localizacaoSaida && (
-                              <a
-                                href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-emerald-600 hover:underline"
-                              >
-                                <MapPin className="w-4 h-4" /> Saída
-                              </a>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 font-semibold text-emerald-600">
+                                  <MapPin className="w-4 h-4" /> Saída
+                                </div>
+                                <p className="text-gray-600">
+                                  {registro.localizacaoSaidaEndereco || 'Endereço não disponível'}
+                                </p>
+                                <a
+                                  href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
+                                >
+                                  Ver no mapa
+                                </a>
+                              </div>
                             )}
                           </div>
                         </td>
