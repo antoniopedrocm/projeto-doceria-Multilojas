@@ -1633,7 +1633,9 @@ function App() {
   const alarmStoppedRef = useRef(false);
   const snoozeTimerRef = useRef(null);
   const isSnoozedRef = useRef(false);
+  const isAlarmPlayingRef = useRef(false);
   const previousHasPendingRef = useRef(null);
+  const lastPendingCountRef = useRef(0);
   const initialDataLoaded = useRef(false);
   const storeCollectionsDataRef = useRef({});
   const pushTokenRef = useRef(null);
@@ -1788,34 +1790,36 @@ function App() {
         const stopAlarm = useCallback(() => {
                 console.log("[App.js] Parando alarme...");
                 if (stopAlarmRef.current) {
-		  stopAlarmRef.current(); // Chama a função de parada
-		  stopAlarmRef.current = null; // Limpa a referência
+                  stopAlarmRef.current(); // Chama a função de parada
+                  stopAlarmRef.current = null; // Limpa a referência
 		}
-		if (stopAlarmFn) {
-		  stopAlarmFn(); // Também chama a função do estado se existir
-		  setStopAlarmFn(null); // Limpa o estado
-		}
-		setIsAlarmPlaying(false); // Atualiza o estado da UI
-	}, [stopAlarmFn]);
+                if (stopAlarmFn) {
+                  stopAlarmFn(); // Também chama a função do estado se existir
+                  setStopAlarmFn(null); // Limpa o estado
+                }
+                isAlarmPlayingRef.current = false;
+                setIsAlarmPlaying(false); // Atualiza o estado da UI
+        }, [stopAlarmFn]);
 
   // --- REMOVIDO: Antiga função unlockAudio ---
 
   // --- SUBSTITUÍDO: Nova função playAlarm ---
   const playAlarm = useCallback(async () => {
-		// Só toca se não estiver em modo soneca
-		if (isSnoozedRef.current) {
-			console.log("[App.js] Alarme em soneca, não tocando.");
-			return;
-		}
-		
-		// Se já está tocando, não faz nada
-		if (isAlarmPlaying) {
-			console.log("[App.js] Alarme já está tocando, ignorando nova chamada.");
-			return;
-		}
+                // Só toca se não estiver em modo soneca
+                if (isSnoozedRef.current) {
+                        console.log("[App.js] Alarme em soneca, não tocando.");
+                        return;
+                }
 
-		console.log("[App.js] Tentando tocar alarme...");
-		setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
+                // Se já está tocando, não faz nada
+                if (stopAlarmRef.current || isAlarmPlayingRef.current) {
+                        console.log("[App.js] Alarme já está tocando, ignorando nova chamada.");
+                        return;
+                }
+
+                console.log("[App.js] Tentando tocar alarme...");
+                isAlarmPlayingRef.current = true;
+                setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
 
 		// Chama o AudioManager para tocar o som
 		// Verifica se o áudio está desbloqueado antes de tentar tocar
@@ -1832,21 +1836,23 @@ function App() {
 		if (audioManager.unlocked) {
 		  const stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
 		  
-		  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
-		  if (stopFn && typeof stopFn === 'function') {
-			setStopAlarmFn(() => stopFn); // Armazena no estado
-			stopAlarmRef.current = stopFn; // Armazena na ref
-			console.log("[App.js] Alarme iniciado.");
-		  } else {
-			// Se foi bloqueado ou falhou, reseta o estado da UI
-			console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
-			setIsAlarmPlaying(false); 
-		  }
-		} else {
-			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
-			setIsAlarmPlaying(false);
-		}
-	}, [isAlarmPlaying]); // Adicione isAlarmPlaying como dependência
+                  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
+                  if (stopFn && typeof stopFn === 'function') {
+                        setStopAlarmFn(() => stopFn); // Armazena no estado
+                        stopAlarmRef.current = stopFn; // Armazena na ref
+                        console.log("[App.js] Alarme iniciado.");
+                  } else {
+                        // Se foi bloqueado ou falhou, reseta o estado da UI
+                        console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
+                        isAlarmPlayingRef.current = false;
+                        setIsAlarmPlaying(false);
+                  }
+                } else {
+                        console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+                        isAlarmPlayingRef.current = false;
+                        setIsAlarmPlaying(false);
+                }
+        }, []);
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
 	  useEffect(() => {
@@ -2110,7 +2116,9 @@ function App() {
           if (!user || !storeIds.length) {
                 setData(getInitialDataState());
                 setPendingOrders([]);
+                setHasNewPendingOrders(false);
                 setLoading(false);
+                lastPendingCountRef.current = 0;
                 initialDataLoaded.current = false;
                 return;
           }
@@ -2151,12 +2159,15 @@ function App() {
 
                                 if (collectionName === 'pedidos') {
                                       const activeOrders = (computedData.pedidos || []).filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
+                                      const pendingOrdersFromSnapshot = activeOrders.filter(p => p.status === 'Pendente');
+                                      const pendingCount = pendingOrdersFromSnapshot.length;
+
                                       setPendingOrders(activeOrders);
 
                                       if (initialDataLoaded.current) {
-                                            const newPendingOrdersDetected = snapshot.docChanges().some(change => change.type === 'added' && change.doc.data().status === 'Pendente');
+                                            const hasNewPendingOrdersDetected = pendingCount > lastPendingCountRef.current;
 
-                                            if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
+                                            if (hasNewPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
                                                   console.log('[App.js] Novo pedido pendente detectado pelo listener!');
                                                   setHasNewPendingOrders(true);
 
@@ -2182,12 +2193,19 @@ function App() {
                                                           console.error("[App.js] Erro ao tentar tocar alarme:", error);
                                                     }
                                                   })();
-                                            } else if (newPendingOrdersDetected && isSnoozedRef.current) {
+                                            } else if (hasNewPendingOrdersDetected && isSnoozedRef.current) {
                                                   console.log('[App.js] Alarme em modo soneca, não tocando agora.');
-                                            } else if (newPendingOrdersDetected && isAlarmPlaying) {
+                                            } else if (hasNewPendingOrdersDetected && isAlarmPlaying) {
                                                   console.log('[App.js] Alarme já está tocando, não iniciando novo.');
                                             }
+
+
+                                            if (pendingCount === 0 && hasNewPendingOrders) {
+                                                  setHasNewPendingOrders(false);
+                                            }
                                       }
+
+                                      lastPendingCountRef.current = pendingCount;
                                 }
 
                                 if (pendingInitial > 0) {
@@ -2218,7 +2236,7 @@ function App() {
                 unsubscribes.forEach(unsubscribe => unsubscribe());
                 initialDataLoaded.current = false;
           };
-        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores]);
+          }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, hasNewPendingOrders]);
 
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
   useEffect(() => {
@@ -2234,8 +2252,8 @@ function App() {
       const shouldStopAlarm =
         !hasAnyPending &&
         !isAlarmSnoozed &&
-        !alarmStoppedRef.current &&
-        (previousHasPending !== false || isAlarmPlaying || hasNewPendingOrders);
+          (previousHasPending !== false || isAlarmPlayingRef.current || hasNewPendingOrders);
+
 
       if (shouldStopAlarm) {
         console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
@@ -2245,19 +2263,8 @@ function App() {
       }
   }, [data.pedidos, isAlarmSnoozed, stopAlarm, isAlarmPlaying, hasNewPendingOrders]);
 
-    // Garante que o alarme continue tocando enquanto houver pedidos pendentes
-    useEffect(() => {
-        const hasPendingOrders = pendingOrders.some(order => order.status === 'Pendente');
-
-        if (hasPendingOrders && !isAlarmSnoozed && !isAlarmPlaying) {
-          console.log('[App.js] Pedidos pendentes encontrados enquanto o alarme estava parado. Reativando alarme.');
-          setHasNewPendingOrders(true);
-          playAlarmRef.current();
-        }
-    }, [pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
-
-    // --- REMOVIDO: Antigo useEffect de desbloqueio ---
-    // useEffect(() => { if (audioUnlocked && ...) ... });
+  // --- REMOVIDO: Antigo useEffect de desbloqueio ---
+  // useEffect(() => { if (audioUnlocked && ...) ... });
 
 
   const addItem = async (section, item, targetStoreId = null) => {
