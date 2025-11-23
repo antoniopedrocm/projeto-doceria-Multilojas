@@ -1010,31 +1010,49 @@
         // --- INICIALIZAÇÃO DA APLICAÇÃO ---
         window.appInitialized = false;
 
-        async function initApp() {
+        async function startAppFlow(reason = 'sessão anônima') {
             if (window.appInitialized) return;
             window.appInitialized = true;
+            try {
+                console.log(`🚀 Inicializando aplicação (${reason})...`);
+                await fetchStoreConfig();
+                await fetchProducts();
+                setupEventListeners();
+                renderCart();
+                console.log("✅ Aplicação inicializada com sucesso!");
+            } catch (error) {
+                console.error('❌ Erro ao carregar a aplicação:', error);
+                showToast('Erro ao carregar a aplicação.', true);
+            }
+        }
+
+        async function initApp() {
+            if (window.appInitialized) return;
             try {
                 const auth = getAuth(app);
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         console.log("✅ Usuário autenticado anonimamente:", user.uid);
-                        // O restante da sua lógica de inicialização vai aqui
-                        await fetchStoreConfig();
-                        await fetchProducts();
-                        setupEventListeners();
-                        renderCart();
-                        console.log("✅ Aplicação inicializada com sucesso!");
-                    } else {
-                        // Se não houver usuário, tenta o login anônimo
-                        signInAnonymously(auth).catch(error => {
-                            console.error("❌ Falha no login anônimo:", error);
-                            showToast('Erro de conexão, por favor, recarregue a página.', true);
-                        });
+                        await startAppFlow('sessão anônima');
+                        return;
+                    }
+
+                    if (window.firebaseAnonAuthUnavailable) {
+                        console.warn('⚠️ Autenticação anônima desativada; prosseguindo sem login.');
+                        await startAppFlow('modo visitante');
+                        return;
+                    }
+
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (error) {
+                        console.warn("⚠️ Falha no login anônimo, continuando sem autenticação:", error);
+                        await startAppFlow('modo visitante');
                     }
                 });
             } catch (error) {
                 console.error('❌ Erro ao inicializar aplicação:', error);
-                showToast('Erro ao carregar a aplicação.', true);
+                await startAppFlow('falha na autenticação');
             }
         }
 

@@ -52,6 +52,11 @@ const db = getFirestore(app);
 // Authentication service.
 const auth = getAuth(app);
 
+const handleAnonAuthError = (error) => {
+  console.warn('Autenticação anônima indisponível; prosseguindo sem login.', error);
+  window.firebaseAnonAuthUnavailable = true;
+};
+
 // Persist anonymous login so that returning visitors keep the same
 // anonymous user ID.  This prevents duplication of carts or orders
 // across reloads.
@@ -60,10 +65,10 @@ setPersistence(auth, browserLocalPersistence)
     onAuthStateChanged(auth, (user) => {
       // If no user is signed in yet, sign in anonymously.  This should
       // only happen once per browser session.
-      if (!user) {
-        signInAnonymously(auth).catch((error) => {
-          console.error('Erro ao autenticar anonimamente:', error);
-        });
+      if (!user && !window.firebaseAnonAuthUnavailable) {
+        signInAnonymously(auth).catch(handleAnonAuthError);
+      } else if (!user) {
+        handleAnonAuthError(new Error('anonymous auth skipped'));
       } else {
         console.log('Sessão anônima ativa:', user.uid);
       }
@@ -71,6 +76,7 @@ setPersistence(auth, browserLocalPersistence)
   })
   .catch((error) => {
     console.error('Erro ao definir persistência de autenticação:', error);
+    handleAnonAuthError(error);
   });
 
 // --- Exports ---
