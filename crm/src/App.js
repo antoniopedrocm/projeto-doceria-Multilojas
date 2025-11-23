@@ -1632,6 +1632,7 @@ function App() {
   const stopAlarmFnRef = useRef(null);
   const snoozeTimerRef = useRef(null);
   const isSnoozedRef = useRef(false);
+  const previousHasPendingRef = useRef(null);
   const initialDataLoaded = useRef(false);
   const storeCollectionsDataRef = useRef({});
   const pushTokenRef = useRef(null);
@@ -2220,14 +2221,22 @@ function App() {
 
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
-        const hasAnyPending = data.pedidos && data.pedidos.some(p => p.status === 'Pendente');
+        const hasAnyPending = Array.isArray(data.pedidos) && data.pedidos.some(p => p.status === 'Pendente');
+        const previousHasPending = previousHasPendingRef.current;
 
-        if (!hasAnyPending && !isAlarmSnoozed) {
+        previousHasPendingRef.current = hasAnyPending;
+
+        const shouldStopAlarm =
+          !hasAnyPending &&
+          !isAlarmSnoozed &&
+          (previousHasPending !== false || isAlarmPlaying || hasNewPendingOrders);
+
+        if (shouldStopAlarm) {
           console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
           setHasNewPendingOrders(false);
           stopAlarm();
         }
-    }, [data.pedidos, isAlarmSnoozed, stopAlarm]);
+    }, [data.pedidos, isAlarmSnoozed, stopAlarm, isAlarmPlaying, hasNewPendingOrders]);
 
     // Garante que o alarme continue tocando enquanto houver pedidos pendentes
     useEffect(() => {

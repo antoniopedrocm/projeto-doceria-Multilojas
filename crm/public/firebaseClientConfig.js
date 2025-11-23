@@ -52,32 +52,44 @@ const db = getFirestore(app);
 // Authentication service.
 const auth = getAuth(app);
 
-const handleAnonAuthError = (error) => {
-  console.warn('Autenticação anônima indisponível; prosseguindo sem login.', error);
-  window.firebaseAnonAuthUnavailable = true;
-};
+// Some Firebase projects restrict anonymous authentication at the admin
+// level.  To avoid repeated 400 errors in the browser console when that
+// happens, we make anonymous auth opt-in.  Set
+// `window.ENABLE_ANON_AUTH = true` before loading this script to
+// re-enable the previous behaviour.
+const ANONYMOUS_AUTH_ENABLED = window.ENABLE_ANON_AUTH === true;
 
-// Persist anonymous login so that returning visitors keep the same
-// anonymous user ID.  This prevents duplication of carts or orders
-// across reloads.
-setPersistence(auth, browserLocalPersistence)
-  .then(() => {
-    onAuthStateChanged(auth, (user) => {
-      // If no user is signed in yet, sign in anonymously.  This should
-      // only happen once per browser session.
-      if (!user && !window.firebaseAnonAuthUnavailable) {
-        signInAnonymously(auth).catch(handleAnonAuthError);
-      } else if (!user) {
-        handleAnonAuthError(new Error('anonymous auth skipped'));
-      } else {
-        console.log('Sessão anônima ativa:', user.uid);
-      }
+if (!ANONYMOUS_AUTH_ENABLED) {
+  window.firebaseAnonAuthUnavailable = true;
+  console.info('Autenticação anônima desativada para o cardápio público.');
+} else {
+  const handleAnonAuthError = (error) => {
+    console.warn('Autenticação anônima indisponível; prosseguindo sem login.', error);
+    window.firebaseAnonAuthUnavailable = true;
+  };
+
+  // Persist anonymous login so that returning visitors keep the same
+  // anonymous user ID.  This prevents duplication of carts or orders
+  // across reloads.
+  setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      onAuthStateChanged(auth, (user) => {
+        // If no user is signed in yet, sign in anonymously.  This should
+        // only happen once per browser session.
+        if (!user && !window.firebaseAnonAuthUnavailable) {
+          signInAnonymously(auth).catch(handleAnonAuthError);
+        } else if (!user) {
+          handleAnonAuthError(new Error('anonymous auth skipped'));
+        } else {
+          console.log('Sessão anônima ativa:', user.uid);
+        }
+      });
+    })
+    .catch((error) => {
+      console.error('Erro ao definir persistência de autenticação:', error);
+      handleAnonAuthError(error);
     });
-  })
-  .catch((error) => {
-    console.error('Erro ao definir persistência de autenticação:', error);
-    handleAnonAuthError(error);
-  });
+}
 
 // --- Exports ---
 // Export both the app instance and the Firestore helpers used by the

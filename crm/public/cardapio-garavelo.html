@@ -1029,6 +1029,12 @@
         async function initApp() {
             if (window.appInitialized) return;
             try {
+                if (window.firebaseAnonAuthUnavailable) {
+                    console.warn('⚠️ Autenticação anônima desativada; iniciando em modo visitante.');
+                    await startAppFlow('modo visitante');
+                    return;
+                }
+
                 const auth = getAuth(app);
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
