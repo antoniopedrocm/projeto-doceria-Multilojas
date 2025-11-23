@@ -3,13 +3,10 @@
     "default": "ana-guimaraes"
   },
   "targets": {
-    "crmdoceria-9959e": {
+    "ana-guimaraes": {
       "hosting": {
         "prod": [
-          "crmdoceria-9959e"
-        ],
-        "dev": [
-          "crmdoceria-9959e-dev"
+          "ana-guimaraes"
         ]
       }
     }

@@ -29,6 +29,14 @@ const firebaseConfig = {
   measurementId: 'G-F8BVTNLEW7',
 };
 
+// Single source for the VAPID key so all modules read the same value and
+// we can fail gracefully when it is absent.
+export const VAPID_KEY =
+  process.env.REACT_APP_FIREBASE_VAPID_KEY ||
+  process.env.REACT_APP_VAPID_KEY ||
+  import.meta.env?.VITE_VAPID_KEY ||
+  '';
+
 // Initialise the Firebase app.  Use getApps() to avoid creating
 // duplicate instances if this module is imported multiple times.
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
@@ -70,9 +78,12 @@ export const messagingPromise = (async () => {
       console.warn('🔔 Notification permission not granted');
       return messaging;
     }
-    // Optionally pass your own VAPID key via an environment variable.
-    const vapidKey = import.meta.env?.VITE_VAPID_KEY || process.env.REACT_APP_VAPID_KEY;
-    await getToken(messaging, { vapidKey });
+    if (!VAPID_KEY) {
+      console.warn('VAPID key não configurada; notificações push permanecerão desativadas.');
+      return messaging;
+    }
+
+    await getToken(messaging, { vapidKey: VAPID_KEY });
     return messaging;
   } catch (err) {
     console.error('Failed to initialise Firebase Messaging:', err);

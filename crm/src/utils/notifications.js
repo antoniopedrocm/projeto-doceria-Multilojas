@@ -1,8 +1,6 @@
 import { getToken, onMessage } from "firebase/messaging";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { db, messagingPromise } from "../firebaseConfig.js";
-
-const VAPID_KEY = process.env.REACT_APP_FIREBASE_VAPID_KEY;
+import { db, messagingPromise, VAPID_KEY } from "../firebaseConfig.js";
 const isBrowser = typeof window !== "undefined";
 
 async function ensureServiceWorkerRegistration() {
@@ -58,8 +56,8 @@ export async function registerDeviceForPush(uid) {
   }
 
   if (!VAPID_KEY) {
-    throw new Error("A variável REACT_APP_FIREBASE_VAPID_KEY não está configurada.");
-  }
+    console.warn("A variável de ambiente da chave VAPID não está configurada; notificações push permanecerão desativadas.");
+    return null;
 
   try {
     const registration = await ensureServiceWorkerRegistration();

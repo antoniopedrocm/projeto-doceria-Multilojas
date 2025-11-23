@@ -2649,7 +2649,7 @@ function App() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
               <a
-                  href="/cardapio-matriz.html"
+                  href={`${process.env.PUBLIC_URL}/cardapio-matriz.html`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full"
@@ -2657,7 +2657,7 @@ function App() {
                   <BookOpen className="w-4 h-4" /> Cardápio Delivery Loja Matriz
               </a>
               <a
-                  href="/cardapio-garavelo.html"
+                  href={`${process.env.PUBLIC_URL}/cardapio-garavelo.html`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full"
@@ -2665,7 +2665,7 @@ function App() {
                   <Store className="w-4 h-4" /> Cardápio Delivery Loja Garavelo
               </a>
               <a
-                  href="/cardapio-festa.html"
+                  href={`${process.env.PUBLIC_URL}/cardapio-festa.html`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium rounded-xl transition-all flex items-center gap-2 justify-center bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 px-6 py-3 w-full"
