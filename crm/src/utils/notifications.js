@@ -58,6 +58,7 @@ export async function registerDeviceForPush(uid) {
   if (!VAPID_KEY) {
     console.warn("A variável de ambiente da chave VAPID não está configurada; notificações push permanecerão desativadas.");
     return null;
+  }
 
   try {
     const registration = await ensureServiceWorkerRegistration();

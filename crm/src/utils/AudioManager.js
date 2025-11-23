@@ -1,7 +1,7 @@
 // src/utils/AudioManager.js
 
-import { Capacitor } from '@capacitor/core';
-import { NativeAudio } from '@capacitor-community/native-audio';
+import { Capacitor } from '../shims/capacitor.js';
+import { NativeAudio } from '../shims/nativeAudio.js';
 
 const NATIVE_ASSET_ID = 'pedido';
 const NATIVE_ASSET_PATH = 'mixkit_vintage_warning_alarm_990.wav';

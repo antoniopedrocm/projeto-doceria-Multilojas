@@ -27,8 +27,8 @@ import { audioManager } from './utils/AudioManager.js';
 import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
 
 // --- importação para Android
-import { NativeAudio } from '@capacitor-community/native-audio';
-import { Capacitor } from '@capacitor/core';
+import { NativeAudio } from './shims/nativeAudio.js';
+import { Capacitor } from './shims/capacitor.js';
 
 // ✅ CORREÇÃO: URL alterada para o Firebase Storage para evitar erro de CORS
 const ALARM_SOUND_URL = "https://firebasestorage.googleapis.com/v0/b/crmdoceria-9959e.firebasestorage.app/o/audio%2Fmixkit-vintage-warning-alarm-990.wav?alt=media&token=6277f61e-51ab-413e-88d8-afef7835e465"; // <-- URL de exemplo, troque pela sua
@@ -2807,7 +2807,6 @@ function App() {
       qtde: '',
       justificativa: ''
     });
-    cons
     const [savingEdit, setSavingEdit] = useState(false);
     const [todayRecordData, setTodayRecordData] = useState(null);
 
