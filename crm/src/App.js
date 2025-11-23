@@ -1630,6 +1630,7 @@ function App() {
   // --- REVISADO: Refs de Áudio ---
   const stopAlarmRef = useRef(null); // Guarda a função de parar o som
   const stopAlarmFnRef = useRef(null);
+  const alarmStoppedRef = useRef(false);
   const snoozeTimerRef = useRef(null);
   const isSnoozedRef = useRef(false);
   const previousHasPendingRef = useRef(null);
@@ -2220,23 +2221,29 @@ function App() {
         }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores]);
 
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
-    useEffect(() => {
-        const hasAnyPending = Array.isArray(data.pedidos) && data.pedidos.some(p => p.status === 'Pendente');
-        const previousHasPending = previousHasPendingRef.current;
+  useEffect(() => {
+      const hasAnyPending = Array.isArray(data.pedidos) && data.pedidos.some(p => p.status === 'Pendente');
+      const previousHasPending = previousHasPendingRef.current;
 
-        previousHasPendingRef.current = hasAnyPending;
+      previousHasPendingRef.current = hasAnyPending;
 
-        const shouldStopAlarm =
-          !hasAnyPending &&
-          !isAlarmSnoozed &&
-          (previousHasPending !== false || isAlarmPlaying || hasNewPendingOrders);
+      if (hasAnyPending) {
+        alarmStoppedRef.current = false;
+      }
 
-        if (shouldStopAlarm) {
-          console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
-          setHasNewPendingOrders(false);
-          stopAlarm();
-        }
-    }, [data.pedidos, isAlarmSnoozed, stopAlarm, isAlarmPlaying, hasNewPendingOrders]);
+      const shouldStopAlarm =
+        !hasAnyPending &&
+        !isAlarmSnoozed &&
+        !alarmStoppedRef.current &&
+        (previousHasPending !== false || isAlarmPlaying || hasNewPendingOrders);
+
+      if (shouldStopAlarm) {
+        console.log('[App.js] Nenhum pedido pendente e não está em soneca. Parando alarme e escondendo banner.');
+        setHasNewPendingOrders(false);
+        stopAlarm();
+        alarmStoppedRef.current = true;
+      }
+  }, [data.pedidos, isAlarmSnoozed, stopAlarm, isAlarmPlaying, hasNewPendingOrders]);
 
     // Garante que o alarme continue tocando enquanto houver pedidos pendentes
     useEffect(() => {

@@ -76,9 +76,7 @@ export function register() {
             installingWorker.addEventListener('statechange', () => {
               if (installingWorker.state === 'installed') {
                 if (navigator.serviceWorker.controller) {
-                  console.log('🔄 Nova versão disponível! Atualizando...');
-                  // Reload força a nova versão a ser ativada.
-                  window.location.reload();
+                  console.log('ℹ️ Nova versão disponível. Recarregue manualmente para aplicar.');
                 } else {
                   console.log('🎉 Conteúdo armazenado para uso offline.');
                 }
