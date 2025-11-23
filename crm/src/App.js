@@ -2428,6 +2428,34 @@ function App() {
 	  return () => unsubscribe();
         }, [stopAlarm, setCurrentPage]);
 
+    const normalizeStoreText = (value) => {
+        if (!value || typeof value !== 'string') return '';
+        return value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    };
+
+    const prioritizeMatrizStore = (storeIds, infoMap = {}) => {
+        const matrizStores = [];
+        const otherStores = [];
+
+        storeIds.forEach((storeId) => {
+            const info = infoMap[storeId];
+            const normalizedId = normalizeStoreText(storeId);
+            const normalizedName = normalizeStoreText(info?.nome || '');
+            const isMatriz = normalizedId.includes('matriz') || normalizedName.includes('matriz');
+
+            if (isMatriz) {
+                matrizStores.push(storeId);
+            } else {
+                otherStores.push(storeId);
+            }
+        });
+
+        return [...matrizStores, ...otherStores];
+    };
+
     useEffect(() => {
         let isMounted = true;
 
@@ -2454,16 +2482,18 @@ function App() {
 
                 if (!isMounted) return;
 
-                setAvailableStores(storeIds);
+                const orderedStoreIds = prioritizeMatrizStore(storeIds, storeInfoMap);
+
+                setAvailableStores(orderedStoreIds);
 
                 setSelectedStoreId((prevSelected) => {
                     if (user.role === ROLE_OWNER) {
                         if (prevSelected === STORE_ALL_KEY) return STORE_ALL_KEY;
-                        if (prevSelected && storeIds.includes(prevSelected)) return prevSelected;
-                        return storeIds.length ? storeIds[0] : STORE_ALL_KEY;
+                        if (prevSelected && orderedStoreIds.includes(prevSelected)) return prevSelected;
+                        return STORE_ALL_KEY;
                     }
-                    if (prevSelected && storeIds.includes(prevSelected)) return prevSelected;
-                    return storeIds.length ? storeIds[0] : null;
+                    if (prevSelected && orderedStoreIds.includes(prevSelected)) return prevSelected;
+                    return orderedStoreIds.length ? orderedStoreIds[0] : null;
                 });
             } catch (error) {
                 console.error('Erro ao carregar lojas do usuário:', error);
@@ -2478,7 +2508,7 @@ function App() {
         return () => {
             isMounted = false;
         };
-    }, [user, setSelectedStoreId]);
+    }, [user, setSelectedStoreId, storeInfoMap]);
 
     useEffect(() => {
         let active = true;
@@ -2677,35 +2707,69 @@ function App() {
         <ImageSlider images={slideImages} onImageClick={setLightboxImage} />
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
             <h2 className="text-2xl font-bold text-gray-800 mb-4">Sobre Nós</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
-                    <p className="text-gray-600 leading-relaxed mb-4">
-                        Somos uma doceria apaixonada por criar momentos doces e inesquecíveis. Cada bolo, torta e doce é feito com ingredientes de alta qualidade e muito carinho, pensando em levar mais sabor para o seu dia.
-                    </p>
-                    <div className="space-y-3">
-                        <a href="https://www.instagram.com/anaguimaraes.doceria/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-pink-600 font-semibold hover:underline">
-                            <Instagram size={20} /> @anaguimaraes.doceria
-                        </a>
-                        <a href="https://wa.me/5562991056075" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-green-600 font-semibold hover:underline">
-                            <MessageCircle size={20} /> (62) 99105-6075
-                        </a>
-                        <p className="flex items-center gap-2 text-gray-700">
-                            <MapPin size={20} /> Av. Comercial, 433 - Jardim Nova Esperanca, Goiânia - GO
+            <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 className="font-bold text-xl text-gray-800 mb-3">Loja Matriz</h3>
+                        <p className="text-gray-600 leading-relaxed mb-4">
+                            Somos uma doceria apaixonada por criar momentos doces e inesquecíveis. Cada bolo, torta e doce é feito com ingredientes de alta qualidade e muito carinho, pensando em levar mais sabor para o seu dia.
                         </p>
+                        <div className="space-y-3">
+                            <a href="https://www.instagram.com/anaguimaraes.doceria/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-pink-600 font-semibold hover:underline">
+                                <Instagram size={20} /> @anaguimaraes.doceria
+                            </a>
+                            <a href="https://wa.me/5562991056075" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-green-600 font-semibold hover:underline">
+                                <MessageCircle size={20} /> (62) 99105-6075
+                            </a>
+                            <p className="flex items-center gap-2 text-gray-700">
+                                <MapPin size={20} /> Av. Comercial, 433 - Jardim Nova Esperanca, Goiânia - GO
+                            </p>
+                        </div>
+                        <div className="mt-4">
+                            <h4 className="font-bold text-lg mb-2">Horário de Funcionamento:</h4>
+                            <ul className="text-gray-600">
+                                <li>Segunda a Sexta: 09:30 – 18:30</li>
+                                <li>Sábado: 09:00 – 14:00</li>
+                                <li>Domingo: Fechado</li>
+                            </ul>
+                        </div>
                     </div>
-                    <div className="mt-4">
-                        <h3 className="font-bold text-lg mb-2">Horário de Funcionamento:</h3>
-                        <ul className="text-gray-600">
-                            <li>Segunda a Sexta: 09:30 – 18:30</li>
-                            <li>Sábado: 09:00 – 14:00</li>
-                            <li>Domingo: Fechado</li>
-                        </ul>
+                    <div>
+                        <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3821.890300951331!2d-49.3274707!3d-16.6725019!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x935ef50062f12789%3A0x5711296a03567da3!2sAna%20Guimar%C3%A3es%20-%20doceria!5e0!3m2!1spt-BR!2sbr!4v1661282662551!5m2!1spt-BR!2sbr" width="100%" height="300" style={{border:0}} allowFullScreen="" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="rounded-lg shadow-md" title="Localização da Doceria"></iframe>
                     </div>
                 </div>
-                <div>
-                    <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3821.890300951331!2d-49.3274707!3d-16.6725019!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x935ef50062f12789%3A0x5711296a03567da3!2sAna%20Guimar%C3%Aes%2d doceria!5e0!3m2!1spt-BR!2sbr!4v1661282662551!5m2!1spt-BR!2sbr" width="100%" height="300" style={{border:0}} allowFullScreen="" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="rounded-lg shadow-md" title="Localização da Doceria"></iframe>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 className="font-bold text-xl text-gray-800 mb-3">Loja Garavelo</h3>
+                        <p className="text-gray-600 leading-relaxed mb-4">
+                            Somos uma doceria apaixonada por criar momentos doces e inesquecíveis. Cada bolo, torta e doce é feito com ingredientes de alta qualidade e muito carinho, pensando em levar mais sabor para o seu dia.
+                        </p>
+                        <div className="space-y-3">
+                            <a href="https://www.instagram.com/anaguimaraes.doceria/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-pink-600 font-semibold hover:underline">
+                                <Instagram size={20} /> @anaguimaraes.doceria
+                            </a>
+                            <a href="https://wa.me/5562994508524" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-green-600 font-semibold hover:underline">
+                                <MessageCircle size={20} /> (62) 99450-8524
+                            </a>
+                            <p className="flex items-center gap-2 text-gray-700">
+                                <MapPin size={20} /> Av. da Igualdade, 573 - St. Garavelo, Aparecida de Goiânia - GO
+                            </p>
+                        </div>
+                        <div className="mt-4">
+                            <h4 className="font-bold text-lg mb-2">Horário de Funcionamento:</h4>
+                            <ul className="text-gray-600">
+                                <li>Segunda a Sexta: 10:00 – 18:30</li>
+                                <li>Sábado: 09:00 – 15:00</li>
+                                <li>Domingo: Fechado</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div>
+                        <iframe src="https://www.google.com/maps?q=Av.+da+Igualdade,+573+-+St.+Garavelo,+Aparecida+de+Goi%C3%A2nia+-+GO&output=embed" width="100%" height="300" style={{border:0}} allowFullScreen="" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="rounded-lg shadow-md" title="Localização da Loja Garavelo"></iframe>
+                    </div>
                 </div>
             </div>
+
         </div>
       </div>
     );
@@ -2734,7 +2798,16 @@ function App() {
     const [employees, setEmployees] = useState([]);
     const [employeesLoading, setEmployeesLoading] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
-    const [editForm, setEditForm] = useState({ horaEntrada: '', horaSaida: '', irregularidade: '', qtde: '', justificativa: '' });
+    const [editForm, setEditForm] = useState({
+      horaEntrada: '',
+      horaSaida: '',
+      almocoInicio: '',
+      almocoRetorno: '',
+      irregularidade: '',
+      qtde: '',
+      justificativa: ''
+    });
+    cons
     const [savingEdit, setSavingEdit] = useState(false);
     const [todayRecordData, setTodayRecordData] = useState(null);
 
@@ -2880,7 +2953,15 @@ function App() {
       if (!registro.horaEntrada || !registro.horaSaida) return '-';
       const [hIn, mIn] = registro.horaEntrada.split(':').map(Number);
       const [hOut, mOut] = registro.horaSaida.split(':').map(Number);
-      const minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      let minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      if (registro.almocoInicio && registro.almocoRetorno) {
+        const [hLunchOut, mLunchOut] = registro.almocoInicio.split(':').map(Number);
+        const [hLunchBack, mLunchBack] = registro.almocoRetorno.split(':').map(Number);
+        const lunchMinutes = (hLunchBack * 60 + mLunchBack) - (hLunchOut * 60 + mLunchOut);
+        if (!Number.isNaN(lunchMinutes) && lunchMinutes > 0) {
+          minutes -= lunchMinutes;
+        }
+      }
       if (Number.isNaN(minutes) || minutes <= 0) return '-';
       const hrs = Math.floor(minutes / 60);
       const mins = minutes % 60;
@@ -2975,22 +3056,31 @@ function App() {
           limit(1)
         );
         const snapshot = await getDocs(existingQuery);
-        const payload = type === 'entrada'
-          ? {
-            horaEntrada: formatTimeString(new Date()),
+        if (type !== 'entrada' && snapshot.empty) {
+          throw new Error('Registre a entrada antes de registrar este horário.');
+        }
+
+        let payload;
+        const nowTime = formatTimeString(new Date());
+        if (type === 'entrada') {
+          payload = {
+            horaEntrada: nowTime,
             localizacaoEntrada: coords,
             localizacaoEntradaEndereco: capturedAddress || ''
-          }
-          : {
-            horaSaida: formatTimeString(new Date()),
+          };
+        } else if (type === 'saida') {
+          payload = {
+            horaSaida: nowTime,
             localizacaoSaida: coords,
             localizacaoSaidaEndereco: capturedAddress || ''
           };
+        } else if (type === 'almocoInicio') {
+          payload = { almocoInicio: nowTime };
+        } else if (type === 'almocoRetorno') {
+          payload = { almocoRetorno: nowTime };
+        }
 
         if (snapshot.empty) {
-          if (type === 'saida') {
-            throw new Error('Registre a entrada antes de registrar a saída.');
-          }
           await addDoc(pontosRef, {
             funcionarioId: userId,
             funcionarioNome: userName,
@@ -2998,6 +3088,8 @@ function App() {
             data: Timestamp.now(),
             horaEntrada: payload.horaEntrada,
             horaSaida: '',
+            almocoInicio: '',
+            almocoRetorno: '',
             localizacaoEntrada: payload.localizacaoEntrada,
             localizacaoEntradaEndereco: payload.localizacaoEntradaEndereco || '',
             localizacaoSaida: null,
@@ -3017,7 +3109,13 @@ function App() {
             updatedAt: serverTimestamp()
           });
         }
-        setRegisterMessage({ type: 'success', text: `Ponto de ${type === 'entrada' ? 'entrada' : 'saída'} registrado com sucesso!` });
+        const typeLabels = {
+          entrada: 'entrada',
+          saida: 'saída',
+          almocoInicio: 'início do almoço',
+          almocoRetorno: 'retorno do almoço'
+        };
+        setRegisterMessage({ type: 'success', text: `Ponto de ${typeLabels[type] || 'registro'} registrado com sucesso!` });
       } catch (error) {
         console.error('Erro ao registrar ponto', error);
         setRegisterMessage({ type: 'error', text: error.message || 'Não foi possível registrar o ponto.' });
@@ -3063,6 +3161,8 @@ function App() {
       setEditForm({
         horaEntrada: record.horaEntrada || '',
         horaSaida: record.horaSaida || '',
+        almocoInicio: record.almocoInicio || '',
+        almocoRetorno: record.almocoRetorno || '',
         irregularidade: record.irregularidade || '',
         qtde: record.qtde || '',
         justificativa: record.justificativa || ''
@@ -3079,6 +3179,8 @@ function App() {
         await updateDoc(recordRef, {
           horaEntrada: editForm.horaEntrada || '',
           horaSaida: editForm.horaSaida || '',
+          almocoInicio: editForm.almocoInicio || '',
+          almocoRetorno: editForm.almocoRetorno || '',
           irregularidade: editForm.irregularidade || '',
           qtde: editForm.qtde || '',
           justificativa: editForm.justificativa || '',
@@ -3147,12 +3249,34 @@ function App() {
               >
                 Registrar saída
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleRegisterPoint('almocoInicio')}
+                disabled={registerLoading || !todayRecord?.horaEntrada || todayRecord?.almocoInicio}
+              >
+                Início do almoço
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleRegisterPoint('almocoRetorno')}
+                disabled={registerLoading || !todayRecord?.almocoInicio || todayRecord?.almocoRetorno}
+              >
+                Retorno do almoço
+              </Button>
             </div>
             {todayRecord && (
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-xl p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm bg-gray-50 rounded-xl p-4">
                 <div>
                   <p className="text-gray-500">Entrada</p>
                   <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaEntrada)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Início do almoço</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.almocoInicio)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Retorno do almoço</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.almocoRetorno)}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Saída</p>
@@ -3192,6 +3316,9 @@ function App() {
               <h2 className="text-xl font-semibold text-gray-800">Registros do mês</h2>
               <p className="text-gray-500 text-sm">Visualização automática do mês selecionado.</p>
             </div>
+            <div className="text-sm text-gray-500">
+              {filteredRecords.length} registro(s) encontrado(s)
+            </div>
             <div className="flex flex-wrap gap-3">
               <Input
                 type="month"
@@ -3226,14 +3353,16 @@ function App() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500">
+                    <th className="py-3 px-4">Funcionário</th>
                     <th className="py-3 px-4">Dia da semana</th>
-                    <th className="py-3 px-4">Dia</th>
+                    <th className="py-3 px-4">Dia do Mês</th>
                     <th className="py-3 px-4">Entrada</th>
+                    <th className="py-3 px-4">Almoço</th>
                     <th className="py-3 px-4">Saída</th>
                     <th className="py-3 px-4">Irregularidade</th>
                     <th className="py-3 px-4">Qtde</th>
                     <th className="py-3 px-4">Justificativa</th>
-                    <th className="py-3 px-4">Localização</th>
+                    {isManager && <th className="py-3 px-4">Localização</th>}
                     {isManager && <th className="py-3 px-4">Ações</th>}
                   </tr>
                 </thead>
@@ -3244,53 +3373,62 @@ function App() {
                     const diaMes = date ? String(date.getDate()).padStart(2, '0') : '-';
                     return (
                       <tr key={registro.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 font-semibold">{registro.funcionarioNome || '-'}</td>
                         <td className="py-3 px-4 capitalize">{diaSemana}</td>
                         <td className="py-3 px-4">{diaMes}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaEntrada)}</td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            <p className="font-semibold">{formatTime(registro.almocoInicio)}</p>
+                            <p className="font-semibold">{formatTime(registro.almocoRetorno)}</p>
+                          </div>
+                        </td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaSaida)}</td>
                         <td className="py-3 px-4">{registro.irregularidade || '-'}</td>
                         <td className="py-3 px-4">{getWorkedTime(registro)}</td>
                         <td className="py-3 px-4 max-w-xs">{registro.justificativa || '-'}</td>
-                        <td className="py-3 px-4">
-                          <div className="space-y-3 text-xs">
-                            {registro.localizacaoEntrada && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1 font-semibold text-pink-600">
-                                  <MapPin className="w-4 h-4" /> Entrada
+                        {isManager && (
+                          <td className="py-3 px-4">
+                            <div className="space-y-3 text-xs">
+                              {registro.localizacaoEntrada && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 font-semibold text-pink-600">
+                                    <MapPin className="w-4 h-4" /> Entrada
+                                  </div>
+                                  <p className="text-gray-600">
+                                    {registro.localizacaoEntradaEndereco || 'Endereço não disponível'}
+                                  </p>
+                                  <a
+                                    href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-pink-600 hover:underline"
+                                  >
+                                    Ver no mapa
+                                  </a>
                                 </div>
-                                <p className="text-gray-600">
-                                  {registro.localizacaoEntradaEndereco || 'Endereço não disponível'}
-                                </p>
-                                <a
-                                  href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-pink-600 hover:underline"
-                                >
-                                  Ver no mapa
-                                </a>
-                              </div>
-                            )}
-                            {registro.localizacaoSaida && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1 font-semibold text-emerald-600">
-                                  <MapPin className="w-4 h-4" /> Saída
+                              )}
+                              {registro.localizacaoSaida && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 font-semibold text-emerald-600">
+                                    <MapPin className="w-4 h-4" /> Saída
+                                  </div>
+                                  <p className="text-gray-600">
+                                    {registro.localizacaoSaidaEndereco || 'Endereço não disponível'}
+                                  </p>
+                                  <a
+                                    href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
+                                  >
+                                    Ver no mapa
+                                  </a>
                                 </div>
-                                <p className="text-gray-600">
-                                  {registro.localizacaoSaidaEndereco || 'Endereço não disponível'}
-                                </p>
-                                <a
-                                  href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
-                                >
-                                  Ver no mapa
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        </td>
+                              )}
+                            </div>
+                          </td>
+                        )}
                         {isManager && (
                           <td className="py-3 px-4">
                             <Button size="sm" variant="secondary" onClick={() => openEditModal(registro)}>Editar</Button>
@@ -3310,6 +3448,8 @@ function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input label="Hora de entrada" type="time" value={editForm.horaEntrada} onChange={(e) => setEditForm({ ...editForm, horaEntrada: e.target.value })} />
               <Input label="Hora de saída" type="time" value={editForm.horaSaida} onChange={(e) => setEditForm({ ...editForm, horaSaida: e.target.value })} />
+              <Input label="Início do almoço" type="time" value={editForm.almocoInicio} onChange={(e) => setEditForm({ ...editForm, almocoInicio: e.target.value })} />
+              <Input label="Retorno do almoço" type="time" value={editForm.almocoRetorno} onChange={(e) => setEditForm({ ...editForm, almocoRetorno: e.target.value })} />
               <Input label="Irregularidade" value={editForm.irregularidade} onChange={(e) => setEditForm({ ...editForm, irregularidade: e.target.value })} />
               <Input label="Quantidade (horas)" value={editForm.qtde} onChange={(e) => setEditForm({ ...editForm, qtde: e.target.value })} />
             </div>
