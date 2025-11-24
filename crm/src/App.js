@@ -2734,7 +2734,7 @@ function App() {
     const [employees, setEmployees] = useState([]);
     const [employeesLoading, setEmployeesLoading] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
-    const [editForm, setEditForm] = useState({ horaEntrada: '', horaSaida: '', irregularidade: '', qtde: '', justificativa: '' });
+    const [editForm, setEditForm] = useState({ horaEntrada: '', horaSaida: '', horaAlmocoSaida: '', horaAlmocoRetorno: '', irregularidade: '', qtde: '', justificativa: '' });
     const [savingEdit, setSavingEdit] = useState(false);
     const [todayRecordData, setTodayRecordData] = useState(null);
 
@@ -2880,7 +2880,14 @@ function App() {
       if (!registro.horaEntrada || !registro.horaSaida) return '-';
       const [hIn, mIn] = registro.horaEntrada.split(':').map(Number);
       const [hOut, mOut] = registro.horaSaida.split(':').map(Number);
-      const minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+      let minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
+
+      if (registro.horaAlmocoSaida && registro.horaAlmocoRetorno) {
+        const [hLunchOut, mLunchOut] = registro.horaAlmocoSaida.split(':').map(Number);
+        const [hLunchIn, mLunchIn] = registro.horaAlmocoRetorno.split(':').map(Number);
+        minutes -= (hLunchIn * 60 + mLunchIn) - (hLunchOut * 60 + mLunchOut);
+      }
+
       if (Number.isNaN(minutes) || minutes <= 0) return '-';
       const hrs = Math.floor(minutes / 60);
       const mins = minutes % 60;
@@ -2975,21 +2982,33 @@ function App() {
           limit(1)
         );
         const snapshot = await getDocs(existingQuery);
-        const payload = type === 'entrada'
-          ? {
-            horaEntrada: formatTimeString(new Date()),
+        const nowTime = formatTimeString(new Date());
+        const payload = {
+          entrada: {
+            horaEntrada: nowTime,
             localizacaoEntrada: coords,
             localizacaoEntradaEndereco: capturedAddress || ''
-          }
-          : {
-            horaSaida: formatTimeString(new Date()),
+          },
+          almoco_inicio: {
+            horaAlmocoSaida: nowTime
+          },
+          almoco_fim: {
+            horaAlmocoRetorno: nowTime
+          },
+          saida: {
+            horaSaida: nowTime,
             localizacaoSaida: coords,
             localizacaoSaidaEndereco: capturedAddress || ''
-          };
+          }
+        }[type];
+
+        if (!payload) {
+          throw new Error('Tipo de registro inválido.');
+        }
 
         if (snapshot.empty) {
-          if (type === 'saida') {
-            throw new Error('Registre a entrada antes de registrar a saída.');
+          if (type !== 'entrada') {
+            throw new Error('Registre a entrada antes de registrar o horário.');
           }
           await addDoc(pontosRef, {
             funcionarioId: userId,
@@ -2998,6 +3017,8 @@ function App() {
             data: Timestamp.now(),
             horaEntrada: payload.horaEntrada,
             horaSaida: '',
+            horaAlmocoSaida: '',
+            horaAlmocoRetorno: '',
             localizacaoEntrada: payload.localizacaoEntrada,
             localizacaoEntradaEndereco: payload.localizacaoEntradaEndereco || '',
             localizacaoSaida: null,
@@ -3017,7 +3038,13 @@ function App() {
             updatedAt: serverTimestamp()
           });
         }
-        setRegisterMessage({ type: 'success', text: `Ponto de ${type === 'entrada' ? 'entrada' : 'saída'} registrado com sucesso!` });
+        const actionMap = {
+          entrada: 'entrada',
+          almoco_inicio: 'início do almoço',
+          almoco_fim: 'retorno do almoço',
+          saida: 'saída'
+        };
+        setRegisterMessage({ type: 'success', text: `Ponto de ${actionMap[type]} registrado com sucesso!` });
       } catch (error) {
         console.error('Erro ao registrar ponto', error);
         setRegisterMessage({ type: 'error', text: error.message || 'Não foi possível registrar o ponto.' });
@@ -3063,6 +3090,8 @@ function App() {
       setEditForm({
         horaEntrada: record.horaEntrada || '',
         horaSaida: record.horaSaida || '',
+        horaAlmocoSaida: record.horaAlmocoSaida || '',
+        horaAlmocoRetorno: record.horaAlmocoRetorno || '',
         irregularidade: record.irregularidade || '',
         qtde: record.qtde || '',
         justificativa: record.justificativa || ''
@@ -3076,12 +3105,14 @@ function App() {
         const storeId = resolveActiveStoreForWrite();
         const recordRef = doc(db, 'lojas', storeId, 'pontos', editingRecord.id);
         const nowDate = new Date();
-        await updateDoc(recordRef, {
-          horaEntrada: editForm.horaEntrada || '',
-          horaSaida: editForm.horaSaida || '',
-          irregularidade: editForm.irregularidade || '',
-          qtde: editForm.qtde || '',
-          justificativa: editForm.justificativa || '',
+          await updateDoc(recordRef, {
+            horaEntrada: editForm.horaEntrada || '',
+            horaSaida: editForm.horaSaida || '',
+            horaAlmocoSaida: editForm.horaAlmocoSaida || '',
+            horaAlmocoRetorno: editForm.horaAlmocoRetorno || '',
+            irregularidade: editForm.irregularidade || '',
+            qtde: editForm.qtde || '',
+            justificativa: editForm.justificativa || '',
           gestorId: userId,
           dataAjuste: serverTimestamp(),
           historicoAlteracoes: arrayUnion({
@@ -3147,9 +3178,23 @@ function App() {
               >
                 Registrar saída
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleRegisterPoint('almoco_inicio')}
+                disabled={registerLoading || !todayRecord?.horaEntrada}
+              >
+                Registrar início do almoço
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleRegisterPoint('almoco_fim')}
+                disabled={registerLoading || !todayRecord?.horaAlmocoSaida}
+              >
+                Registrar retorno do almoço
+              </Button>
             </div>
             {todayRecord && (
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 rounded-xl p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-gray-50 rounded-xl p-4">
                 <div>
                   <p className="text-gray-500">Entrada</p>
                   <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaEntrada)}</p>
@@ -3157,6 +3202,14 @@ function App() {
                 <div>
                   <p className="text-gray-500">Saída</p>
                   <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaSaida)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Início do almoço</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaAlmocoSaida)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Retorno do almoço</p>
+                  <p className="font-semibold text-gray-800">{formatTime(todayRecord.horaAlmocoRetorno)}</p>
                 </div>
               </div>
             )}
@@ -3188,9 +3241,14 @@ function App() {
 
         <div className="bg-white rounded-2xl shadow p-6 space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-800">Registros do mês</h2>
-              <p className="text-gray-500 text-sm">Visualização automática do mês selecionado.</p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-800">Registros do mês</h2>
+                <p className="text-gray-500 text-sm">Visualização automática do mês selecionado.</p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-pink-100 text-pink-700 px-3 py-1 text-sm font-semibold">
+                Registros ({filteredRecords.length})
+              </span>
             </div>
             <div className="flex flex-wrap gap-3">
               <Input
@@ -3227,13 +3285,16 @@ function App() {
                 <thead>
                   <tr className="text-left text-gray-500">
                     <th className="py-3 px-4">Dia da semana</th>
-                    <th className="py-3 px-4">Dia</th>
+                    <th className="py-3 px-4">Dia do Mês</th>
+                    <th className="py-3 px-4">Funcionário</th>
                     <th className="py-3 px-4">Entrada</th>
+                    <th className="py-3 px-4">Saída almoço</th>
+                    <th className="py-3 px-4">Retorno almoço</th>
                     <th className="py-3 px-4">Saída</th>
                     <th className="py-3 px-4">Irregularidade</th>
                     <th className="py-3 px-4">Qtde</th>
                     <th className="py-3 px-4">Justificativa</th>
-                    <th className="py-3 px-4">Localização</th>
+                    {isManager && <th className="py-3 px-4">Localização</th>}
                     {isManager && <th className="py-3 px-4">Ações</th>}
                   </tr>
                 </thead>
@@ -3246,51 +3307,56 @@ function App() {
                       <tr key={registro.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4 capitalize">{diaSemana}</td>
                         <td className="py-3 px-4">{diaMes}</td>
+                        <td className="py-3 px-4">{registro.funcionarioNome || '-'}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaEntrada)}</td>
+                        <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoSaida)}</td>
+                        <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoRetorno)}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaSaida)}</td>
                         <td className="py-3 px-4">{registro.irregularidade || '-'}</td>
                         <td className="py-3 px-4">{getWorkedTime(registro)}</td>
                         <td className="py-3 px-4 max-w-xs">{registro.justificativa || '-'}</td>
-                        <td className="py-3 px-4">
-                          <div className="space-y-3 text-xs">
-                            {registro.localizacaoEntrada && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1 font-semibold text-pink-600">
-                                  <MapPin className="w-4 h-4" /> Entrada
+                        {isManager && (
+                          <td className="py-3 px-4">
+                            <div className="space-y-3 text-xs">
+                              {registro.localizacaoEntrada && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 font-semibold text-pink-600">
+                                    <MapPin className="w-4 h-4" /> Entrada
+                                  </div>
+                                  <p className="text-gray-600">
+                                    {registro.localizacaoEntradaEndereco || 'Endereço não disponível'}
+                                  </p>
+                                  <a
+                                    href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-pink-600 hover:underline"
+                                  >
+                                    Ver no mapa
+                                  </a>
                                 </div>
-                                <p className="text-gray-600">
-                                  {registro.localizacaoEntradaEndereco || 'Endereço não disponível'}
-                                </p>
-                                <a
-                                  href={`https://maps.google.com/?q=${registro.localizacaoEntrada.latitude},${registro.localizacaoEntrada.longitude}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-pink-600 hover:underline"
-                                >
-                                  Ver no mapa
-                                </a>
-                              </div>
-                            )}
-                            {registro.localizacaoSaida && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1 font-semibold text-emerald-600">
-                                  <MapPin className="w-4 h-4" /> Saída
+                              )}
+                              {registro.localizacaoSaida && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 font-semibold text-emerald-600">
+                                    <MapPin className="w-4 h-4" /> Saída
+                                  </div>
+                                  <p className="text-gray-600">
+                                    {registro.localizacaoSaidaEndereco || 'Endereço não disponível'}
+                                  </p>
+                                  <a
+                                    href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
+                                  >
+                                    Ver no mapa
+                                  </a>
                                 </div>
-                                <p className="text-gray-600">
-                                  {registro.localizacaoSaidaEndereco || 'Endereço não disponível'}
-                                </p>
-                                <a
-                                  href={`https://maps.google.com/?q=${registro.localizacaoSaida.latitude},${registro.localizacaoSaida.longitude}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-emerald-600 hover:underline"
-                                >
-                                  Ver no mapa
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        </td>
+                              )}
+                            </div>
+                          </td>
+                        )}
                         {isManager && (
                           <td className="py-3 px-4">
                             <Button size="sm" variant="secondary" onClick={() => openEditModal(registro)}>Editar</Button>
@@ -3310,6 +3376,8 @@ function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input label="Hora de entrada" type="time" value={editForm.horaEntrada} onChange={(e) => setEditForm({ ...editForm, horaEntrada: e.target.value })} />
               <Input label="Hora de saída" type="time" value={editForm.horaSaida} onChange={(e) => setEditForm({ ...editForm, horaSaida: e.target.value })} />
+              <Input label="Saída para almoço" type="time" value={editForm.horaAlmocoSaida} onChange={(e) => setEditForm({ ...editForm, horaAlmocoSaida: e.target.value })} />
+              <Input label="Retorno do almoço" type="time" value={editForm.horaAlmocoRetorno} onChange={(e) => setEditForm({ ...editForm, horaAlmocoRetorno: e.target.value })} />
               <Input label="Irregularidade" value={editForm.irregularidade} onChange={(e) => setEditForm({ ...editForm, irregularidade: e.target.value })} />
               <Input label="Quantidade (horas)" value={editForm.qtde} onChange={(e) => setEditForm({ ...editForm, qtde: e.target.value })} />
             </div>
