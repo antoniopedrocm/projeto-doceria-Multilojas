@@ -2480,6 +2480,30 @@ function App() {
         return [...matrizStores, ...otherStores];
     };
 
+    const arraysAreEqual = (a = [], b = []) => {
+        if (a.length !== b.length) return false;
+        return a.every((value, index) => value === b[index]);
+    };
+
+    const storeInfosAreEqual = (prev = {}, next = {}) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
+
+        if (prevKeys.length !== nextKeys.length) return false;
+
+        return nextKeys.every((key) => {
+            const prevValue = prev[key] || {};
+            const nextValue = next[key] || {};
+
+            const prevEntries = Object.entries(prevValue);
+            const nextEntries = Object.entries(nextValue);
+
+            if (prevEntries.length !== nextEntries.length) return false;
+
+            return nextEntries.every(([entryKey, entryValue]) => prevValue[entryKey] === entryValue);
+        });
+    };
+
     useEffect(() => {
         let isMounted = true;
 
@@ -2508,7 +2532,12 @@ function App() {
 
                 const orderedStoreIds = prioritizeMatrizStore(storeIds, storeInfoMap);
 
-                setAvailableStores(orderedStoreIds);
+                setAvailableStores((previous) => {
+                    if (arraysAreEqual(previous, orderedStoreIds)) {
+                        return previous;
+                    }
+                    return orderedStoreIds;
+                });
 
                 setSelectedStoreId((prevSelected) => {
                     if (user.role === ROLE_OWNER) {
@@ -2565,7 +2594,8 @@ function App() {
                 }));
 
                 if (active) {
-                    setStoreInfoMap(Object.fromEntries(entries));
+                    const nextMap = Object.fromEntries(entries);
+                    setStoreInfoMap((prev) => (storeInfosAreEqual(prev, nextMap) ? prev : nextMap));
                 }
             } catch (error) {
                 console.error('Erro geral ao buscar informações das lojas:', error);
