@@ -3200,7 +3200,7 @@ function App() {
               <Button
                 variant="secondary"
                 onClick={() => handleRegisterPoint('saida')}
-                disabled={registerLoading}␊
+                disabled={registerLoading}
               >
                 Registrar saída
               </Button>
