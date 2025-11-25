@@ -264,7 +264,12 @@ const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
 };
 const Button = ({ children, variant = "primary", size = "md", onClick, className = "", disabled = false, type = "button" }) => {
   const baseClasses = "font-medium rounded-xl transition-all flex items-center gap-2 justify-center";
-  const variants = { primary: "bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5", secondary: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-md hover:shadow-lg", danger: "bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-lg hover:shadow-xl" };
+  const variants = {
+    primary: "bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5",
+    secondary: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-md hover:shadow-lg",
+    outline: "bg-white text-pink-600 border border-pink-200 hover:bg-pink-50 shadow-sm",
+    danger: "bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-lg hover:shadow-xl"
+  };
   const sizes = { sm: "px-4 py-2 text-sm", md: "px-6 py-3", lg: "px-8 py-4 text-lg" };
   return (<button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>{children}</button>);
 };
@@ -2877,24 +2882,59 @@ function App() {
 
     const formatTime = (value) => value || '--:--';
 
-    const getWorkedTime = (registro) => {
-      if (registro.qtde) return registro.qtde;
-      if (!registro.horaEntrada || !registro.horaSaida) return '-';
-      const [hIn, mIn] = registro.horaEntrada.split(':').map(Number);
-      const [hOut, mOut] = registro.horaSaida.split(':').map(Number);
-      let minutes = (hOut * 60 + mOut) - (hIn * 60 + mIn);
-
-      if (registro.horaAlmocoSaida && registro.horaAlmocoRetorno) {
-        const [hLunchOut, mLunchOut] = registro.horaAlmocoSaida.split(':').map(Number);
-        const [hLunchIn, mLunchIn] = registro.horaAlmocoRetorno.split(':').map(Number);
-        minutes -= (hLunchIn * 60 + mLunchIn) - (hLunchOut * 60 + mLunchOut);
-      }
-
-      if (Number.isNaN(minutes) || minutes <= 0) return '-';
+    const formatMinutesToLabel = (minutes) => {
       const hrs = Math.floor(minutes / 60);
       const mins = minutes % 60;
-      return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+      return `${hrs}:${String(mins).padStart(2, '0')}`;
     };
+
+    const calculateWorkSummary = (registro) => {
+      if (!registro?.horaEntrada || !registro?.horaSaida) {
+        return { workedLabel: '-', irregularidade: '-', workedMinutes: null };
+      }
+
+      const parseTime = (time) => {
+        const [hours, minutes] = (time || '').split(':').map(Number);
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+        return hours * 60 + minutes;
+      };
+
+      const entrada = parseTime(registro.horaEntrada);
+      const saida = parseTime(registro.horaSaida);
+
+      if (entrada === null || saida === null) {
+        return { workedLabel: '-', irregularidade: '-', workedMinutes: null };
+      }
+
+      let workedMinutes = saida - entrada;
+
+      const almocoSaida = parseTime(registro.horaAlmocoSaida);
+      const almocoRetorno = parseTime(registro.horaAlmocoRetorno);
+      if (almocoSaida !== null && almocoRetorno !== null) {
+        workedMinutes -= almocoRetorno - almocoSaida;
+      }
+
+      if (Number.isNaN(workedMinutes) || workedMinutes <= 0) {
+        return { workedLabel: '-', irregularidade: '-', workedMinutes: null };
+      }
+
+      const workedLabel = formatMinutesToLabel(workedMinutes);
+
+      const date = getDayInfo(registro);
+      const dayOfWeek = date ? date.getDay() : null; // 0 = domingo
+      const expectedMinutes = dayOfWeek !== null && dayOfWeek >= 1 && dayOfWeek <= 5 ? 8 * 60 : 0;
+
+      const diff = workedMinutes - expectedMinutes;
+      const irregularidade = dayOfWeek === null
+        ? '-'
+        : diff === 0
+          ? '0:00'
+          : `${diff > 0 ? '+' : '-'}${formatMinutesToLabel(Math.abs(diff))}`;
+
+      return { workedLabel, irregularidade, workedMinutes };
+    };
+
+    const getWorkedTime = (registro) => calculateWorkSummary(registro).workedLabel;
 
     const getRecordDateTime = (record) => {
       if (record?.data && typeof record.data.toDate === 'function') {
@@ -3034,33 +3074,45 @@ function App() {
           throw new Error('Tipo de registro inválido.');
         }
 
+        const baseData = {
+          funcionarioId: userId,
+          funcionarioNome: userName,
+          dia: dayKey,
+          data: Timestamp.now(),
+          horaEntrada: '',
+          horaSaida: '',
+          horaAlmocoSaida: '',
+          horaAlmocoRetorno: '',
+          localizacaoEntrada: null,
+          localizacaoEntradaEndereco: '',
+          localizacaoSaida: null,
+          localizacaoSaidaEndereco: '',
+          irregularidade: '',
+          qtde: '',
+          justificativa: '',
+          competencia: competenciaKey,
+          empresaId: currentStoreIdForDisplay,
+          historicoAlteracoes: [],
+          createdAt: serverTimestamp()
+        };
+
         if (snapshot.empty) {
-          const baseData = {
-            funcionarioId: userId,
-            funcionarioNome: userName,
-            dia: dayKey,
-            data: Timestamp.now(),
-            horaEntrada: '',
-            horaSaida: '',
-            horaAlmocoSaida: '',
-            horaAlmocoRetorno: '',
-            localizacaoEntrada: null,
-            localizacaoEntradaEndereco: '',
-            localizacaoSaida: null,
-            localizacaoSaidaEndereco: '',
-            irregularidade: '',
-            qtde: '',
-            justificativa: '',
-            competencia: competenciaKey,
-            empresaId: currentStoreIdForDisplay,
-            historicoAlteracoes: [],
-            createdAt: serverTimestamp()
-          };
-          await addDoc(pontosRef, { ...baseData, ...payload });
+          const recordToSave = { ...baseData, ...payload };
+          const summary = calculateWorkSummary(recordToSave);
+          await addDoc(pontosRef, {
+            ...recordToSave,
+            irregularidade: summary.irregularidade !== '-' ? summary.irregularidade : '',
+            qtde: summary.workedLabel !== '-' ? summary.workedLabel : ''
+          });
         } else {
+          const existingData = snapshot.docs[0].data();
           const docRef = snapshot.docs[0].ref;
+          const updatedRecord = { ...existingData, ...payload };
+          const summary = calculateWorkSummary(updatedRecord);
           await updateDoc(docRef, {
             ...payload,
+            irregularidade: summary.irregularidade !== '-' ? summary.irregularidade : '',
+            qtde: summary.workedLabel !== '-' ? summary.workedLabel : '',
             updatedAt: serverTimestamp()
           });
         }
@@ -3112,14 +3164,15 @@ function App() {
     };
 
     const openEditModal = (record) => {
+      const summary = calculateWorkSummary(record);
       setEditingRecord(record);
       setEditForm({
         horaEntrada: record.horaEntrada || '',
         horaSaida: record.horaSaida || '',
         horaAlmocoSaida: record.horaAlmocoSaida || '',
         horaAlmocoRetorno: record.horaAlmocoRetorno || '',
-        irregularidade: record.irregularidade || '',
-        qtde: record.qtde || '',
+        irregularidade: summary.irregularidade !== '-' ? summary.irregularidade : '',
+        qtde: summary.workedLabel !== '-' ? summary.workedLabel : '',
         justificativa: record.justificativa || ''
       });
     };
@@ -3131,20 +3184,21 @@ function App() {
         const storeId = resolveActiveStoreForWrite();
         const recordRef = doc(db, 'lojas', storeId, 'pontos', editingRecord.id);
         const nowDate = new Date();
-          await updateDoc(recordRef, {
-            horaEntrada: editForm.horaEntrada || '',
-            horaSaida: editForm.horaSaida || '',
-            horaAlmocoSaida: editForm.horaAlmocoSaida || '',
-            horaAlmocoRetorno: editForm.horaAlmocoRetorno || '',
-            irregularidade: editForm.irregularidade || '',
-            qtde: editForm.qtde || '',
-            justificativa: editForm.justificativa || '',
+        const summary = calculateWorkSummary({ ...editingRecord, ...editForm });
+        await updateDoc(recordRef, {
+          horaEntrada: editForm.horaEntrada || '',
+          horaSaida: editForm.horaSaida || '',
+          horaAlmocoSaida: editForm.horaAlmocoSaida || '',
+          horaAlmocoRetorno: editForm.horaAlmocoRetorno || '',
+          irregularidade: summary.irregularidade !== '-' ? summary.irregularidade : '',
+          qtde: summary.workedLabel !== '-' ? summary.workedLabel : '',
+          justificativa: editForm.justificativa || '',
           gestorId: userId,
           dataAjuste: serverTimestamp(),
           historicoAlteracoes: arrayUnion({
             data: nowDate.toISOString(),
             gestor: userName,
-            alteracoes: { ...editForm }
+            alteracoes: { ...editForm, irregularidade: summary.irregularidade, qtde: summary.workedLabel }
           })
         });
         setRegisterMessage({ type: 'success', text: 'Registro de ponto atualizado.' });
@@ -3329,6 +3383,7 @@ function App() {
                     const date = getDayInfo(registro);
                     const diaSemana = date ? date.toLocaleDateString('pt-BR', { weekday: 'long' }) : '-';
                     const diaMes = date ? String(date.getDate()).padStart(2, '0') : '-';
+                    const workSummary = calculateWorkSummary(registro);
                     return (
                       <tr key={registro.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4">{registro.funcionarioNome || '-'}</td>
@@ -3338,8 +3393,8 @@ function App() {
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoSaida)}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoRetorno)}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaSaida)}</td>
-                        <td className="py-3 px-4">{registro.irregularidade || '-'}</td>
-                        <td className="py-3 px-4">{getWorkedTime(registro)}</td>
+                        <td className="py-3 px-4">{workSummary.irregularidade}</td>
+                        <td className="py-3 px-4">{workSummary.workedLabel}</td>
                         <td className="py-3 px-4 max-w-xs">{registro.justificativa || '-'}</td>
                         {isManager && (
                           <td className="py-3 px-4">
