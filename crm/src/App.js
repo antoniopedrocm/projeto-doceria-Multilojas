@@ -2864,8 +2864,10 @@ function App() {
 
     const getDayInfo = (record) => {
       if (record.dia) {
-        const date = new Date(record.dia);
-        return date;
+        const [year, month, day] = record.dia.split('-').map(Number);
+        if (year && month && day) {
+          return new Date(year, month - 1, day);
+        }
       }
       if (record.data && typeof record.data.toDate === 'function') {
         return record.data.toDate();
@@ -3284,9 +3286,9 @@ function App() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500">
+                    <th className="py-3 px-4">Funcionário</th>
                     <th className="py-3 px-4">Dia da semana</th>
                     <th className="py-3 px-4">Dia do Mês</th>
-                    <th className="py-3 px-4">Funcionário</th>
                     <th className="py-3 px-4">Entrada</th>
                     <th className="py-3 px-4">Saída almoço</th>
                     <th className="py-3 px-4">Retorno almoço</th>
@@ -3305,9 +3307,9 @@ function App() {
                     const diaMes = date ? String(date.getDate()).padStart(2, '0') : '-';
                     return (
                       <tr key={registro.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4">{registro.funcionarioNome || '-'}</td>
                         <td className="py-3 px-4 capitalize">{diaSemana}</td>
                         <td className="py-3 px-4">{diaMes}</td>
-                        <td className="py-3 px-4">{registro.funcionarioNome || '-'}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaEntrada)}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoSaida)}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaAlmocoRetorno)}</td>
