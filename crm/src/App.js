@@ -3197,13 +3197,13 @@ function App() {
               >
                 Registrar entrada
               </Button>
-              <Button␊
-                variant="secondary"␊
-                onClick={() => handleRegisterPoint('saida')}␊
-                disabled={registerLoading}
-              >␊
-                Registrar saída␊
-              </Button>␊
+              <Button
+                variant="secondary"
+                onClick={() => handleRegisterPoint('saida')}
+                disabled={registerLoading}␊
+              >
+                Registrar saída
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => handleRegisterPoint('almoco_inicio')}
