@@ -2896,12 +2896,38 @@ function App() {
       return `${hrs}h ${String(mins).padStart(2, '0')}m`;
     };
 
+    const getRecordDateTime = (record) => {
+      if (record?.data && typeof record.data.toDate === 'function') {
+        return record.data.toDate();
+      }
+      const baseDate = getDayInfo(record);
+      if (!baseDate) return null;
+      const timeString = record.horaEntrada || record.horaSaida || record.horaAlmocoRetorno || record.horaAlmocoSaida;
+      if (timeString) {
+        const [hours, minutes] = timeString.split(':').map(Number);
+        if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
+          return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), hours, minutes);
+        }
+      }
+      return baseDate;
+    };
+
     const filteredRecords = useMemo(() => {
       const sorted = [...records].sort((a, b) => {
-        const dateA = getDayInfo(a);
-        const dateB = getDayInfo(b);
-        if (!dateA || !dateB) return 0;
-        return dateA - dateB;
+        const dateA = getRecordDateTime(a);
+        const dateB = getRecordDateTime(b);
+        if (dateA && dateB) {
+          const diff = dateA - dateB;
+          if (diff !== 0) return diff;
+        }
+        if (!dateA && dateB) return -1;
+        if (dateA && !dateB) return 1;
+        const createdA = a?.createdAt && typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate() : null;
+        const createdB = b?.createdAt && typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate() : null;
+        if (createdA && createdB) return createdA - createdB;
+        if (!createdA && createdB) return -1;
+        if (createdA && !createdB) return 1;
+        return 0;
       });
       if (isManager) {
         if (selectedEmployee === 'all') return sorted;
@@ -3009,20 +3035,17 @@ function App() {
         }
 
         if (snapshot.empty) {
-          if (type !== 'entrada') {
-            throw new Error('Registre a entrada antes de registrar o horário.');
-          }
-          await addDoc(pontosRef, {
+          const baseData = {
             funcionarioId: userId,
             funcionarioNome: userName,
             dia: dayKey,
             data: Timestamp.now(),
-            horaEntrada: payload.horaEntrada,
+            horaEntrada: '',
             horaSaida: '',
             horaAlmocoSaida: '',
             horaAlmocoRetorno: '',
-            localizacaoEntrada: payload.localizacaoEntrada,
-            localizacaoEntradaEndereco: payload.localizacaoEntradaEndereco || '',
+            localizacaoEntrada: null,
+            localizacaoEntradaEndereco: '',
             localizacaoSaida: null,
             localizacaoSaidaEndereco: '',
             irregularidade: '',
@@ -3032,7 +3055,8 @@ function App() {
             empresaId: currentStoreIdForDisplay,
             historicoAlteracoes: [],
             createdAt: serverTimestamp()
-          });
+          };
+          await addDoc(pontosRef, { ...baseData, ...payload });
         } else {
           const docRef = snapshot.docs[0].ref;
           await updateDoc(docRef, {
@@ -3173,13 +3197,13 @@ function App() {
               >
                 Registrar entrada
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => handleRegisterPoint('saida')}
-                disabled={registerLoading || !todayRecord?.horaEntrada}
-              >
-                Registrar saída
-              </Button>
+              <Button␊
+                variant="secondary"␊
+                onClick={() => handleRegisterPoint('saida')}␊
+                disabled={registerLoading}
+              >␊
+                Registrar saída␊
+              </Button>␊
               <Button
                 variant="outline"
                 onClick={() => handleRegisterPoint('almoco_inicio')}
