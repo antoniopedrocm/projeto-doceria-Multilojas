@@ -940,6 +940,8 @@
 
         // --- VARIÁVEIS GLOBAIS ---
         const WHATSAPP_NUMBER = '5562991056075';
+        const STORE_ID = 'garavelo';
+        const storePath = (...segments) => ["lojas", STORE_ID, ...segments];
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
@@ -1068,10 +1070,19 @@
         async function fetchStoreConfig() {
             try {
                 const { db, doc, getDoc } = await import('./firebaseClientConfig.js');
-                const configDoc = await getDoc(doc(db, "configuracoes", "frete"));
-                if (configDoc.exists()) {
-                    storeConfig = configDoc.data();
+                const storeConfigDoc = await getDoc(doc(db, ...storePath("info", "dados")));
+
+                if (storeConfigDoc.exists()) {
+                    const data = storeConfigDoc.data();
+                    storeConfig = data?.frete || data || {};
                     console.log("✅ Configurações da loja carregadas:", storeConfig);
+                    return;
+                }
+
+                const fallbackConfig = await getDoc(doc(db, "configuracoes", "frete"));
+                if (fallbackConfig.exists()) {
+                    storeConfig = fallbackConfig.data();
+                    console.log("⚠️ Configurações específicas não encontradas. Usando fallback padrão:", storeConfig);
                 }
             } catch (error) {
                 console.error("Erro ao carregar configurações:", error);
@@ -1083,8 +1094,8 @@
                 console.log("🔄 Buscando produtos do Firebase...");
                 
                 const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
-                
-                const q = query(collection(db, "produtos"), where("status", "==", "Ativo"));
+
+                const q = query(collection(db, ...storePath("produtos")), where("status", "==", "Ativo"));
                 const querySnapshot = await getDocs(q);
                 allProducts = querySnapshot.docs.map(doc => ({ 
                     id: doc.id, 
@@ -1530,7 +1541,7 @@
 
             try {
                 const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-                const clientDocRef = doc(db, "clientes", currentClient.id);
+                const clientDocRef = doc(db, ...storePath("clientes", currentClient.id));
                 
                 const clientSnap = await getDoc(clientDocRef);
                 if (!clientSnap.exists()) {
@@ -1631,8 +1642,8 @@
 			if (!confirm('Tem certeza que deseja excluir este endereço?')) return;
 
 			try {
-				const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-				const clientDocRef = doc(db, 'clientes', currentClient.id);
+                           const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
+                           const clientDocRef = doc(db, ...storePath('clientes', currentClient.id));
 				const clientSnap = await getDoc(clientDocRef);
 				if (!clientSnap.exists()) {
                     throw new Error('Cliente não encontrado.');
@@ -1743,7 +1754,7 @@
 
                 try {
                     const { db, doc, updateDoc } = await import('./firebaseClientConfig.js');
-                    const clientRef = doc(db, 'clientes', client.id);
+                    const clientRef = doc(db, ...storePath('clientes', client.id));
                     await updateDoc(clientRef, { nome: newName, aniversario: newBirthdate });
                     
                     currentClient.nome = newName;
@@ -1800,9 +1811,10 @@
                         aniversario: newBirthdate,
                         telefone: phone.replace(/\D/g, ''),
                         enderecos: [],
-                        createdAt: serverTimestamp()
+                        createdAt: serverTimestamp(),
+                        lojaId: STORE_ID
                     };
-                    const docRef = await addDoc(collection(db, "clientes"), newClientData);
+                    const docRef = await addDoc(collection(db, ...storePath("clientes")), newClientData);
                     currentClient = { id: docRef.id, ...newClientData };
                     showToast("Novo cliente criado com sucesso!");
                     modal.classList.add('hidden');
@@ -1837,7 +1849,7 @@
             
             try {
                 const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
-                const q = query(collection(db, "clientes"), where("telefone", "==", phoneDigits));
+                const q = query(collection(db, ...storePath("clientes")), where("telefone", "==", phoneDigits));
                 const querySnapshot = await getDocs(q);
                 
                 phoneLoginModal.classList.add('hidden');
@@ -1940,13 +1952,13 @@
                 const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
 
                 if (!isGuest && currentClient?.id) {
-                    const clientDoc = await getDoc(doc(db, "clientes", currentClient.id));
+                    const clientDoc = await getDoc(doc(db, ...storePath("clientes", currentClient.id)));
                     if (clientDoc.exists() && clientDoc.data().cuponsUsados?.includes(codigo)) {
                         throw new Error('Você já utilizou este cupom.');
                     }
                 }
                 
-                const q = query(collection(db, "cupons"), where("codigo", "==", codigo));
+                const q = query(collection(db, ...storePath("cupons")), where("codigo", "==", codigo));
                 const cupomSnapshot = await getDocs(q);
                 if (cupomSnapshot.empty) throw new Error('Cupom inválido.');
                 
@@ -2076,16 +2088,17 @@
                 subtotal, desconto, valorFrete: window.valorFrete, total, cupom: cupomData,
                 status: 'Pendente',
                 origem: isPlatform ? 'Plataforma' : 'Cardapio Online',
+                lojaId: STORE_ID,
                 createdAt: serverTimestamp()
             };
 
             try {
-                const docRef = await addDoc(collection(db, "pedidos"), orderData);
+                const docRef = await addDoc(collection(db, ...storePath("pedidos")), orderData);
 
                 // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE ESTOQUE ---
                 for (const item of cart) {
                     try {
-                        const productRef = doc(db, "produtos", item.id);
+                        const productRef = doc(db, ...storePath("produtos", item.id));
                         const productSnap = await getDoc(productRef);
 
                         if (productSnap.exists()) {
@@ -2106,9 +2119,9 @@
 
                 if (clientId && appliedCupom) {
                     try {
-                        const clientDocRef = doc(db, "clientes", clientId);
+                        const clientDocRef = doc(db, ...storePath("clientes", clientId));
                         await updateDoc(clientDocRef, { cuponsUsados: arrayUnion(appliedCupom.codigo) });
-                        const cupomDocRef = doc(db, "cupons", appliedCupom.id);
+                        const cupomDocRef = doc(db, ...storePath("cupons", appliedCupom.id));
                         const cupomDoc = await getDoc(cupomDocRef);
                         if (cupomDoc.exists()) {
                             await updateDoc(cupomDocRef, { usos: (cupomDoc.data().usos || 0) + 1 });
