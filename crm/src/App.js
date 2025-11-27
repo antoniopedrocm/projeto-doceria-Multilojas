@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -39,12 +39,13 @@ const ROLE_ATTENDANT = 'atendente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
+const CONFIG_DOC_ID = 'config';
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
 
 const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false) => {
   const shouldUseConfigPath = CONFIG_COLLECTIONS.has(collectionName) && !useLegacyPath;
   return shouldUseConfigPath
-    ? ['lojas', storeId, 'configuracoes', collectionName]
+    ? ['lojas', storeId, 'configuracoes', CONFIG_DOC_ID, collectionName]
     : ['lojas', storeId, collectionName];
 };
 
@@ -55,6 +56,8 @@ const getStoreCollectionRef = (storeId, collectionName, useLegacyPath = false) =
 const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) => {
   return doc(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath), docId);
 };
+
+const getStoreConfigDocRef = (storeId) => doc(db, 'lojas', storeId, 'configuracoes', CONFIG_DOC_ID);
 
 const COLLECTIONS_TO_SYNC = [
   'clientes',
@@ -1655,6 +1658,7 @@ function App() {
   const initialDataLoaded = useRef(false);
   const storeCollectionsDataRef = useRef({});
   const pushTokenRef = useRef(null);
+  const configMigrationStatusRef = useRef(new Set());
   // --- REMOVIDO: audioRef e alarmIntervalRef ---
 
   
@@ -1711,6 +1715,27 @@ function App() {
 
     return base;
   }, [user, resolveStoreIdsForView, selectedStoreId]);
+
+  const migrateLegacyConfigCollection = useCallback(async (storeId, collectionName, legacyDocs) => {
+    const migrationKey = `${storeId}:${collectionName}`;
+    if (configMigrationStatusRef.current.has(migrationKey)) return;
+
+    configMigrationStatusRef.current.add(migrationKey);
+
+    try {
+      const batch = writeBatch(db);
+      legacyDocs.forEach((docSnap) => {
+        batch.set(
+          doc(db, ...buildStoreCollectionPath(storeId, collectionName), docSnap.id),
+          docSnap.data()
+        );
+      });
+      await batch.commit();
+      console.log(`[App.js] Migração de ${collectionName} concluída para a loja ${storeId}.`);
+    } catch (error) {
+      console.error(`[App.js] Falha ao migrar ${collectionName} da loja ${storeId}:`, error);
+    }
+  }, []);
 
   const resolveActiveStoreForWrite = useCallback(() => {
 	if (!user) {
@@ -2248,6 +2273,9 @@ function App() {
                                                 (legacySnap) => {
                                                       if (primaryItems.length) return;
                                                       legacyItems = legacySnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                                                      if (!primaryItems.length && isConfigCollection && legacySnap.docs.length) {
+                                                            migrateLegacyConfigCollection(storeId, collectionName, legacySnap.docs);
+                                                      }
                                                       applyItems(legacySnap.docChanges());
                                                 },
                                                 handleSnapshotError
@@ -2273,7 +2301,7 @@ function App() {
                 unsubscribes.forEach(unsubscribe => unsubscribe());
                 initialDataLoaded.current = false;
           };
-        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores]);
+        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection]);
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
         const hasAnyPending = data.pedidos && data.pedidos.some(p => p.status === 'Pendente');
@@ -4243,19 +4271,37 @@ const effectiveStoreName = useMemo(() => {
 
         const fetchFreteConfig = async () => {
             try {
-                const freteRef = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
-                const docSnap = await getDoc(freteRef);
-                if (docSnap.exists()) {
-                    const freteData = docSnap.data();
+                const configRef = getStoreConfigDocRef(effectiveStoreId);
+                const configSnap = await getDoc(configRef);
+
+                if (configSnap.exists()) {
+                    const configData = configSnap.data() || {};
+                    const freteData = configData.frete || configData;
+
+                    if (freteData && Object.keys(freteData).length) {
+                        setFreteConfig(freteData);
+                        return;
+                    }
+                }
+
+                const legacyFreteRef = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
+                const legacyFreteSnap = await getDoc(legacyFreteRef);
+                if (legacyFreteSnap.exists()) {
+                    const freteData = legacyFreteSnap.data();
                     setFreteConfig(freteData || { enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
+                    await setDoc(configRef, { frete: freteData || {} }, { merge: true });
                     return;
                 }
 
                 const legacyInfoSnap = await getDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'));
                 if (legacyInfoSnap.exists()) {
                     const infoData = legacyInfoSnap.data();
-                    setFreteConfig(infoData?.frete || { enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
-                    return;
+                    const freteData = infoData?.frete || {};
+                    if (Object.keys(freteData).length) {
+                        setFreteConfig(freteData);
+                        await setDoc(configRef, { frete: freteData }, { merge: true });
+                        return;
+                    }
                 }
 
                 setFreteConfig({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
@@ -4480,12 +4526,14 @@ const effectiveStoreName = useMemo(() => {
                 return;
             }
 
-            const freteDoc = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
+            const freteDoc = getStoreConfigDocRef(effectiveStoreId);
             await setDoc(freteDoc, {
-                ...freteConfig,
-                valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
-                updatedAt: new Date(),
-                updatedBy: user?.auth?.email || 'Sistema'
+                frete: {
+                    ...freteConfig,
+                    valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
+                    updatedAt: new Date(),
+                    updatedBy: user?.auth?.email || 'Sistema'
+                }
             }, { merge: true });
             await setDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'), {
                 frete: {
@@ -4494,6 +4542,12 @@ const effectiveStoreName = useMemo(() => {
                     updatedAt: new Date(),
                     updatedBy: user?.auth?.email || 'Sistema'
                 }
+            }, { merge: true });
+            await setDoc(doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete'), {
+                ...freteConfig,
+                valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
+                updatedAt: new Date(),
+                updatedBy: user?.auth?.email || 'Sistema'
             }, { merge: true });
             alert('Configurações de frete salvas com sucesso!');
         } catch (error) {

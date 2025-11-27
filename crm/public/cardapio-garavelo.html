@@ -701,26 +701,45 @@
     </div>
 
     <!-- SCRIPTS -->
-	<script type="module">
-	  import { db, doc, getDoc } from "./firebaseClientConfig.js";
+        <script type="module">
+          import { db, doc, getDoc } from "./firebaseClientConfig.js";
 
-	  // Variável global para armazenar os dados de frete
-	  window.dadosFrete = null;
+          const STORE_ID = 'garavelo';
+          const CONFIG_DOC_ID = 'config';
+          const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
+          const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
 
-	  async function carregarConfiguracoesFrete() {
-		try {
-		  const freteRef = doc(db, "configuracoes", "frete");
-		  const freteSnap = await getDoc(freteRef);
-		  if (freteSnap.exists()) {
-			window.dadosFrete = freteSnap.data();
-			console.log("✅ Configurações de frete carregadas:", window.dadosFrete);
-		  } else {
-			console.error("❌ Documento 'frete' não encontrado");
-		  }
-		} catch (error) {
-		  console.error("Erro ao carregar frete:", error);
-		}
-	  }
+          // Variável global para armazenar os dados de frete
+          window.dadosFrete = null;
+
+          async function carregarConfiguracoesFrete() {
+                try {
+                  const freteSnap = await getDoc(doc(db, ...storeConfigDocPath()));
+                  if (freteSnap.exists()) {
+                        const data = freteSnap.data() || {};
+                        window.dadosFrete = data.frete || data;
+                        console.log("✅ Configurações de frete carregadas:", window.dadosFrete);
+                        return;
+                  }
+
+                  const legacyFreteSnap = await getDoc(doc(db, ...legacyConfigPath('frete')));
+                  if (legacyFreteSnap.exists()) {
+                        window.dadosFrete = legacyFreteSnap.data();
+                        console.warn("⚠️ Usando configuração legada de frete:", window.dadosFrete);
+                        return;
+                  }
+
+                  const fallbackSnap = await getDoc(doc(db, 'configuracoes', 'frete'));
+                  if (fallbackSnap.exists()) {
+                        window.dadosFrete = fallbackSnap.data();
+                        console.warn("⚠️ Usando fallback padrão de frete:", window.dadosFrete);
+                  } else {
+                        console.error("❌ Documento 'frete' não encontrado");
+                  }
+                } catch (error) {
+                  console.error("Erro ao carregar frete:", error);
+                }
+          }
 
 	  document.addEventListener("DOMContentLoaded", carregarConfiguracoesFrete);
 	</script>
@@ -941,11 +960,25 @@
         // --- VARIÁVEIS GLOBAIS ---
         const WHATSAPP_NUMBER = '5562991056075';
         const STORE_ID = 'garavelo';
-        const storePath = (...segments) => ["lojas", STORE_ID, ...segments];
+        const CONFIG_DOC_ID = 'config';
+        const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
+        const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
+        const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
+        const legacyStorePath = (...segments) => ['lojas', STORE_ID, ...segments];
+        const storePath = (...segments) => {
+            if (!segments.length) return ['lojas', STORE_ID];
+
+            const [first, ...rest] = segments;
+            if (CONFIG_COLLECTIONS.has(first)) {
+                return storeConfigDocPath(first, ...rest);
+            }
+
+            return ["lojas", STORE_ID, first, ...rest];
+        };
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
-		window.guestCurrentLatLng = null;
+                window.guestCurrentLatLng = null;
         let storeConfig = {};
 
         // --- SELEÇÃO DE ELEMENTOS DOM ---
@@ -1070,12 +1103,27 @@
         async function fetchStoreConfig() {
             try {
                 const { db, doc, getDoc } = await import('./firebaseClientConfig.js');
+                const configDoc = await getDoc(doc(db, ...storeConfigDocPath()));
+                if (configDoc.exists()) {
+                    const data = configDoc.data() || {};
+                    storeConfig = data.frete || data;
+                    console.log("✅ Configurações da loja carregadas:", storeConfig);
+                    return;
+                }
+
                 const storeConfigDoc = await getDoc(doc(db, ...storePath("info", "dados")));
 
                 if (storeConfigDoc.exists()) {
                     const data = storeConfigDoc.data();
                     storeConfig = data?.frete || data || {};
                     console.log("✅ Configurações da loja carregadas:", storeConfig);
+                    return;
+                }
+
+                const legacyFreteDoc = await getDoc(doc(db, ...legacyConfigPath('frete')));
+                if (legacyFreteDoc.exists()) {
+                    storeConfig = legacyFreteDoc.data();
+                    console.log("⚠️ Usando configuração legada da loja:", storeConfig);
                     return;
                 }
 
@@ -1948,21 +1996,29 @@
             verifyButton.disabled = true; 
             verifyButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div>';
             
-            try {
-                const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
+                try {
+                    const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
 
-                if (!isGuest && currentClient?.id) {
-                    const clientDoc = await getDoc(doc(db, ...storePath("clientes", currentClient.id)));
-                    if (clientDoc.exists() && clientDoc.data().cuponsUsados?.includes(codigo)) {
-                        throw new Error('Você já utilizou este cupom.');
+                    if (!isGuest && currentClient?.id) {
+                        const clientDoc = await getDoc(doc(db, ...storePath("clientes", currentClient.id)));
+                        if (clientDoc.exists() && clientDoc.data().cuponsUsados?.includes(codigo)) {
+                            throw new Error('Você já utilizou este cupom.');
+                        }
                     }
-                }
-                
-                const q = query(collection(db, ...storePath("cupons")), where("codigo", "==", codigo));
-                const cupomSnapshot = await getDocs(q);
-                if (cupomSnapshot.empty) throw new Error('Cupom inválido.');
-                
-                const cupom = { id: cupomSnapshot.docs[0].id, ...cupomSnapshot.docs[0].data() };
+
+                    let cupomPathResolver = storePath;
+                    const q = query(collection(db, ...storePath("cupons")), where("codigo", "==", codigo));
+                    let cupomSnapshot = await getDocs(q);
+
+                    if (cupomSnapshot.empty) {
+                        const legacyQuery = query(collection(db, ...legacyStorePath('cupons')), where('codigo', '==', codigo));
+                        cupomSnapshot = await getDocs(legacyQuery);
+                        cupomPathResolver = legacyStorePath;
+                    }
+
+                    if (cupomSnapshot.empty) throw new Error('Cupom inválido.');
+
+                    const cupom = { id: cupomSnapshot.docs[0].id, ...cupomSnapshot.docs[0].data(), _pathResolver: cupomPathResolver };
 
                 if (cupom.status !== 'Ativo') throw new Error('Cupom inativo.');
                 if (cupom.limiteUso > 0 && (cupom.usos || 0) >= cupom.limiteUso) throw new Error('Cupom esgotado.');
@@ -2121,7 +2177,7 @@
                     try {
                         const clientDocRef = doc(db, ...storePath("clientes", clientId));
                         await updateDoc(clientDocRef, { cuponsUsados: arrayUnion(appliedCupom.codigo) });
-                        const cupomDocRef = doc(db, ...storePath("cupons", appliedCupom.id));
+                        const cupomDocRef = doc(db, ...((appliedCupom._pathResolver || storePath)("cupons", appliedCupom.id)));
                         const cupomDoc = await getDoc(cupomDocRef);
                         if (cupomDoc.exists()) {
                             await updateDoc(cupomDocRef, { usos: (cupomDoc.data().usos || 0) + 1 });
