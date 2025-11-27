@@ -101,6 +101,12 @@ const generateStoreId = (value) => {
     .slice(0, 50) || `loja-${Date.now()}`;
 };
 
+const getStoreRef = (storeId) => db.collection('lojas').doc(storeId);
+
+const getStoreConfigDoc = (storeId, configId) => getStoreRef(storeId).collection('configuracoes').doc(configId);
+
+const getLegacyInfoDoc = (storeId) => getStoreRef(storeId).collection('info').doc(STORE_INFO_DOC_ID);
+
 // API Express para o Cardápio Online
 const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
@@ -194,14 +200,25 @@ app.post("/frete/calcular", async (req, res) => {
     try {
         const { clienteLat, clienteLng } = req.body;
 
-        const configDoc = await db.collection("lojas").doc(lojaId).collection("info").doc(STORE_INFO_DOC_ID).get();
-        if (!configDoc.exists) {
+        const freteDoc = await getStoreConfigDoc(lojaId, 'frete').get();
+        let freteConfig = freteDoc.exists ? freteDoc.data() : null;
+
+        if (!freteConfig || Object.keys(freteConfig).length === 0) {
+            const legacyDoc = await getLegacyInfoDoc(lojaId).get();
+            freteConfig = legacyDoc.data()?.frete || null;
+        }
+
+        if (!freteConfig) {
             return res.status(404).json({ message: "Configuração de frete não encontrada." });
         }
-        const freteConfig = configDoc.data()?.frete || {};
+
         const lojaLat = freteConfig.lat;
         const lojaLng = freteConfig.lng;
         const valorPorKm = freteConfig.valorPorKm;
+
+        if (typeof lojaLat !== 'number' || typeof lojaLng !== 'number' || typeof valorPorKm !== 'number') {
+            return res.status(400).json({ message: "Configuração de frete inválida." });
+        }
 
         function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; // Raio da Terra em km
@@ -236,17 +253,46 @@ app.post("/cupons/verificar", async (req, res) => {
 	const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
-        const cupomQuery = await db.collection("lojas").doc(lojaId).collection("cupons").where("codigo", "==", codigo.toUpperCase()).limit(1).get();
-        if (cupomQuery.empty) {
+        const cupomCodigo = codigo.toUpperCase();
+        const cuponsDoc = await getStoreConfigDoc(lojaId, 'cupons').get();
+        let cupom = null;
+
+        if (cuponsDoc.exists) {
+            const data = cuponsDoc.data() || {};
+            const possibleLists = [data.lista, data.cupons, data.items];
+
+            for (const list of possibleLists) {
+                if (Array.isArray(list)) {
+                    cupom = list.find((item) => item?.codigo?.toUpperCase && item.codigo.toUpperCase() === cupomCodigo);
+                }
+                if (cupom) break;
+            }
+
+            if (!cupom && typeof data === 'object' && data !== null) {
+                const directCupom = data[cupomCodigo] || data[cupomCodigo.toLowerCase()];
+                if (directCupom && typeof directCupom === 'object') {
+                    cupom = { codigo: cupomCodigo, ...directCupom };
+                }
+            }
+        }
+
+        if (!cupom) {
+            const legacyDoc = await getLegacyInfoDoc(lojaId).get();
+            const legacyCupons = legacyDoc.data()?.cupons;
+            if (Array.isArray(legacyCupons)) {
+                cupom = legacyCupons.find((item) => item?.codigo?.toUpperCase && item.codigo.toUpperCase() === cupomCodigo) || null;
+            }
+        }
+
+        if (!cupom) {
             return res.status(404).json({ valido: false, mensagem: "Cupom não encontrado." });
         }
-        const cupomDoc = cupomQuery.docs[0];
-        const cupom = { id: cupomDoc.id, ...cupomDoc.data() };
 
         if (cupom.status !== "Ativo") {
             return res.status(400).json({ valido: false, mensagem: "Este cupom não está ativo." });
         }
-        if (cupom.limiteUso && cupom.usos >= cupom.limiteUso) {
+        const usosAtuais = typeof cupom.usos === 'number' ? cupom.usos : 0;
+        if (cupom.limiteUso && usosAtuais >= cupom.limiteUso) {
             return res.status(400).json({ valido: false, mensagem: "Este cupom atingiu o limite de usos." });
         }
         if (cupom.valorMinimo && totalCarrinho < cupom.valorMinimo) {
