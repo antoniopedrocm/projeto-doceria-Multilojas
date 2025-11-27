@@ -301,27 +301,75 @@ exports.createStore = onCall(async (request) => {
     }
 
     const storeDocRef = db.collection('lojas').doc(normalizedId);
-    const existingDoc = await storeDocRef.get();
-
-    if (existingDoc.exists) {
-        throw new HttpsError('already-exists', 'Já existe uma loja com esse identificador.');
-    }
-
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
-    const storePayload = {
-        nome: rawName,
-        criadoEm: timestamp,
-        criadoPor: uid,
-    };
+    await db.runTransaction(async (transaction) => {
+        const existingDoc = await transaction.get(storeDocRef);
 
-    await storeDocRef.set(storePayload);
+        if (existingDoc.exists) {
+            throw new HttpsError('already-exists', 'Já existe uma loja com esse identificador.');
+        }
 
-    await storeDocRef.collection('info').doc(STORE_INFO_DOC_ID).set({
-        nome: rawName,
-        criadoEm: timestamp,
-        criadoPor: uid,
-    }, {merge: true});
+        const storePayload = {
+            nome: rawName,
+            criadoEm: timestamp,
+            criadoPor: uid,
+        };
+
+        transaction.set(storeDocRef, storePayload, {merge: true});
+
+        transaction.set(storeDocRef.collection('info').doc(STORE_INFO_DOC_ID), {
+            nome: rawName,
+            criadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        transaction.set(storeDocRef.collection('meuEspaco').doc('empresa'), {
+            nomeFantasia: rawName,
+            documento: '',
+            contato: { telefone: '', email: '' },
+            endereco: {},
+            atualizadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        transaction.set(storeDocRef.collection('meuEspaco').doc('ponto'), {
+            nome: rawName,
+            endereco: {},
+            horarioFuncionamento: [],
+            atualizadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        const configuracoesRef = storeDocRef.collection('configuracoes');
+
+        transaction.set(configuracoesRef.doc('frete'), {
+            ativo: false,
+            tipo: 'fixo',
+            valor: 0,
+            valorMinimo: 0,
+            atualizadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        transaction.set(configuracoesRef.doc('cupons'), {
+            placeholder: true,
+            iniciadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        transaction.set(configuracoesRef.doc('usuarios'), {
+            placeholder: true,
+            iniciadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+
+        transaction.set(configuracoesRef.doc('logs'), {
+            placeholder: true,
+            iniciadoEm: timestamp,
+            criadoPor: uid,
+        }, {merge: true});
+    });
 
     const profile = await getUserProfile(uid);
     let assignedStoreIds = null;
