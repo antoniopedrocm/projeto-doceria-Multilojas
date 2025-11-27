@@ -53,11 +53,11 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 // Some Firebase projects restrict anonymous authentication at the admin
-// level.  To avoid repeated 400 errors in the browser console when that
-// happens, we make anonymous auth opt-in.  Set
-// `window.ENABLE_ANON_AUTH = true` before loading this script to
-// re-enable the previous behaviour.
-const ANONYMOUS_AUTH_ENABLED = window.ENABLE_ANON_AUTH === true;
+// level.  Anonymous auth is now enabled by default (so freshly enabled
+// Firebase settings work out of the box), but you can disable it by
+// setting `window.DISABLE_ANON_AUTH = true` before loading this script
+// if the project explicitly blocks anonymous sessions.
+const ANONYMOUS_AUTH_ENABLED = window.DISABLE_ANON_AUTH !== true;
 
 if (!ANONYMOUS_AUTH_ENABLED) {
   window.firebaseAnonAuthUnavailable = true;
