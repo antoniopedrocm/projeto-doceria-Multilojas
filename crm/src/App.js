@@ -56,6 +56,20 @@ const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) =
   return doc(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath), docId);
 };
 
+const resolveDocRefForWrite = async (storeId, section, id) => {
+  if (!CONFIG_COLLECTIONS.has(section)) return getStoreDocRef(storeId, section, id);
+
+  const primaryRef = getStoreDocRef(storeId, section, id);
+  const primarySnap = await getDoc(primaryRef);
+  if (primarySnap.exists()) return primaryRef;
+
+  const legacyRef = getStoreDocRef(storeId, section, id, true);
+  const legacySnap = await getDoc(legacyRef);
+  if (legacySnap.exists()) return legacyRef;
+
+  return primaryRef;
+};
+
 const COLLECTIONS_TO_SYNC = [
   'clientes',
   'produtos',
@@ -2328,7 +2342,7 @@ function App() {
   const updateItem = async (section, id, updatedItem, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        const itemDoc = getStoreDocRef(storeId, section, id);
+        const itemDoc = await resolveDocRefForWrite(storeId, section, id);
         if (user && section !== 'logs') {
              const docSnap = await getDoc(itemDoc);
              if (docSnap.exists()) {
@@ -2363,7 +2377,8 @@ function App() {
   const deleteItem = async (section, id, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        await deleteDoc(getStoreDocRef(storeId, section, id));
+        const itemDoc = await resolveDocRefForWrite(storeId, section, id);
+        await deleteDoc(itemDoc);
         if (user && section !== 'logs') {
             await addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Item deletado de ${section}`,
