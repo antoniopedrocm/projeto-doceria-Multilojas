@@ -23,7 +23,10 @@ const firebaseConfig = {
   apiKey: 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
-  storageBucket: 'ana-guimaraes.firebasestorage.app',
+  // Use the default Firebase storage host (appspot.com). The previous value
+  // pointed to firebasestorage.app, which is only for direct download links
+  // and breaks SDK requests.
+  storageBucket: 'ana-guimaraes.appspot.com',
   messagingSenderId: '847824537421',
   appId: '1:847824537421:web:75861057fd6f998ee49904',
   measurementId: 'G-F8BVTNLEW7',
