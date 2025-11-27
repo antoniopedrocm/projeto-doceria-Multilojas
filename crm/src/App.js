@@ -37,9 +37,24 @@ const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
-const STORE_INFO_DOC_ID = 'dados';
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
+const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
+
+const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false) => {
+  const shouldUseConfigPath = CONFIG_COLLECTIONS.has(collectionName) && !useLegacyPath;
+  return shouldUseConfigPath
+    ? ['lojas', storeId, 'configuracoes', collectionName]
+    : ['lojas', storeId, collectionName];
+};
+
+const getStoreCollectionRef = (storeId, collectionName, useLegacyPath = false) => {
+  return collection(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath));
+};
+
+const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) => {
+  return doc(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath), docId);
+};
 
 const COLLECTIONS_TO_SYNC = [
   'clientes',
@@ -2122,6 +2137,16 @@ function App() {
           let pendingInitial = storeIds.length * COLLECTIONS_TO_SYNC.length;
           const unsubscribes = [];
 
+          const markInitialLoaded = () => {
+                if (pendingInitial > 0) {
+                      pendingInitial -= 1;
+                      if (pendingInitial === 0) {
+                            initialDataLoaded.current = true;
+                            setLoading(false);
+                      }
+                }
+          };
+
           if (pendingInitial === 0) {
                 setLoading(false);
                 initialDataLoaded.current = true;
@@ -2132,87 +2157,114 @@ function App() {
 
           storeIds.forEach((storeId) => {
                 COLLECTIONS_TO_SYNC.forEach((collectionName) => {
-                        const q = query(collection(db, 'lojas', storeId, collectionName));
-                        const unsub = onSnapshot(q,
-                              (snapshot) => {
-                                if (!isMounted) {
-                                      return;
-                                }
+                        const isConfigCollection = CONFIG_COLLECTIONS.has(collectionName);
+                        const primaryQuery = query(getStoreCollectionRef(storeId, collectionName));
+                        const legacyQuery = isConfigCollection ? query(getStoreCollectionRef(storeId, collectionName, true)) : null;
 
-                                const items = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                        let primaryItems = [];
+                        let legacyItems = [];
+                        let legacyUnsubscribe = null;
+                        let initialResolved = false;
 
-                                storeCollectionsDataRef.current = {
-                                      ...storeCollectionsDataRef.current,
-                                      [storeId]: {
-                                            ...(storeCollectionsDataRef.current[storeId] || {}),
-                                            [collectionName]: items
-                                      }
-                                };
+                        const applyItems = (changes = []) => {
+                              if (!isMounted) return;
+                              const itemsToUse = primaryItems.length ? primaryItems : legacyItems;
 
-                                const computedData = recomputeDataForView();
-                                setData(computedData);
+                              storeCollectionsDataRef.current = {
+                                    ...storeCollectionsDataRef.current,
+                                    [storeId]: {
+                                          ...(storeCollectionsDataRef.current[storeId] || {}),
+                                          [collectionName]: itemsToUse
+                                    }
+                              };
 
-                                if (collectionName === 'pedidos') {
-                                      const activeOrders = (computedData.pedidos || []).filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
-                                      setPendingOrders(activeOrders);
+                              const computedData = recomputeDataForView();
+                              setData(computedData);
 
-                                      if (initialDataLoaded.current) {
-                                            const newPendingOrdersDetected = snapshot.docChanges().some(change => change.type === 'added' && change.doc.data().status === 'Pendente');
+                              if (collectionName === 'pedidos') {
+                                    const activeOrders = (computedData.pedidos || []).filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
+                                    setPendingOrders(activeOrders);
 
-                                            if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
-                                                  console.log('[App.js] Novo pedido pendente detectado pelo listener!');
-                                                  setHasNewPendingOrders(true);
+                                    if (initialDataLoaded.current) {
+                                          const newPendingOrdersDetected = changes.some(change => change.type === 'added' && change.doc.data().status === 'Pendente');
 
-                                                  console.log('[App.js] Tentando tocar alarme...');
-                                                  (async () => {
-                                                    try {
-                                                          if (!audioManager.unlocked) {
-                                                            console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
-                                                            try {
-                                                                  await audioManager.userUnlock();
-                                                            } catch (e) {
-                                                                  console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
-                                                            }
+                                          if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
+                                                console.log('[App.js] Novo pedido pendente detectado pelo listener!');
+                                                setHasNewPendingOrders(true);
+
+                                                console.log('[App.js] Tentando tocar alarme...');
+                                                (async () => {
+                                                  try {
+                                                        if (!audioManager.unlocked) {
+                                                          console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
+                                                          try {
+                                                                await audioManager.userUnlock();
+                                                          } catch (e) {
+                                                                console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
                                                           }
+                                                        }
 
-                                                          if (audioManager.unlocked) {
-                                                            playAlarmRef.current();
-                                                          } else {
-                                                            console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
-                                                          }
+                                                        if (audioManager.unlocked) {
+                                                          playAlarmRef.current();
+                                                        } else {
+                                                          console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+                                                        }
 
-                                                    } catch (error) {
-                                                          console.error("[App.js] Erro ao tentar tocar alarme:", error);
-                                                    }
-                                                  })();
-                                            } else if (newPendingOrdersDetected && isSnoozedRef.current) {
-                                                  console.log('[App.js] Alarme em modo soneca, não tocando agora.');
-                                            } else if (newPendingOrdersDetected && isAlarmPlaying) {
-                                                  console.log('[App.js] Alarme já está tocando, não iniciando novo.');
-                                            }
-                                      }
-                                }
-
-                                if (pendingInitial > 0) {
-                                      pendingInitial -= 1;
-                                      if (pendingInitial === 0) {
-                                            initialDataLoaded.current = true;
-                                            setLoading(false);
-                                      }
-                                }
-                              },
-                              (error) => {
-                                console.error(`[App.js] Erro ao sincronizar ${collectionName} da loja ${storeId}:`, error);
-                                if (pendingInitial > 0) {
-                                      pendingInitial -= 1;
-                                      if (pendingInitial === 0) {
-                                            initialDataLoaded.current = true;
-                                            setLoading(false);
-                                      }
-                                }
+                                                  } catch (error) {
+                                                        console.error("[App.js] Erro ao tentar tocar alarme:", error);
+                                                  }
+                                                })();
+                                          } else if (newPendingOrdersDetected && isSnoozedRef.current) {
+                                                console.log('[App.js] Alarme em modo soneca, não tocando agora.');
+                                          } else if (newPendingOrdersDetected && isAlarmPlaying) {
+                                                console.log('[App.js] Alarme já está tocando, não iniciando novo.');
+                                          }
+                                    }
                               }
+
+                              if (!initialResolved) {
+                                    markInitialLoaded();
+                                    initialResolved = true;
+                              }
+                        };
+
+                        const handleSnapshotError = (error) => {
+                              console.error(`[App.js] Erro ao sincronizar ${collectionName} da loja ${storeId}:`, error);
+                              if (!initialResolved) {
+                                    markInitialLoaded();
+                                    initialResolved = true;
+                              }
+                        };
+
+                        const primaryUnsubscribe = onSnapshot(
+                              primaryQuery,
+                              (snapshot) => {
+                                    primaryItems = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                                    applyItems(snapshot.docChanges());
+
+                                    if (!primaryItems.length && isConfigCollection && legacyQuery && !legacyUnsubscribe) {
+                                          legacyUnsubscribe = onSnapshot(
+                                                legacyQuery,
+                                                (legacySnap) => {
+                                                      if (primaryItems.length) return;
+                                                      legacyItems = legacySnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                                                      applyItems(legacySnap.docChanges());
+                                                },
+                                                handleSnapshotError
+                                          );
+                                    } else if (primaryItems.length && legacyUnsubscribe) {
+                                          legacyUnsubscribe();
+                                          legacyUnsubscribe = null;
+                                          legacyItems = [];
+                                    }
+                              },
+                              handleSnapshotError
                         );
-                        unsubscribes.push(unsub);
+
+                        unsubscribes.push(() => {
+                              primaryUnsubscribe();
+                              if (legacyUnsubscribe) legacyUnsubscribe();
+                        });
                 });
           });
 
@@ -2222,7 +2274,6 @@ function App() {
                 initialDataLoaded.current = false;
           };
         }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores]);
-
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
         const hasAnyPending = data.pedidos && data.pedidos.some(p => p.status === 'Pendente');
@@ -2254,12 +2305,12 @@ function App() {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
         const payload = {
             ...item,
-			...(item?.lojaId ? {} : { lojaId: storeId }),
+                        ...(item?.lojaId ? {} : { lojaId: storeId }),
             createdAt: new Date()
          };
-        const docRef = await addDoc(collection(db, 'lojas', storeId, section), payload);
+        const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
         if (user && section !== 'logs') {
-            await addDoc(collection(db, 'lojas', storeId, 'logs'), {
+            await addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Novo item adicionado em ${section}`,
                 details: `ID: ${docRef.id}`,
                 userEmail: user?.auth?.email || 'N/A',
@@ -2277,7 +2328,7 @@ function App() {
   const updateItem = async (section, id, updatedItem, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        const itemDoc = doc(db, 'lojas', storeId, section, id);
+        const itemDoc = getStoreDocRef(storeId, section, id);
         if (user && section !== 'logs') {
              const docSnap = await getDoc(itemDoc);
              if (docSnap.exists()) {
@@ -2291,7 +2342,7 @@ function App() {
                     }
                 }
                 if (Object.keys(changes).length > 0) {
-                     await addDoc(collection(db, 'lojas', storeId, 'logs'), {
+                     await addDoc(getStoreCollectionRef(storeId, 'logs'), {
                         action: `Item atualizado em ${section}`,
                         details: `ID ${id} com alterações: ${JSON.stringify(changes)}`,
                         userEmail: user?.auth?.email || 'N/A',
@@ -2312,9 +2363,9 @@ function App() {
   const deleteItem = async (section, id, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        await deleteDoc(doc(db, 'lojas', storeId, section, id));
+        await deleteDoc(getStoreDocRef(storeId, section, id));
         if (user && section !== 'logs') {
-            await addDoc(collection(db, 'lojas', storeId, 'logs'), {
+            await addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Item deletado de ${section}`,
                 details: `ID: ${id}`,
                 userEmail: user?.auth?.email || 'N/A',
@@ -2499,10 +2550,15 @@ function App() {
             try {
                 const entries = await Promise.all(availableStores.map(async (storeId) => {
                     try {
-                        const infoDocRef = doc(db, 'lojas', storeId, 'info', STORE_INFO_DOC_ID);
-                        const infoDocSnap = await getDoc(infoDocRef);
-                        if (infoDocSnap.exists()) {
-                            return [storeId, infoDocSnap.data()];
+                        const empresaDocRef = doc(db, 'lojas', storeId, 'meuEspaco', 'empresa');
+                        const empresaDocSnap = await getDoc(empresaDocRef);
+                        if (empresaDocSnap.exists()) {
+                            return [storeId, empresaDocSnap.data()];
+                        }
+
+                        const pontoDocSnap = await getDoc(doc(db, 'lojas', storeId, 'meuEspaco', 'ponto'));
+                        if (pontoDocSnap.exists()) {
+                            return [storeId, pontoDocSnap.data()];
                         }
 
                         const fallbackDocSnap = await getDoc(doc(db, 'lojas', storeId));
@@ -4140,9 +4196,29 @@ const effectiveStoreName = useMemo(() => {
             if (!effectiveStoreId) {
                 setCupons([]);
             } else {
-                unsubscribe = onSnapshot(collection(db, 'lojas', effectiveStoreId, 'cupons'), (snap) => {
-                    setCupons(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                const primaryRef = getStoreCollectionRef(effectiveStoreId, 'cupons');
+                const legacyRef = getStoreCollectionRef(effectiveStoreId, 'cupons', true);
+                let legacyUnsub = null;
+
+                const unsubscribePrimary = onSnapshot(primaryRef, (snap) => {
+                    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setCupons(items);
+
+                    if (!items.length && !legacyUnsub) {
+                        legacyUnsub = onSnapshot(legacyRef, (legacySnap) => {
+                            if (items.length) return;
+                            setCupons(legacySnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                        });
+                    } else if (items.length && legacyUnsub) {
+                        legacyUnsub();
+                        legacyUnsub = null;
+                    }
                 });
+
+                unsubscribe = () => {
+                    unsubscribePrimary();
+                    if (legacyUnsub) legacyUnsub();
+                };
             }
         }
         
@@ -4167,14 +4243,22 @@ const effectiveStoreName = useMemo(() => {
 
         const fetchFreteConfig = async () => {
             try {
-                const docRef = doc(db, 'lojas', effectiveStoreId, 'info', STORE_INFO_DOC_ID);
-                const docSnap = await getDoc(docRef);
+                const freteRef = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
+                const docSnap = await getDoc(freteRef);
                 if (docSnap.exists()) {
-                    const infoData = docSnap.data();
-                    setFreteConfig(infoData?.frete || { enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
-                } else {
-                    setFreteConfig({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
+                    const freteData = docSnap.data();
+                    setFreteConfig(freteData || { enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
+                    return;
                 }
+
+                const legacyInfoSnap = await getDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'));
+                if (legacyInfoSnap.exists()) {
+                    const infoData = legacyInfoSnap.data();
+                    setFreteConfig(infoData?.frete || { enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
+                    return;
+                }
+
+                setFreteConfig({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
             } catch (error) {
                 console.error("Erro ao buscar configurações de frete:", error);
             }
@@ -4396,8 +4480,14 @@ const effectiveStoreName = useMemo(() => {
                 return;
             }
 
-            const freteDoc = doc(db, 'lojas', effectiveStoreId, 'info', STORE_INFO_DOC_ID);
+            const freteDoc = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
             await setDoc(freteDoc, {
+                ...freteConfig,
+                valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
+                updatedAt: new Date(),
+                updatedBy: user?.auth?.email || 'Sistema'
+            }, { merge: true });
+            await setDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'), {
                 frete: {
                     ...freteConfig,
                     valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
