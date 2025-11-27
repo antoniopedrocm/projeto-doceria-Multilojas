@@ -100,7 +100,8 @@ const firebaseConfig = {
   apiKey: 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
-  storageBucket: 'ana-guimaraes.firebasestorage.app',
+  // Match the SDK configuration (appspot.com is the correct host for the bucket)
+  storageBucket: 'ana-guimaraes.appspot.com',
   messagingSenderId: '847824537421',
   appId: '1:847824537421:web:75861057fd6f998ee49904',
   measurementId: 'G-F8BVTNLEW7'
