@@ -1532,7 +1532,7 @@ const Relatorios = ({ data }) => {
             processedData = Object.values(insumoSales).sort((a, b) => b.quantidade - a.quantidade);
             break;
         }
-        case 'receitaPorPagamento': {
+                case 'receitaPorPagamento': {
             const filtered = filterByDate(data.pedidos.filter(p => p.status === 'Finalizado'), 'createdAt');
             columns = [{ header: 'Forma de Pagamento', key: 'metodo' }, { header: 'Total Recebido (R$)', key: 'total' }];
             const paymentMethodSales = filtered.reduce((acc, pedido) => {
@@ -1542,6 +1542,34 @@ const Relatorios = ({ data }) => {
                 return acc;
             }, {});
             processedData = Object.values(paymentMethodSales).map(d => ({...d, total: `R$ ${d.total.toFixed(2)}`})).sort((a,b) => b.total - a.total);
+            break;
+        }
+        case 'custoProducao': {
+            columns = [
+                { header: 'Produto', key: 'nome' },
+                { header: 'Categoria', key: 'categoria' },
+                { header: 'Custo Unitário (R$)', key: 'custo' },
+                { header: 'Preço de Venda (R$)', key: 'preco' },
+                { header: 'Lucro Unitário (R$)', key: 'lucroUnitario' },
+                { header: 'Margem (%)', key: 'margemPercentual' }
+            ];
+
+            processedData = (data.produtos || []).map((produto) => {
+                const custo = parseFloat(produto.custo || 0);
+                const preco = parseFloat(produto.preco || 0);
+                const lucro = preco - custo;
+                const margem = preco ? (lucro / preco) * 100 : 0;
+
+                return {
+                    nome: produto.nome || 'Produto sem nome',
+                    categoria: produto.subcategoria || produto.categoria || 'Não informado',
+                    custo: `R$ ${custo.toFixed(2)}`,
+                    preco: `R$ ${preco.toFixed(2)}`,
+                    lucroUnitario: `R$ ${lucro.toFixed(2)}`,
+                    margemPercentual: `${margem.toFixed(1)}%`,
+                    custoValor: custo
+                };
+            }).sort((a, b) => (b.custoValor || 0) - (a.custoValor || 0));
             break;
         }
         default:
@@ -1591,6 +1619,7 @@ const Relatorios = ({ data }) => {
                     <option value="estoqueBaixo">Estoque Baixo (Produtos Finais)</option>
                     <option value="comprasInsumos">Compras de Insumos</option>
                     <option value="receitaPorPagamento">Receita por Forma de Pagamento</option>
+                    <option value="custoProducao">Custo de Produção</option>
                 </Select>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
