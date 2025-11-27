@@ -19,6 +19,7 @@ admin.initializeApp();
 const db = admin.firestore();
 const auth = admin.auth();
 const STORE_INFO_DOC_ID = 'dados';
+const CONFIG_DOC_ID = 'config';
 const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
 const ROLE_MANAGER = 'gerente';
@@ -103,7 +104,9 @@ const generateStoreId = (value) => {
 
 const getStoreRef = (storeId) => db.collection('lojas').doc(storeId);
 
-const getStoreConfigDoc = (storeId, configId) => getStoreRef(storeId).collection('configuracoes').doc(configId);
+const getStoreConfigDoc = (storeId) => getStoreRef(storeId).collection('configuracoes').doc(CONFIG_DOC_ID);
+const getStoreConfigCollection = (storeId, collectionName) => getStoreConfigDoc(storeId).collection(collectionName);
+const getLegacyConfigDoc = (storeId, configId) => getStoreRef(storeId).collection('configuracoes').doc(configId);
 
 const getLegacyInfoDoc = (storeId) => getStoreRef(storeId).collection('info').doc(STORE_INFO_DOC_ID);
 
@@ -200,12 +203,24 @@ app.post("/frete/calcular", async (req, res) => {
     try {
         const { clienteLat, clienteLng } = req.body;
 
-        const freteDoc = await getStoreConfigDoc(lojaId, 'frete').get();
-        let freteConfig = freteDoc.exists ? freteDoc.data() : null;
+        const configDoc = await getStoreConfigDoc(lojaId).get();
+        let freteConfig = configDoc.exists ? (configDoc.data()?.frete || configDoc.data()) : null;
+
+        if (!freteConfig || Object.keys(freteConfig).length === 0) {
+            const legacyFreteDoc = await getLegacyConfigDoc(lojaId, 'frete').get();
+            if (legacyFreteDoc.exists) {
+                freteConfig = legacyFreteDoc.data();
+                await getStoreConfigDoc(lojaId).set({ frete: freteConfig }, { merge: true });
+            }
+        }
 
         if (!freteConfig || Object.keys(freteConfig).length === 0) {
             const legacyDoc = await getLegacyInfoDoc(lojaId).get();
             freteConfig = legacyDoc.data()?.frete || null;
+
+            if (freteConfig) {
+                await getStoreConfigDoc(lojaId).set({ frete: freteConfig }, { merge: true });
+            }
         }
 
         if (!freteConfig) {
@@ -250,29 +265,41 @@ app.post("/frete/calcular", async (req, res) => {
 // Rota para verificar cupom
 app.post("/cupons/verificar", async (req, res) => {
     const { codigo, totalCarrinho, telefone } = req.body;
-	const lojaId = requireStoreId(req, res);
+    const lojaId = requireStoreId(req, res);
     if (!lojaId) return;
     try {
         const cupomCodigo = codigo.toUpperCase();
-        const cuponsDoc = await getStoreConfigDoc(lojaId, 'cupons').get();
+        const cuponsCollection = getStoreConfigCollection(lojaId, 'cupons');
         let cupom = null;
+        let legacyCupomFound = false;
 
-        if (cuponsDoc.exists) {
-            const data = cuponsDoc.data() || {};
-            const possibleLists = [data.lista, data.cupons, data.items];
+        const newPathSnapshot = await cuponsCollection.where('codigo', '==', cupomCodigo).limit(1).get();
+        if (!newPathSnapshot.empty) {
+            const docSnap = newPathSnapshot.docs[0];
+            cupom = { id: docSnap.id, ...docSnap.data() };
+        }
 
-            for (const list of possibleLists) {
-                if (Array.isArray(list)) {
-                    cupom = list.find((item) => item?.codigo?.toUpperCase && item.codigo.toUpperCase() === cupomCodigo);
+        if (!cupom) {
+            const legacyConfigDoc = await getLegacyConfigDoc(lojaId, 'cupons').get();
+            if (legacyConfigDoc.exists) {
+                const data = legacyConfigDoc.data() || {};
+                const possibleLists = [data.lista, data.cupons, data.items];
+
+                for (const list of possibleLists) {
+                    if (Array.isArray(list)) {
+                        cupom = list.find((item) => item?.codigo?.toUpperCase && item.codigo.toUpperCase() === cupomCodigo);
+                    }
+                    if (cupom) break;
                 }
-                if (cupom) break;
-            }
 
-            if (!cupom && typeof data === 'object' && data !== null) {
-                const directCupom = data[cupomCodigo] || data[cupomCodigo.toLowerCase()];
-                if (directCupom && typeof directCupom === 'object') {
-                    cupom = { codigo: cupomCodigo, ...directCupom };
+                if (!cupom && typeof data === 'object' && data !== null) {
+                    const directCupom = data[cupomCodigo] || data[cupomCodigo.toLowerCase()];
+                    if (directCupom && typeof directCupom === 'object') {
+                        cupom = { codigo: cupomCodigo, ...directCupom };
+                    }
                 }
+
+                legacyCupomFound = Boolean(cupom);
             }
         }
 
@@ -281,11 +308,19 @@ app.post("/cupons/verificar", async (req, res) => {
             const legacyCupons = legacyDoc.data()?.cupons;
             if (Array.isArray(legacyCupons)) {
                 cupom = legacyCupons.find((item) => item?.codigo?.toUpperCase && item.codigo.toUpperCase() === cupomCodigo) || null;
+                legacyCupomFound = Boolean(cupom);
             }
         }
 
         if (!cupom) {
             return res.status(404).json({ valido: false, mensagem: "Cupom não encontrado." });
+        }
+
+        if (legacyCupomFound) {
+            const targetId = cupom.id || cupomCodigo.toLowerCase();
+            const { id, ...cupomData } = cupom;
+            await cuponsCollection.doc(targetId).set({ ...cupomData, codigo: cupomCodigo }, { merge: true });
+            cupom = { ...cupomData, codigo: cupomCodigo, id: targetId };
         }
 
         if (cupom.status !== "Ativo") {
@@ -387,31 +422,17 @@ exports.createStore = onCall(async (request) => {
             criadoPor: uid,
         }, {merge: true});
 
-        const configuracoesRef = storeDocRef.collection('configuracoes');
+        const configuracoesDoc = storeDocRef.collection('configuracoes').doc(CONFIG_DOC_ID);
 
-        transaction.set(configuracoesRef.doc('frete'), {
-            ativo: false,
-            tipo: 'fixo',
-            valor: 0,
-            valorMinimo: 0,
-            atualizadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        transaction.set(configuracoesRef.doc('cupons'), {
-            placeholder: true,
-            iniciadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        transaction.set(configuracoesRef.doc('usuarios'), {
-            placeholder: true,
-            iniciadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        transaction.set(configuracoesRef.doc('logs'), {
-            placeholder: true,
+        transaction.set(configuracoesDoc, {
+            frete: {
+                ativo: false,
+                tipo: 'fixo',
+                valor: 0,
+                valorMinimo: 0,
+                atualizadoEm: timestamp,
+                criadoPor: uid,
+            },
             iniciadoEm: timestamp,
             criadoPor: uid,
         }, {merge: true});
