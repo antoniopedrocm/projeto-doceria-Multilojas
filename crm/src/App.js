@@ -1445,10 +1445,15 @@ const Relatorios = ({ data }) => {
   const [endDate, setEndDate] = usePersistentState('relatorios_endDate', getInitialDateRange().end);
   const [reportData, setReportData] = useState([]);
   const [reportColumns, setReportColumns] = useState([]);
+  const [reportTotals, setReportTotals] = useState(null);
+
+  const formatCurrency = (value) =>
+    (Number(value) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const handleGenerateReport = () => {
     let columns = [];
     let processedData = [];
+    let totals = null;
     
     const filterByDate = (items, dateField) => {
         let filtered = items;
@@ -1485,8 +1490,17 @@ const Relatorios = ({ data }) => {
             columns = [
                 { header: 'Produto', key: 'nome' },
                 { header: 'Quantidade Vendida', key: 'quantidade' },
-                { header: 'Valor de Venda (R$)', key: 'valor' }
+                { header: 'Valor de Venda (R$)', key: 'valor' },
+                { header: 'Custo Total (R$)', key: 'custoTotal' },
+                { header: 'Lucro (R$)', key: 'lucro' }
             ];
+
+            const productCostMap = (data.produtos || []).reduce((acc, produto) => {
+                const custo = parseFloat(produto.custo || 0);
+                if (produto.id) acc[produto.id] = custo;
+                if (produto.nome) acc[produto.nome] = custo;
+                return acc;
+            }, {});
 
             const productSales = filtered.reduce((acc, pedido) => {
                 (pedido.itens || []).forEach((item) => {
@@ -1495,21 +1509,43 @@ const Relatorios = ({ data }) => {
 
                     const quantidade = Number(item.quantity) || 0;
                     const preco = Number(item.preco) || 0;
+                    const custoUnitario = Number(
+                        item.custo ?? productCostMap[item.id] ?? productCostMap[item.nome] ?? 0
+                    );
 
                     if (!acc[id]) {
-                        acc[id] = { nome: item.nome || 'Produto sem nome', quantidade: 0, valor: 0 };
+                        acc[id] = { nome: item.nome || 'Produto sem nome', quantidade: 0, valor: 0, custoTotal: 0 };
                     }
 
                     acc[id].quantidade += quantidade;
                     acc[id].valor += preco * quantidade;
+                    acc[id].custoTotal += custoUnitario * quantidade;
                 });
 
                 return acc;
             }, {});
 
+            totals = Object.values(productSales).reduce(
+                (acc, item) => {
+                    const custo = item.custoTotal || 0;
+                    const valor = item.valor || 0;
+                    return {
+                        totalCost: acc.totalCost + custo,
+                        totalSales: acc.totalSales + valor,
+                        totalProfit: acc.totalProfit + (valor - custo)
+                    };
+                },
+                { totalCost: 0, totalSales: 0, totalProfit: 0 }
+            );
+
             processedData = Object.values(productSales)
                 .filter(item => item.quantidade > 0)
-                .map(item => ({ ...item, valor: `R$ ${item.valor.toFixed(2)}` }))
+                .map(item => ({
+                    ...item,
+                    valor: formatCurrency(item.valor),
+                    custoTotal: formatCurrency(item.custoTotal),
+                    lucro: formatCurrency(item.valor - item.custoTotal)
+                }))
                 .sort((a, b) => b.quantidade - a.quantidade);
             break;
         }
@@ -1600,6 +1636,7 @@ const Relatorios = ({ data }) => {
 
     setReportColumns(columns);
     setReportData(processedData);
+    setReportTotals(totals);
   };
 
   const exportPDF = () => {
@@ -1654,6 +1691,24 @@ const Relatorios = ({ data }) => {
         
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
              <Table columns={reportColumns} data={reportData} />
+            {reportTotals && (
+                <div className="p-6 border-t border-gray-100 bg-gray-50">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-500">Custo Total</p>
+                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalCost)}</p>
+                        </div>
+                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-500">Valor Total de Vendas</p>
+                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalSales)}</p>
+                        </div>
+                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-500">Lucro Total</p>
+                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalProfit)}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     </div>
   );
