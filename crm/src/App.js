@@ -1482,13 +1482,35 @@ const Relatorios = ({ data }) => {
         }
         case 'produtosMaisVendidos': {
             const filtered = filterByDate(data.pedidos.filter(p => p.status === 'Finalizado'), 'createdAt');
-            columns = [{ header: 'Produto', key: 'nome' }, { header: 'Quantidade Vendida', key: 'quantidade' }];
-            const productSales = filtered.flatMap(p => p.itens).reduce((acc, item) => {
-                if (!acc[item.id]) acc[item.id] = { nome: item.nome, quantidade: 0 };
-                acc[item.id].quantidade += item.quantity;
+            columns = [
+                { header: 'Produto', key: 'nome' },
+                { header: 'Quantidade Vendida', key: 'quantidade' },
+                { header: 'Valor de Venda (R$)', key: 'valor' }
+            ];
+
+            const productSales = filtered.reduce((acc, pedido) => {
+                (pedido.itens || []).forEach((item) => {
+                    const id = item?.id || item?.nome;
+                    if (!id) return;
+
+                    const quantidade = Number(item.quantity) || 0;
+                    const preco = Number(item.preco) || 0;
+
+                    if (!acc[id]) {
+                        acc[id] = { nome: item.nome || 'Produto sem nome', quantidade: 0, valor: 0 };
+                    }
+
+                    acc[id].quantidade += quantidade;
+                    acc[id].valor += preco * quantidade;
+                });
+
                 return acc;
             }, {});
-            processedData = Object.values(productSales).sort((a, b) => b.quantidade - a.quantidade);
+
+            processedData = Object.values(productSales)
+                .filter(item => item.quantidade > 0)
+                .map(item => ({ ...item, valor: `R$ ${item.valor.toFixed(2)}` }))
+                .sort((a, b) => b.quantidade - a.quantidade);
             break;
         }
         case 'clientesMaisCompram': {
