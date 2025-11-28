@@ -5477,7 +5477,9 @@ const handleSubmit = async (e) => {
                         <div className="space-y-2">
                             <h3 className="font-semibold">Adicionar Produtos</h3>
                             <div className="max-h-60 overflow-y-auto border rounded-lg p-2 space-y-1">
-                                {data.produtos.filter(p => p.categoria === formData.categoria && p.status === 'Ativo').map(p => (<div key={p.id} className="flex justify-between items-center p-2 rounded hover:bg-gray-50"><span>{p.nome} - R$ {(p.preco || 0).toFixed(2)}</span><Button size="sm" variant="secondary" onClick={() => handleAddItemToOrder(p)}>+</Button></div>))}
+                                {[...data.produtos.filter(p => p.categoria === formData.categoria && p.status === 'Ativo')]
+                                    .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }))
+                                    .map(p => (<div key={p.id} className="flex justify-between items-center p-2 rounded hover:bg-gray-50"><span>{p.nome} - R$ {(p.preco || 0).toFixed(2)}</span><Button size="sm" variant="secondary" onClick={() => handleAddItemToOrder(p)}>+</Button></div>))}
                             </div>
                         </div>
                         <div className="space-y-2">
