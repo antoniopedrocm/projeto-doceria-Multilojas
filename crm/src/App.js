@@ -1665,6 +1665,11 @@ const Relatorios = ({ data }) => {
             break;
         }
         case 'custoProducao': {
+            const filtered = filterByDate(
+                data.pedidos.filter((p) => p.status === 'Finalizado'),
+                'createdAt'
+            );
+
             columns = [
                 { header: 'Produto', key: 'nome' },
                 { header: 'Categoria', key: 'categoria' },
@@ -1674,22 +1679,76 @@ const Relatorios = ({ data }) => {
                 { header: 'Margem (%)', key: 'margemPercentual' }
             ];
 
-            processedData = (data.produtos || []).map((produto) => {
-                const custo = parseFloat(produto.custo || 0);
-                const preco = parseFloat(produto.preco || 0);
-                const lucro = preco - custo;
-                const margem = preco ? (lucro / preco) * 100 : 0;
-
-                return {
+            const productMap = (data.produtos || []).reduce((acc, produto) => {
+                const produtoInfo = {
                     nome: produto.nome || 'Produto sem nome',
                     categoria: produto.subcategoria || produto.categoria || 'Não informado',
-                    custo: `R$ ${custo.toFixed(2)}`,
-                    preco: `R$ ${preco.toFixed(2)}`,
-                    lucroUnitario: `R$ ${lucro.toFixed(2)}`,
-                    margemPercentual: `${margem.toFixed(1)}%`,
-                    custoValor: custo
+                    custo: Number(produto.custo) || 0,
+                    preco: Number(produto.preco) || 0,
                 };
-            }).sort((a, b) => (b.custoValor || 0) - (a.custoValor || 0));
+
+                if (produto.id) acc[produto.id] = produtoInfo;
+                if (produto.nome) acc[produto.nome] = produtoInfo;
+
+                return acc;
+            }, {});
+
+            const productAggregates = filtered.reduce((acc, pedido) => {
+                (pedido.itens || []).forEach((item) => {
+                    const id = item?.id || item?.nome;
+                    if (!id) return;
+
+                    const quantidade = Number(item.quantity) || 0;
+                    if (quantidade <= 0) return;
+
+                    const produtoInfo = productMap[id] || {};
+                    const custoUnitario = Number(item.custo ?? produtoInfo.custo ?? 0);
+                    const precoUnitario = Number(item.preco ?? produtoInfo.preco ?? 0);
+                    const nome = item.nome || produtoInfo.nome || 'Produto sem nome';
+                    const categoria =
+                        item.categoria || produtoInfo.categoria || 'Não informado';
+
+                    if (!acc[id]) {
+                        acc[id] = {
+                            nome,
+                            categoria,
+                            quantidade: 0,
+                            valorVenda: 0,
+                            custoTotal: 0,
+                        };
+                    }
+
+                    acc[id].quantidade += quantidade;
+                    acc[id].valorVenda += precoUnitario * quantidade;
+                    acc[id].custoTotal += custoUnitario * quantidade;
+                });
+
+                return acc;
+            }, {});
+
+            processedData = Object.values(productAggregates)
+                .filter((item) => item.quantidade > 0)
+                .map((item) => {
+                    const custoUnitario = item.quantidade
+                        ? item.custoTotal / item.quantidade
+                        : 0;
+                    const precoUnitario = item.quantidade
+                        ? item.valorVenda / item.quantidade
+                        : 0;
+                    const lucro = precoUnitario - custoUnitario;
+                    const margem = precoUnitario ? (lucro / precoUnitario) * 100 : 0;
+
+                    return {
+                        nome: item.nome,
+                        categoria: item.categoria,
+                        custo: formatCurrency(custoUnitario),
+                        preco: formatCurrency(precoUnitario),
+                        lucroUnitario: formatCurrency(lucro),
+                        margemPercentual: `${margem.toFixed(1)}%`,
+                        custoValor: item.custoTotal,
+                    };
+                })
+                .sort((a, b) => (b.custoValor || 0) - (a.custoValor || 0));
             break;
         }
         default:
