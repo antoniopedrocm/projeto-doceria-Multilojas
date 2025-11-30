@@ -82,6 +82,7 @@ const COLLECTIONS_TO_SYNC = [
   'fornecedores',
   'pedidosCompra',
   'estoque',
+  'perdasDescarte',
   'logs',
   'cupons',
   'pedidos'
@@ -98,6 +99,7 @@ const getInitialDataState = () => ({
   fornecedores: [],
   pedidosCompra: [],
   estoque: [],
+  perdasDescarte: [],
   logs: [],
   cupons: [],
   users: []
@@ -805,6 +807,10 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     const [showEstoqueModal, setShowEstoqueModal] = useState(false);
     const [editingEstoque, setEditingEstoque] = useState(null);
     const [estoqueFormData, setEstoqueFormData] = useState({});
+
+    const [showPerdaModal, setShowPerdaModal] = useState(false);
+    const [editingPerda, setEditingPerda] = useState(null);
+    const [perdaFormData, setPerdaFormData] = useState({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: '', motivo: 'Vencimento', outroMotivo: '' });
     
     const [isAddingFornecedorCategoria, setIsAddingFornecedorCategoria] = useState(false);
     const [newFornecedorCategoria, setNewFornecedorCategoria] = useState('');
@@ -820,6 +826,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     };
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
     const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
+    const resetPerdaForm = () => setPerdaFormData({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: new Date().toISOString().split('T')[0], motivo: 'Vencimento', outroMotivo: '' });
 
     const fornecedorCategories = useMemo(() => {
         const customCategories = (data.categoriasFornecedores || [])
@@ -861,13 +868,50 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
 		// Só atualiza se mudou para evitar loop
 		if (total !== pedidoFormData.valorTotal) {
 			setPedidoFormData(prev => ({ ...prev, valorTotal: total }));
-		}
-	}, [pedidoFormData.itens, pedidoFormData.valorTotal]);
+        }
+    }, [pedidoFormData.itens, pedidoFormData.valorTotal]);
+
+    useEffect(() => {
+        if (!perdaFormData.produtoId) return;
+        const produto = (data.produtos || []).find(p => p.id === perdaFormData.produtoId);
+        if (!produto) return;
+
+        const custo = produto.custo ?? produto.custoUnitario ?? '';
+        setPerdaFormData(prev => {
+            if (prev.custoUnitario === custo && prev.produtoNome === produto.nome) return prev;
+            return { ...prev, produtoNome: produto.nome, custoUnitario: custo };
+        });
+    }, [perdaFormData.produtoId, data.produtos]);
 
     // Memoized Filters
     const filteredFornecedores = useMemo(() => (data.fornecedores || []).filter(f => (f.nome && f.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (f.categoria && f.categoria.toLowerCase().includes(searchTerm.toLowerCase()))), [data.fornecedores, searchTerm]);
     const pedidosComNomes = useMemo(() => (data.pedidosCompra || []).map(pedido => ({ ...pedido, fornecedorNome: data.fornecedores.find(f => f.id === pedido.fornecedorId)?.nome || 'N/A' })), [data.pedidosCompra, data.fornecedores]);
     const estoqueComNomes = useMemo(() => (data.estoque || []).map(item => ({ ...item, fornecedorNome: data.fornecedores.find(f => f.id === item.fornecedorId)?.nome || 'N/A' })), [data.estoque, data.fornecedores]);
+    const perdasOrdenadas = useMemo(() => {
+        const perdas = data.perdasDescarte || [];
+        const mapped = perdas.map(perda => {
+            const produto = (data.produtos || []).find(p => p.id === perda.produtoId);
+            const custo = perda.custoUnitario ?? produto?.custo ?? produto?.custoUnitario ?? 0;
+            return {
+                ...perda,
+                produtoNome: produto?.nome || perda.produtoNome || 'Produto',
+                custoUnitario: custo,
+                valorTotal: perda.valorTotal ?? ((perda.quantidade || 0) * custo)
+            };
+        });
+
+        return mapped.sort((a, b) => {
+            const dateA = getJSDate(a.dataDescarte) || new Date(0);
+            const dateB = getJSDate(b.dataDescarte) || new Date(0);
+            return dateB - dateA;
+        });
+    }, [data.perdasDescarte, data.produtos]);
+
+    const perdaValorTotal = useMemo(() => {
+        const quantidade = parseFloat(perdaFormData.quantidade || 0) || 0;
+        const custo = parseFloat(perdaFormData.custoUnitario || 0) || 0;
+        return quantidade * custo;
+    }, [perdaFormData.quantidade, perdaFormData.custoUnitario]);
 
 
     // Handlers Fornecedores
@@ -943,14 +987,35 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
     const handleEditEstoque = (item) => { setEditingEstoque(item); setEstoqueFormData(item); setShowEstoqueModal(true); };
     const handleEstoqueSubmit = async (e) => { e.preventDefault(); const dataToSave = { ...estoqueFormData, quantidade: parseFloat(estoqueFormData.quantidade || 0), custoUnitario: parseFloat(estoqueFormData.custoUnitario || 0), nivelMinimo: parseFloat(estoqueFormData.nivelMinimo || 0) }; if (editingEstoque) { await updateItem('estoque', editingEstoque.id, dataToSave); } else { await addItem('estoque', dataToSave); } setShowEstoqueModal(false); };
 
+    const handleNewPerda = () => { setEditingPerda(null); resetPerdaForm(); setShowPerdaModal(true); };
+    const handleEditPerda = (perda) => { setEditingPerda(perda); setPerdaFormData({ produtoId: perda.produtoId || '', produtoNome: perda.produtoNome || '', custoUnitario: perda.custoUnitario ?? '', quantidade: perda.quantidade ?? '', dataDescarte: perda.dataDescarte?.split('T')[0] || perda.dataDescarte || '', motivo: perda.motivo || 'Vencimento', outroMotivo: perda.outroMotivo || '' }); setShowPerdaModal(true); };
+    const handlePerdaSubmit = async (e) => {
+        e.preventDefault();
+        if (!perdaFormData.produtoId) { alert('Selecione um produto.'); return; }
+        const quantidade = parseFloat(perdaFormData.quantidade || 0);
+        if (!quantidade || quantidade <= 0) { alert('A quantidade deve ser maior que zero.'); return; }
+        const custoUnitario = parseFloat(perdaFormData.custoUnitario || 0);
+        const valorTotal = quantidade * custoUnitario;
+        const dataToSave = {
+            ...perdaFormData,
+            quantidade,
+            custoUnitario,
+            valorTotal,
+            motivo: perdaFormData.motivo === 'Outro' ? (perdaFormData.outroMotivo || 'Outro') : perdaFormData.motivo
+        };
+        if (editingPerda) { await updateItem('perdasDescarte', editingPerda.id, dataToSave); } else { await addItem('perdasDescarte', dataToSave); }
+        setShowPerdaModal(false);
+    };
+    const handleDeletePerda = (perda) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('perdasDescarte', perda.id) });
+
     // UI Rendering
     return (
         <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
             <div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Fornecedores/Estoque</h1><p className="text-gray-600 mt-1">Organize seus parceiros, compras e insumos</p></div>
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-2"><div className="flex space-x-2">
-                {['fornecedores', 'pedidos', 'estoque'].map(tab => (
+                {['fornecedores', 'pedidos', 'estoque', 'perdas'].map(tab => (
                     <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === tab ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
-                        {tab === 'fornecedores' && 'Fornecedores'}{tab === 'pedidos' && 'Pedidos de Compra'}{tab === 'estoque' && 'Estoque'}
+                        {tab === 'fornecedores' && 'Fornecedores'}{tab === 'pedidos' && 'Pedidos de Compra'}{tab === 'estoque' && 'Estoque'}{tab === 'perdas' && 'Perdas/Descarte'}
                     </button>
                 ))}
             </div></div>
@@ -989,6 +1054,33 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
                         ]}
                         data={estoqueComNomes}
                         actions={[ { icon: Edit, label: "Editar", onClick: handleEditEstoque }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('estoque', row.id) }) } ]}
+                    />
+                </div>
+            )}
+
+            {activeTab === 'perdas' && (
+                <div>
+                    <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Perdas e Descarte</h2>
+                            <p className="text-sm text-gray-600">Registre perdas de estoque e motivos de descarte</p>
+                        </div>
+                        <Button onClick={handleNewPerda} className="w-full md:w-auto"><PackagePlus className="w-4 h-4" /> ➕ Nova Perda/Descarte</Button>
+                    </div>
+                    <Table
+                        columns={[
+                            { header: 'Produto', key: 'produtoNome' },
+                            { header: 'Valor de Custo (R$)', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` },
+                            { header: 'Quantidade', key: 'quantidade' },
+                            { header: 'Valor Total da Perda', render: (row) => `R$ ${((row.valorTotal ?? ((row.quantidade || 0) * (row.custoUnitario || 0))).toFixed(2))}` },
+                            { header: 'Data do Descarte', render: (row) => getJSDate(row.dataDescarte)?.toLocaleDateString('pt-BR') || '-' },
+                            { header: 'Motivo da Perda', render: (row) => row.motivo || '-' }
+                        ]}
+                        data={perdasOrdenadas}
+                        actions={[
+                            { icon: Edit, label: "Editar", onClick: handleEditPerda },
+                            { icon: Trash2, label: "Excluir", onClick: handleDeletePerda }
+                        ]}
                     />
                 </div>
             )}
@@ -1081,6 +1173,36 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
                         <Input label="Nível Mínimo de Estoque" type="number" value={estoqueFormData.nivelMinimo || ''} onChange={e => setEstoqueFormData({...estoqueFormData, nivelMinimo: e.target.value})} />
                     </div>
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowEstoqueModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
+                </form>
+            </Modal>
+            <Modal isOpen={showPerdaModal} onClose={() => setShowPerdaModal(false)} title={editingPerda ? 'Editar Perda/Descarte' : 'Nova Perda/Descarte'} size="lg">
+                <form onSubmit={handlePerdaSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Select label="Produto" value={perdaFormData.produtoId} onChange={e => setPerdaFormData({...perdaFormData, produtoId: e.target.value})} required>
+                            <option value="">Selecione um produto</option>
+                            {(data.produtos || []).map(produto => (
+                                <option key={produto.id} value={produto.id}>{produto.nome}</option>
+                            ))}
+                        </Select>
+                        <Input label="Valor de Custo (R$)" type="number" step="0.01" value={perdaFormData.custoUnitario || ''} onChange={e => setPerdaFormData({...perdaFormData, custoUnitario: e.target.value})} />
+                        <Input label="Quantidade" type="number" min="0" value={perdaFormData.quantidade || ''} onChange={e => setPerdaFormData({...perdaFormData, quantidade: e.target.value})} required/>
+                        <Input label="Data do Descarte" type="date" value={perdaFormData.dataDescarte || ''} onChange={e => setPerdaFormData({...perdaFormData, dataDescarte: e.target.value})} required/>
+                        <Select label="Motivo da Perda" value={perdaFormData.motivo} onChange={e => setPerdaFormData({...perdaFormData, motivo: e.target.value})}>
+                            <option value="Vencimento">Vencimento</option>
+                            <option value="Dano no transporte">Dano no transporte</option>
+                            <option value="Erro de produção">Erro de produção</option>
+                            <option value="Produto danificado">Produto danificado</option>
+                            <option value="Outro">Outro</option>
+                        </Select>
+                        {perdaFormData.motivo === 'Outro' && (
+                            <Input label="Detalhe o motivo" value={perdaFormData.outroMotivo || ''} onChange={e => setPerdaFormData({...perdaFormData, outroMotivo: e.target.value})} />
+                        )}
+                    </div>
+                    <div className="p-4 bg-pink-50 border border-pink-100 rounded-xl flex items-center justify-between text-sm text-pink-900">
+                        <span>Valor total da perda</span>
+                        <span className="text-lg font-bold text-rose-600">R$ {perdaValorTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowPerdaModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Perda</Button></div>
                 </form>
             </Modal>
         </div>
