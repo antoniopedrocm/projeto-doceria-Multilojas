@@ -5129,9 +5129,10 @@ const effectiveStoreName = useMemo(() => {
     const [editingOrder, setEditingOrder] = useState(null);
     const [formData, setFormData] = useState({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
     const [viewingOrder, setViewingOrder] = useState(null);
-	    const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
+            const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
     const [descontoValor, setDescontoValor] = useState('');
     const [descontoPercentual, setDescontoPercentual] = useState('');
+    const [productSearchTerm, setProductSearchTerm] = useState('');
 
     const deliveryProviders = useMemo(
         () => (data.fornecedores || []).filter(f => (f.status || 'Ativo') !== 'Inativo'),
@@ -5151,6 +5152,22 @@ const effectiveStoreName = useMemo(() => {
         const cliente = data.clientes.find(c => c.id === pedido.clienteId);
         return { ...pedido, clienteNome: cliente ? cliente.nome : (pedido.clienteNome || 'Cliente não encontrado') };
     });
+
+    const filteredProducts = useMemo(() => {
+        const term = productSearchTerm.trim().toLowerCase();
+
+        return (data.produtos || [])
+            .filter(p => p.categoria === formData.categoria && p.status === 'Ativo')
+            .filter(p => {
+                if (!term) return true;
+
+                const nome = (p.nome || '').toLowerCase();
+                const descricao = (p.descricao || '').toLowerCase();
+
+                return nome.includes(term) || descricao.includes(term);
+            })
+            .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }));
+    }, [data.produtos, formData.categoria, productSearchTerm]);
 
     const filteredOrders = useMemo(() => pedidosComNomes.filter(p => {
         // **MELHORIA:** Lógica de busca por nome do cliente OU ID do pedido
@@ -5191,6 +5208,7 @@ const effectiveStoreName = useMemo(() => {
         setFormData({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
         setDescontoValor('');
         setDescontoPercentual('');
+        setProductSearchTerm('');
     };
     
     // **MELHORIA:** Função para limpar todos os filtros, incluindo as datas
@@ -5476,9 +5494,14 @@ const handleSubmit = async (e) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-2">
                             <h3 className="font-semibold">Adicionar Produtos</h3>
+                            <Input
+                                label="Buscar produto"
+                                placeholder="Buscar por nome ou descrição"
+                                value={productSearchTerm}
+                                onChange={(e) => setProductSearchTerm(e.target.value)}
+                            />
                             <div className="max-h-60 overflow-y-auto border rounded-lg p-2 space-y-1">
-                                {[...data.produtos.filter(p => p.categoria === formData.categoria && p.status === 'Ativo')]
-                                    .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { sensitivity: 'base' }))
+                                {filteredProducts
                                     .map(p => (<div key={p.id} className="flex justify-between items-center p-2 rounded hover:bg-gray-50"><span>{p.nome} - R$ {(p.preco || 0).toFixed(2)}</span><Button size="sm" variant="secondary" onClick={() => handleAddItemToOrder(p)}>+</Button></div>))}
                             </div>
                         </div>
