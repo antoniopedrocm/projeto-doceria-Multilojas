@@ -2650,10 +2650,15 @@ function App() {
                     if (user.role === ROLE_OWNER) {
                         if (prevSelected === STORE_ALL_KEY) return STORE_ALL_KEY;
                         if (prevSelected && storeIds.includes(prevSelected)) return prevSelected;
-                        return storeIds.length ? storeIds[0] : STORE_ALL_KEY;
+                        return STORE_ALL_KEY;
                     }
+
+                    const preferredStoreId = user.lojaId && storeIds.includes(user.lojaId)
+                        ? user.lojaId
+                        : (storeIds.length ? storeIds[0] : null);
+
                     if (prevSelected && storeIds.includes(prevSelected)) return prevSelected;
-                    return storeIds.length ? storeIds[0] : null;
+                    return preferredStoreId;
                 });
             } catch (error) {
                 console.error('Erro ao carregar lojas do usuário:', error);
