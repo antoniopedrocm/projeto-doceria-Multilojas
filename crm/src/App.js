@@ -1726,6 +1726,19 @@ const Relatorios = ({ data }) => {
                 return acc;
             }, {});
 
+            const { custoTotalGeral, valorTotalDeVendas, lucroTotalGeral } = Object.values(productAggregates).reduce(
+                (acc, item) => {
+                    const custoTotal = item.custoTotal || 0;
+                    const valorTotal = item.valorVenda || 0;
+                    return {
+                        custoTotalGeral: acc.custoTotalGeral + custoTotal,
+                        valorTotalDeVendas: acc.valorTotalDeVendas + valorTotal,
+                        lucroTotalGeral: acc.lucroTotalGeral + (valorTotal - custoTotal),
+                    };
+                },
+                { custoTotalGeral: 0, valorTotalDeVendas: 0, lucroTotalGeral: 0 }
+            );
+
             processedData = Object.values(productAggregates)
                 .filter((item) => item.quantidade > 0)
                 .map((item) => {
@@ -1749,6 +1762,12 @@ const Relatorios = ({ data }) => {
                     };
                 })
                 .sort((a, b) => (b.custoValor || 0) - (a.custoValor || 0));
+
+            totals = {
+                totalCost: custoTotalGeral,
+                totalSales: valorTotalDeVendas,
+                totalProfit: lucroTotalGeral,
+            };
             break;
         }
         default:
