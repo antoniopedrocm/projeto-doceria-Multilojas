@@ -24,6 +24,19 @@ const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const MENU_PERMISSION_KEYS = [
+  'pagina-inicial',
+  'dashboard',
+  'clientes',
+  'pedidos',
+  'produtos',
+  'agenda',
+  'fornecedores',
+  'relatorios',
+  'meu-espaco',
+  'financeiro',
+  'configuracoes',
+];
 
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_ATTENDANT;
@@ -33,6 +46,87 @@ const normalizeRole = (role) => {
   }
   if (value === 'admin') return ROLE_OWNER;
   return ROLE_ATTENDANT;
+};
+
+const getDefaultPermissionsForRole = (role) => {
+  const basePermissions = MENU_PERMISSION_KEYS.reduce((acc, key) => {
+    acc[key] = false;
+    return acc;
+  }, {});
+
+  const normalizedRole = normalizeRole(role);
+
+  if (normalizedRole === ROLE_OWNER) {
+    return MENU_PERMISSION_KEYS.reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, {});
+  }
+
+  if (normalizedRole === ROLE_MANAGER) {
+    return {
+      ...basePermissions,
+      'pagina-inicial': true,
+      dashboard: true,
+      clientes: true,
+      pedidos: true,
+      produtos: true,
+      agenda: true,
+      fornecedores: true,
+      relatorios: true,
+      'meu-espaco': true,
+      financeiro: true,
+      configuracoes: true,
+    };
+  }
+
+  return {
+    ...basePermissions,
+    'pagina-inicial': true,
+    clientes: true,
+    pedidos: true,
+    agenda: true,
+    'meu-espaco': true,
+  };
+};
+
+const sanitizePermissions = (permissions, role) => {
+  const defaults = getDefaultPermissionsForRole(role);
+  if (!permissions || typeof permissions !== 'object') {
+    return defaults;
+  }
+
+  return MENU_PERMISSION_KEYS.reduce((acc, key) => {
+    if (Object.prototype.hasOwnProperty.call(permissions, key)) {
+      acc[key] = Boolean(permissions[key]);
+    } else {
+      acc[key] = defaults[key];
+    }
+    return acc;
+  }, {});
+};
+
+const ensureCustomProfile = async (uid, role, permissionsInput = null) => {
+  const permissions = sanitizePermissions(permissionsInput, role);
+  await db.collection('customProfiles').doc(uid).set({
+    uid,
+    permissions,
+    role,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+  return permissions;
+};
+
+const getUserPermissions = async (uid, role) => {
+  const snap = await db.collection('customProfiles').doc(uid).get();
+  if (snap.exists) {
+    const data = snap.data() || {};
+    const sanitized = sanitizePermissions(data.permissions, role);
+    await ensureCustomProfile(uid, role, sanitized);
+    return sanitized;
+  }
+
+  return ensureCustomProfile(uid, role);
 };
 
 const extractStoreIds = (profile) => {
@@ -487,20 +581,36 @@ exports.listAllUsers = onCall(async (request) => {
             usersDataFromFirestore[doc.id] = doc.data();
         });
 
-        const combinedUsers = usersFromAuth.map((userRecord) => {
+        const customProfilesSnap = await db.collection('customProfiles').get();
+        const customProfiles = {};
+        customProfilesSnap.forEach((doc) => {
+            customProfiles[doc.id] = doc.data();
+        });
+
+        const combinedUsers = await Promise.all(usersFromAuth.map(async (userRecord) => {
             const firestoreData = usersDataFromFirestore[userRecord.uid] || {};
-			const role = normalizeRole(firestoreData.role);
+            const role = normalizeRole(firestoreData.role);
             const lojaIds = extractStoreIds(firestoreData);
             const lojaId = lojaIds[0] || null;
+            const storedProfile = customProfiles[userRecord.uid];
+            const permissions = storedProfile
+                ? sanitizePermissions(storedProfile.permissions, role)
+                : await ensureCustomProfile(userRecord.uid, role);
+
+            if (!storedProfile) {
+                customProfiles[userRecord.uid] = {permissions};
+            }
+
             return {
                 uid: userRecord.uid,
                 email: userRecord.email,
                 nome: firestoreData.nome || userRecord.displayName || "Sem nome",
                 role,
                 lojaId,
-                lojaIds
+                lojaIds,
+                permissions,
             };
-        });
+        }));
 
         const filteredUsers = combinedUsers.filter((userData) => {
             const targetStores = extractStoreIds(userData);
@@ -526,7 +636,7 @@ exports.listAllUsers = onCall(async (request) => {
 // Cria um novo usuário
 exports.createUser = onCall(async (request) => {
     const requester = await verifyManagementAccess(request.auth?.uid);
-    const {email, senha, nome, role, lojaId, lojaIds = []} = request.data;
+    const {email, senha, nome, role, lojaId, lojaIds = [], permissions: requestedPermissions = null} = request.data;
     try {
 		if (!email || !senha || !nome) {
             throw new HttpsError("invalid-argument", "Email, senha e nome são obrigatórios.");
@@ -562,12 +672,15 @@ exports.createUser = onCall(async (request) => {
             password: senha,
             displayName: nome,
         });
+        const permissions = await ensureCustomProfile(userRecord.uid, normalizedRole, requestedPermissions);
+
         await db.collection("users").doc(userRecord.uid).set({
             email,
             nome,
             role: normalizedRole,
             lojaId: targetStores[0] || null,
-            lojaIds: targetStores
+            lojaIds: targetStores,
+            permissions,
         });
         return {uid: userRecord.uid, message: "Usuário criado com sucesso!"};
     } catch (error) {
@@ -580,7 +693,7 @@ exports.createUser = onCall(async (request) => {
 exports.updateUser = onCall(async (request) => {
 
     const requester = await verifyManagementAccess(request.auth?.uid);
-    const { uid, nome, role, email, lojaId, lojaIds = [] } = request.data;
+    const { uid, nome, role, email, lojaId, lojaIds = [], permissions: requestedPermissions = null } = request.data;
 
     if (!uid || !nome || !role || !email) {
         throw new HttpsError("invalid-argument", "Dados incompletos. UID, nome, role e email são obrigatórios.");
@@ -635,6 +748,9 @@ exports.updateUser = onCall(async (request) => {
 
         await auth.updateUser(uid, authUpdatePayload);
 
+        const existingPermissions = await getUserPermissions(uid, existingRole);
+        const permissions = await ensureCustomProfile(uid, normalizedRole, requestedPermissions || existingPermissions);
+
         // **CORREÇÃO APLICADA AQUI**
         // Troca `update` por `set` com `merge: true` para evitar erros
         // caso o documento do usuário não exista no Firestore.
@@ -642,8 +758,9 @@ exports.updateUser = onCall(async (request) => {
             nome: nome,
             role: normalizedRole,
             email: email,
-			lojaId: targetStores[0] || null,
-            lojaIds: targetStores
+                        lojaId: targetStores[0] || null,
+            lojaIds: targetStores,
+            permissions,
         }, { merge: true });
 
         return { message: "Usuário atualizado com sucesso!" };
@@ -684,6 +801,7 @@ exports.deleteUser = onCall(async (request) => {
 
         await auth.deleteUser(uid);
         await db.collection("users").doc(uid).delete();
+        await db.collection('customProfiles').doc(uid).delete();
         return {message: "Usuário deletado com sucesso!"};
     } catch (error) {
         logger.error("Erro ao deletar usuário:", error);

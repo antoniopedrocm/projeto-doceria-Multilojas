@@ -41,6 +41,19 @@ const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const CONFIG_DOC_ID = 'config';
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
+const MENU_PERMISSION_KEYS = [
+  'pagina-inicial',
+  'dashboard',
+  'clientes',
+  'pedidos',
+  'produtos',
+  'agenda',
+  'fornecedores',
+  'relatorios',
+  'meu-espaco',
+  'financeiro',
+  'configuracoes'
+];
 
 const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false) => {
   const shouldUseConfigPath = CONFIG_COLLECTIONS.has(collectionName) && !useLegacyPath;
@@ -153,6 +166,55 @@ const normalizeRole = (role) => {
   }
 
   return ROLE_DEFAULT;
+};
+
+const getDefaultPermissionsForRole = (role) => {
+  const base = MENU_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: false }), {});
+  const normalizedRole = normalizeRole(role);
+
+  if (normalizedRole === ROLE_OWNER) {
+    return MENU_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {});
+  }
+
+  if (normalizedRole === ROLE_MANAGER) {
+    return {
+      ...base,
+      'pagina-inicial': true,
+      dashboard: true,
+      clientes: true,
+      pedidos: true,
+      produtos: true,
+      agenda: true,
+      fornecedores: true,
+      relatorios: true,
+      'meu-espaco': true,
+      financeiro: true,
+      configuracoes: true,
+    };
+  }
+
+  return {
+    ...base,
+    'pagina-inicial': true,
+    clientes: true,
+    pedidos: true,
+    agenda: true,
+    'meu-espaco': true,
+  };
+};
+
+const sanitizePermissions = (permissions, role) => {
+  const defaults = getDefaultPermissionsForRole(role);
+  if (!permissions || typeof permissions !== 'object') return defaults;
+
+  return MENU_PERMISSION_KEYS.reduce((acc, key) => {
+    if (Object.prototype.hasOwnProperty.call(permissions, key)) {
+      acc[key] = Boolean(permissions[key]);
+    } else {
+      acc[key] = defaults[key];
+    }
+    return acc;
+  }, {});
 };
 
 const extractStoreIdsFromProfile = (profile) => {
@@ -2582,12 +2644,27 @@ function App() {
 
                                         const role = normalizeRole(profile.role);
                                         const lojaIds = extractStoreIdsFromProfile(profile);
+                                        const permissionsDefaults = getDefaultPermissionsForRole(role);
+                                        const customProfileRef = doc(db, "customProfiles", authUser.uid);
+                                        const customProfileSnap = await getDoc(customProfileRef);
+                                        const permissions = customProfileSnap.exists()
+                                          ? sanitizePermissions(customProfileSnap.data()?.permissions, role)
+                                          : permissionsDefaults;
+
+                                        if (!customProfileSnap.exists()) {
+                                          await setDoc(customProfileRef, {
+                                            uid: authUser.uid,
+                                            role,
+                                            permissions: permissionsDefaults,
+                                          }, { merge: true });
+                                        }
                                         const userData = {
                                           auth: authUser,
                                           role,
                                           lojaIds,
                                           lojaId: lojaIds[0] || null,
-                                          canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0
+                                          canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
+                                          permissions,
                                         };
                                         setUser(userData)
 			// Tenta inicializar/resumir o AudioManager APÓS o login
@@ -2815,7 +2892,13 @@ function App() {
     { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
   ];
   const currentUserRole = user ? user.role : null;
-  const menuItems = allMenuItems.filter(item => item.roles.includes(currentUserRole));
+  const menuItems = useMemo(() => {
+    if (!user) {
+      return allMenuItems.filter(item => item.roles.includes(null));
+    }
+    const normalizedPermissions = sanitizePermissions(user.permissions, currentUserRole);
+    return allMenuItems.filter(item => normalizedPermissions[item.id]);
+  }, [allMenuItems, currentUserRole, user]);
   
   const ImageSlider = ({ images, onImageClick }) => { 
     const [currentIndex, setCurrentIndex] = useState(0); 
@@ -4223,7 +4306,7 @@ function App() {
     const [showUserModal, setShowUserModal] = useState(false); 
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [editingUser, setEditingUser] = useState(null); 
-    const [userFormData, setUserFormData] = useState({ email: "", senha: "", nome: "", role: ROLE_ATTENDANT, lojaId: "", lojaIds: [] });
+    const [userFormData, setUserFormData] = useState({ email: "", senha: "", nome: "", role: ROLE_ATTENDANT, lojaId: "", lojaIds: [], permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT) });
     const [newPassword, setNewPassword] = useState("");
 	
 	const effectiveStoreId = useMemo(() => {
@@ -4311,11 +4394,13 @@ const effectiveStoreName = useMemo(() => {
                             const lojas = Array.isArray(u.lojaIds)
                                 ? u.lojaIds
                                 : (u.lojaId ? [u.lojaId] : []);
+                            const normalizedRole = normalizeRole(u.role);
                             return {
                                 ...u,
-                                role: normalizeRole(u.role),
+                                role: normalizedRole,
                                 lojaIds: lojas,
-                                lojaId: lojas[0] || null
+                                lojaId: lojas[0] || null,
+                                permissions: sanitizePermissions(u.permissions, normalizedRole)
                             };
                         });
 
@@ -4445,7 +4530,8 @@ const effectiveStoreName = useMemo(() => {
             nome: "",
             role: ROLE_ATTENDANT,
             lojaId: effectiveStoreId || '',
-            lojaIds: effectiveStoreId ? [effectiveStoreId] : []
+            lojaIds: effectiveStoreId ? [effectiveStoreId] : [],
+            permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT)
         });
         setShowUserModal(true);
     };
@@ -4454,6 +4540,7 @@ const effectiveStoreName = useMemo(() => {
         const lojas = Array.isArray(userToEdit.lojaIds)
             ? userToEdit.lojaIds
             : (userToEdit.lojaId ? [userToEdit.lojaId] : []);
+        const permissions = sanitizePermissions(userToEdit.permissions, normalizedRole);
 
         setEditingUser(userToEdit);
         setUserFormData({
@@ -4462,7 +4549,8 @@ const effectiveStoreName = useMemo(() => {
             nome: userToEdit.nome || "",
             role: normalizedRole,
             lojaId: lojas[0] || '',
-            lojaIds: lojas
+            lojaIds: lojas,
+            permissions
         });
         setShowUserModal(true);
     };
@@ -4490,6 +4578,7 @@ const effectiveStoreName = useMemo(() => {
                 const lojasSelecionadas = selectedRole === ROLE_OWNER
                     ? (userFormData.lojaIds && userFormData.lojaIds.length ? userFormData.lojaIds : [])
                     : (singleStoreId ? [singleStoreId] : []);
+                const permissions = sanitizePermissions(userFormData.permissions, selectedRole);
 
                 if (editingUser) {
                   const updateUserFn = httpsCallable(functions, 'updateUser');
@@ -4499,7 +4588,8 @@ const effectiveStoreName = useMemo(() => {
                         role: selectedRole,
                         email: userFormData.email,
                         lojaId: singleStoreId || null,
-                        lojaIds: lojasSelecionadas
+                        lojaIds: lojasSelecionadas,
+                        permissions
                   });
                   alert('Usuário atualizado com sucesso!');
                 } else {
@@ -4510,7 +4600,8 @@ const effectiveStoreName = useMemo(() => {
                         nome: userFormData.nome,
                         role: selectedRole,
                         lojaId: singleStoreId || null,
-                        lojaIds: lojasSelecionadas
+                        lojaIds: lojasSelecionadas,
+                        permissions
                   });
                   alert('Usuário criado com sucesso!');
                 }
@@ -4525,11 +4616,13 @@ const effectiveStoreName = useMemo(() => {
                         const lojas = Array.isArray(u.lojaIds)
                             ? u.lojaIds
                             : (u.lojaId ? [u.lojaId] : []);
+                        const normalizedRole = normalizeRole(u.role);
                         return {
                             ...u,
-                            role: normalizeRole(u.role),
+                            role: normalizedRole,
                             lojaIds: lojas,
-                            lojaId: lojas[0] || null
+                            lojaId: lojas[0] || null,
+                            permissions: sanitizePermissions(u.permissions, normalizedRole)
                         };
                     });
 
@@ -5008,14 +5101,16 @@ const effectiveStoreName = useMemo(() => {
                                     ...userFormData,
                                     role: newRole,
                                     lojaId: '',
-                                    lojaIds: userFormData.lojaIds || []
+                                    lojaIds: userFormData.lojaIds || [],
+                                    permissions: getDefaultPermissionsForRole(newRole)
                                 });
                             } else {
                                 setUserFormData({
                                     ...userFormData,
                                     role: newRole,
                                     lojaId: userFormData.lojaId || effectiveStoreId || '',
-                                    lojaIds: userFormData.lojaId ? [userFormData.lojaId] : (effectiveStoreId ? [effectiveStoreId] : [])
+                                    lojaIds: userFormData.lojaId ? [userFormData.lojaId] : (effectiveStoreId ? [effectiveStoreId] : []),
+                                    permissions: getDefaultPermissionsForRole(newRole)
                                 });
                             }
                         }}
@@ -5061,6 +5156,46 @@ const effectiveStoreName = useMemo(() => {
                     {!availableStores.length && normalizeRole(userFormData.role) !== ROLE_OWNER && (
                         <p className="text-xs text-red-500">Nenhuma loja disponível. Ajuste a seleção no topo da página antes de criar o usuário.</p>
                     )}
+
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-gray-800">Permissões personalizadas</p>
+                                <p className="text-xs text-gray-500">Selecione quais menus o usuário pode acessar.</p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setUserFormData({
+                                    ...userFormData,
+                                    permissions: getDefaultPermissionsForRole(userFormData.role)
+                                })}
+                            >
+                                Restaurar padrão do papel
+                            </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {allMenuItems.map((item) => (
+                                <label key={item.id} className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(userFormData.permissions?.[item.id])}
+                                        onChange={(e) => {
+                                            setUserFormData({
+                                                ...userFormData,
+                                                permissions: {
+                                                    ...sanitizePermissions(userFormData.permissions, userFormData.role),
+                                                    [item.id]: e.target.checked
+                                                }
+                                            });
+                                        }}
+                                    />
+                                    {item.label}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button variant="secondary" type="button" onClick={() => setShowUserModal(false)}>Cancelar</Button>
@@ -5980,9 +6115,10 @@ const handleSubmit = async (e) => {
 
 
   const PlaceholderPage = ({ title }) => (<div className="p-6"><h1 className="text-3xl font-bold text-pink-600">{title}</h1><p>Em desenvolvimento...</p></div>);
-  const userHasRole = useCallback((roles) => {
-    if (!user) return false;
-    return roles.includes(user.role);
+  const userHasPermission = useCallback((menuId) => {
+    if (!user) return menuId === 'pagina-inicial';
+    const normalizedPermissions = sanitizePermissions(user.permissions, user.role);
+    return Boolean(normalizedPermissions[menuId]);
   }, [user]);
 
   const canCreateStores = useMemo(() => {
@@ -6007,7 +6143,7 @@ const handleSubmit = async (e) => {
 
     switch (currentPage) {
       case 'pagina-inicial': return <PaginaInicial />;
-      case 'dashboard': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Dashboard
+      case 'dashboard': return userHasPermission('dashboard') ? <Dashboard
                                         handleStopAndSnoozeAlarm={handleStopAndSnoozeAlarm}
                                         isAlarmPlaying={isAlarmPlaying}
                                         isAlarmSnoozed={isAlarmSnoozed}
@@ -6015,21 +6151,21 @@ const handleSubmit = async (e) => {
                                         hasNewPendingOrders={hasNewPendingOrders}
                                         // --- REMOVIDO: unlockAudio e audioUnlocked ---
                                         /> : <PaginaInicial />;
-      case 'clientes': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? <Clientes /> : <PaginaInicial />;
-      case 'produtos': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Produtos /> : <PaginaInicial />;
-      case 'pedidos': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? <Pedidos /> : <PaginaInicial />;
-      case 'agenda': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? <Agenda /> : <PaginaInicial />;
-      case 'fornecedores': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
-      case 'relatorios': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Relatorios data={data} /> : <PaginaInicial />;
-      case 'meu-espaco': return userHasRole([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT]) ? (
+      case 'clientes': return userHasPermission('clientes') ? <Clientes /> : <PaginaInicial />;
+      case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
+      case 'pedidos': return userHasPermission('pedidos') ? <Pedidos /> : <PaginaInicial />;
+      case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
+      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
+      case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : <PaginaInicial />;
+      case 'meu-espaco': return userHasPermission('meu-espaco') ? (
         <MeuEspaco
           user={user}
           resolveActiveStoreForWrite={resolveActiveStoreForWrite}
           currentStoreIdForDisplay={currentStoreIdForDisplay}
         />
       ) : <PaginaInicial />;
-	  case 'financeiro': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
-      case 'configuracoes': return userHasRole([ROLE_OWNER, ROLE_MANAGER]) ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
+          case 'financeiro': return userHasPermission('financeiro') ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
+      case 'configuracoes': return userHasPermission('configuracoes') ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
       case 'financeiro': return user?.role === 'admin' ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return user?.role === 'admin' ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} /> : <PaginaInicial />;
       default: return user ? <PlaceholderPage title={allMenuItems.find(i=>i.id===currentPage)?.label || "Página"} /> : <PaginaInicial />;
