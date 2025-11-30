@@ -1621,14 +1621,25 @@ const Relatorios = ({ data }) => {
   const [reportData, setReportData] = useState([]);
   const [reportColumns, setReportColumns] = useState([]);
   const [reportTotals, setReportTotals] = useState(null);
+  const [perdasColumns, setPerdasColumns] = useState([]);
+  const [perdasData, setPerdasData] = useState([]);
 
   const formatCurrency = (value) =>
     (Number(value) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const formatDate = (value) => {
+    const date = getJSDate(value);
+    return date ? date.toLocaleDateString('pt-BR') : '-';
+  };
+
+  const isCustoProducao = reportType === 'custoProducao';
 
   const handleGenerateReport = () => {
     let columns = [];
     let processedData = [];
     let totals = null;
+    let perdasColumnsLocal = [];
+    let perdasDataLocal = [];
     
     const filterByDate = (items, dateField) => {
         let filtered = items;
@@ -1791,12 +1802,15 @@ const Relatorios = ({ data }) => {
                     );
                     const quantidade = Number(perda.quantidade) || 0;
                     const dataPerda = perda.dataDescarte || perda.data;
+                    const nomeProduto =
+                        perda.nome || perda.produto || produto?.nome || 'Produto não informado';
 
                     return {
                         ...perda,
                         custoUnitario,
                         quantidade,
                         dataPerda,
+                        nomeProduto,
                         valorTotal: quantidade * custoUnitario,
                     };
                 })
@@ -1812,6 +1826,24 @@ const Relatorios = ({ data }) => {
                 (total, perda) => total + (Number(perda.valorTotal) || 0),
                 0
             );
+
+            perdasColumnsLocal = [
+                { header: 'Produto', key: 'produto' },
+                { header: 'Quantidade', key: 'quantidade' },
+                { header: 'Custo Unitário', key: 'custoUnitario' },
+                { header: 'Valor Total', key: 'valorTotal' },
+                { header: 'Data', key: 'data' },
+                { header: 'Motivo', key: 'motivo' },
+            ];
+
+            perdasDataLocal = perdasFiltradas.map((perda) => ({
+                produto: perda.nomeProduto,
+                quantidade: perda.quantidade,
+                custoUnitario: formatCurrency(perda.custoUnitario),
+                valorTotal: formatCurrency(perda.valorTotal),
+                data: formatDate(perda.dataPerda),
+                motivo: perda.motivo || 'Não informado',
+            }));
 
             columns = [
                 { header: 'Produto', key: 'nome' },
@@ -1911,7 +1943,7 @@ const Relatorios = ({ data }) => {
                 totalSales: valorTotalDeVendas,
                 totalProfit: lucroTotalGeral,
                 totalPerdas,
-                custoTotalProducao: valorTotalDeVendas + totalPerdas,
+                custoTotalProducao: custoTotalGeral + totalPerdas,
             };
             break;
         }
@@ -1922,6 +1954,8 @@ const Relatorios = ({ data }) => {
     setReportColumns(columns);
     setReportData(processedData);
     setReportTotals(totals);
+    setPerdasColumns(perdasColumnsLocal);
+    setPerdasData(perdasDataLocal);
   };
 
   const exportPDF = () => {
@@ -1976,33 +2010,72 @@ const Relatorios = ({ data }) => {
         
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
             <Table columns={reportColumns} data={reportData} />
-           {reportTotals && (
+            {reportTotals && (
                 <div className="p-6 border-t border-gray-100 bg-gray-50">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
-                            <p className="text-sm text-gray-500">Custo Total</p>
-                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalCost)}</p>
+                    {isCustoProducao ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                <p className="text-sm text-gray-500">Valor Total de Vendas</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalSales)}</p>
+                            </div>
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                <p className="text-sm text-gray-500">Custos Vendidos</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalCost)}</p>
+                            </div>
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                <p className="text-sm text-gray-500">Total de Perdas</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalPerdas)}</p>
+                            </div>
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
+                                <p className="text-sm text-gray-500">Custo Total de Produção = Custos Vendidos + Custos Descartados</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.custoTotalProducao)}</p>
+                            </div>
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
+                                <p className="text-sm text-gray-500">Lucro Total</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalProfit)}</p>
+                            </div>
                         </div>
-                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
-                            <p className="text-sm text-gray-500">Valor Total de Vendas</p>
-                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalSales)}</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                <p className="text-sm text-gray-500">Custo Total</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalCost)}</p>
+                            </div>
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                <p className="text-sm text-gray-500">Valor Total de Vendas</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalSales)}</p>
+                            </div>
+                            {reportTotals.totalPerdas !== undefined && (
+                                <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                    <p className="text-sm text-gray-500">Total de Perdas</p>
+                                    <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalPerdas)}</p>
+                                </div>
+                            )}
+                            {reportTotals.custoTotalProducao !== undefined && (
+                                <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                                    <p className="text-sm text-gray-500">Custo Total de Produção</p>
+                                    <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.custoTotalProducao)}</p>
+                                </div>
+                            )}
+                            <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
+                                <p className="text-sm text-gray-500">Lucro Total</p>
+                                <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalProfit)}</p>
+                            </div>
                         </div>
-                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
-                            <p className="text-sm text-gray-500">Total de Perdas</p>
-                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalPerdas)}</p>
-                        </div>
-                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
-                            <p className="text-sm text-gray-500">Custo Total de Produção</p>
-                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.custoTotalProducao)}</p>
-                        </div>
-                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
-                            <p className="text-sm text-gray-500">Lucro Total</p>
-                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalProfit)}</p>
-                        </div>
-                    </div>
+                    )}
                 </div>
             )}
         </div>
+
+        {isCustoProducao && perdasData.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                <div className="px-6 pt-6 pb-2">
+                    <h3 className="text-lg font-semibold text-gray-800">Custos de Descarte (Perdas)</h3>
+                    <p className="text-sm text-gray-500">Itens descartados, do mais recente para o mais antigo.</p>
+                </div>
+                <Table columns={perdasColumns} data={perdasData} />
+            </div>
+        )}
     </div>
   );
 };
