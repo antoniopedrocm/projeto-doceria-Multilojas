@@ -89,19 +89,10 @@ const COLLECTIONS_TO_SYNC = [
 ];
 
 const getInitialDataState = () => ({
-  clientes: [],
-  pedidos: [],
-  produtos: [],
-  subcategorias: [],
-  categoriasFornecedores: [],
-  contas_a_pagar: [],
-  contas_a_receber: [],
-  fornecedores: [],
-  pedidosCompra: [],
-  estoque: [],
-  perdasDescarte: [],
-  logs: [],
-  cupons: [],
+  ...COLLECTIONS_TO_SYNC.reduce((acc, collection) => ({
+    ...acc,
+    [collection]: []
+  }), {}),
   users: []
 });
 
