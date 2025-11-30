@@ -781,7 +781,7 @@ const getJSDate = (firestoreTimestamp) => {
 
 // --- NOVOS COMPONENTES ---
 
-const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete }) => {
+const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete, effectiveStoreId }) => {
     const [activeTab, setActiveTab] = usePersistentState('fornecedores_activeTab', 'fornecedores');
     
     // States
@@ -862,17 +862,28 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
         }
     }, [pedidoFormData.itens, pedidoFormData.valorTotal]);
 
-    useEffect(() => {
-        if (!perdaFormData.produtoId) return;
-        const produto = (data.produtos || []).find(p => p.id === perdaFormData.produtoId);
-        if (!produto) return;
+    const handlePerdaProdutoChange = async (e) => {
+        const produtoId = e.target.value;
+        setPerdaFormData(prev => ({ ...prev, produtoId, produtoNome: '', custoUnitario: '' }));
 
-        const custo = produto.custo ?? produto.custoUnitario ?? '';
-        setPerdaFormData(prev => {
-            if (prev.custoUnitario === custo && prev.produtoNome === produto.nome) return prev;
-            return { ...prev, produtoNome: produto.nome, custoUnitario: custo };
-        });
-    }, [perdaFormData.produtoId, data.produtos]);
+        if (!produtoId || !effectiveStoreId) return;
+
+        try {
+            const produtoDoc = await getDoc(doc(db, 'lojas', effectiveStoreId, 'produtos', produtoId));
+            if (!produtoDoc.exists()) return;
+
+            const produtoData = produtoDoc.data() || {};
+            const custo = produtoData.custo ?? produtoData.custoUnitario ?? '';
+            setPerdaFormData(prev => ({
+                ...prev,
+                produtoId,
+                produtoNome: produtoData.nome || '',
+                custoUnitario: custo
+            }));
+        } catch (error) {
+            console.error('Erro ao buscar produto para perda', error);
+        }
+    };
 
     // Memoized Filters
     const filteredFornecedores = useMemo(() => (data.fornecedores || []).filter(f => (f.nome && f.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (f.categoria && f.categoria.toLowerCase().includes(searchTerm.toLowerCase()))), [data.fornecedores, searchTerm]);
@@ -1169,7 +1180,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete 
             <Modal isOpen={showPerdaModal} onClose={() => setShowPerdaModal(false)} title={editingPerda ? 'Editar Perda/Descarte' : 'Nova Perda/Descarte'} size="lg">
                 <form onSubmit={handlePerdaSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Select label="Produto" value={perdaFormData.produtoId} onChange={e => setPerdaFormData({...perdaFormData, produtoId: e.target.value})} required>
+                        <Select label="Produto" value={perdaFormData.produtoId} onChange={handlePerdaProdutoChange} required>
                             <option value="">Selecione um produto</option>
                             {(data.produtos || []).map(produto => (
                                 <option key={produto.id} value={produto.id}>{produto.nome}</option>
@@ -6639,7 +6650,7 @@ const handleSubmit = async (e) => {
       case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
       case 'pedidos': return userHasPermission('pedidos') ? <Pedidos /> : <PaginaInicial />;
       case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
-      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
+      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} /> : <PaginaInicial />;
       case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : <PaginaInicial />;
       case 'meu-espaco': return userHasPermission('meu-espaco') ? (
         <MeuEspaco
