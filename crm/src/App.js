@@ -2647,9 +2647,11 @@ function App() {
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
                                         const customProfileSnap = await getDoc(customProfileRef);
-                                        const permissions = customProfileSnap.exists()
-                                          ? sanitizePermissions(customProfileSnap.data()?.permissions, role)
-                                          : permissionsDefaults;
+                                        const customProfileData = customProfileSnap.exists() ? customProfileSnap.data() : null;
+                                        const customPermissions = customProfileData?.permissions
+                                          ? sanitizePermissions(customProfileData.permissions, role)
+                                          : null;
+                                        const permissions = customPermissions || permissionsDefaults;
 
                                         if (!customProfileSnap.exists()) {
                                           await setDoc(customProfileRef, {
@@ -2665,6 +2667,8 @@ function App() {
                                           lojaId: lojaIds[0] || null,
                                           canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
                                           permissions,
+                                          customPermissions,
+                                          hasCustomProfile: Boolean(customProfileData),
                                         };
                                         setUser(userData)
 			// Tenta inicializar/resumir o AudioManager APÓS o login
@@ -2879,25 +2883,44 @@ function App() {
   };
 
   const allMenuItems = [
-    { id: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, null] },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'clientes', label: 'Clientes', icon: Users, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
-    { id: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
-    { id: 'produtos', label: 'Produtos', icon: Package, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
-    { id: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
-    { id: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'pagina-inicial', permission: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, null] },
+    { id: 'dashboard', permission: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'clientes', permission: 'clientes', label: 'Clientes', icon: Users, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
+    { id: 'pedidos', permission: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
+    { id: 'produtos', permission: 'produtos', label: 'Produtos', icon: Package, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'agenda', permission: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
+    { id: 'fornecedores', permission: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'relatorios', permission: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
+    { id: 'financeiro', permission: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'configuracoes', permission: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
   ];
   const currentUserRole = user ? user.role : null;
   const menuItems = useMemo(() => {
     if (!user) {
       return allMenuItems.filter(item => item.roles.includes(null));
     }
+    if (currentUserRole === ROLE_OWNER && !user?.hasCustomProfile) {
+      return allMenuItems;
+    }
+
+    const permissionKeyFor = (item) => item.permission || item.id;
+    const customPermissions = user.customPermissions;
     const normalizedPermissions = sanitizePermissions(user.permissions, currentUserRole);
-    return allMenuItems.filter(item => normalizedPermissions[item.id]);
+
+    return allMenuItems.filter(item => {
+      const permissionKey = permissionKeyFor(item);
+
+      if (customPermissions) {
+        return Boolean(customPermissions[permissionKey]);
+      }
+
+      if (item.roles?.includes(currentUserRole)) {
+        return true;
+      }
+
+      return Boolean(normalizedPermissions[permissionKey]);
+    });
   }, [allMenuItems, currentUserRole, user]);
   
   const ImageSlider = ({ images, onImageClick }) => { 
@@ -6117,9 +6140,24 @@ const handleSubmit = async (e) => {
   const PlaceholderPage = ({ title }) => (<div className="p-6"><h1 className="text-3xl font-bold text-pink-600">{title}</h1><p>Em desenvolvimento...</p></div>);
   const userHasPermission = useCallback((menuId) => {
     if (!user) return menuId === 'pagina-inicial';
+
+    if (user.role === ROLE_OWNER && !user?.hasCustomProfile) return true;
+
+    const menuItem = allMenuItems.find(item => item.id === menuId);
+    const permissionKey = menuItem?.permission || menuId;
+
+    if (user.customPermissions) {
+      return Boolean(user.customPermissions[permissionKey]);
+    }
+
     const normalizedPermissions = sanitizePermissions(user.permissions, user.role);
-    return Boolean(normalizedPermissions[menuId]);
-  }, [user]);
+
+    if (menuItem?.roles?.includes(user.role)) {
+      return true;
+    }
+
+    return Boolean(normalizedPermissions[permissionKey]);
+  }, [allMenuItems, user]);
 
   const canCreateStores = useMemo(() => {
     if (!user) return false;
