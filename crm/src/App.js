@@ -1783,6 +1783,36 @@ const Relatorios = ({ data }) => {
                 'createdAt'
             );
 
+            const perdasProcessadas = (data.perdasDescarte || [])
+                .map((perda) => {
+                    const produto = (data.produtos || []).find((p) => p.id === perda.produtoId);
+                    const custoUnitario = Number(
+                        perda.custoUnitario ?? produto?.custo ?? produto?.custoUnitario ?? 0
+                    );
+                    const quantidade = Number(perda.quantidade) || 0;
+                    const dataPerda = perda.dataDescarte || perda.data;
+
+                    return {
+                        ...perda,
+                        custoUnitario,
+                        quantidade,
+                        dataPerda,
+                        valorTotal: quantidade * custoUnitario,
+                    };
+                })
+                .filter((perda) => perda.quantidade > 0);
+
+            const perdasFiltradas = filterByDate(perdasProcessadas, 'dataPerda').sort((a, b) => {
+                const dataA = getJSDate(a.dataPerda) || new Date(0);
+                const dataB = getJSDate(b.dataPerda) || new Date(0);
+                return dataB - dataA;
+            });
+
+            const totalPerdas = perdasFiltradas.reduce(
+                (total, perda) => total + (Number(perda.valorTotal) || 0),
+                0
+            );
+
             columns = [
                 { header: 'Produto', key: 'nome' },
                 { header: 'Categoria', key: 'categoria' },
@@ -1880,6 +1910,8 @@ const Relatorios = ({ data }) => {
                 totalCost: custoTotalGeral,
                 totalSales: valorTotalDeVendas,
                 totalProfit: lucroTotalGeral,
+                totalPerdas,
+                custoTotalProducao: valorTotalDeVendas + totalPerdas,
             };
             break;
         }
@@ -1943,10 +1975,10 @@ const Relatorios = ({ data }) => {
         </div>
         
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-             <Table columns={reportColumns} data={reportData} />
-            {reportTotals && (
+            <Table columns={reportColumns} data={reportData} />
+           {reportTotals && (
                 <div className="p-6 border-t border-gray-100 bg-gray-50">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
                             <p className="text-sm text-gray-500">Custo Total</p>
                             <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalCost)}</p>
@@ -1956,6 +1988,14 @@ const Relatorios = ({ data }) => {
                             <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalSales)}</p>
                         </div>
                         <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-500">Total de Perdas</p>
+                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalPerdas)}</p>
+                        </div>
+                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-500">Custo Total de Produção</p>
+                            <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.custoTotalProducao)}</p>
+                        </div>
+                        <div className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
                             <p className="text-sm text-gray-500">Lucro Total</p>
                             <p className="text-xl font-semibold text-gray-800">{formatCurrency(reportTotals.totalProfit)}</p>
                         </div>
