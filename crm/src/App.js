@@ -4322,14 +4322,25 @@ function App() {
 
     // States para Usuários
     const [usuarios, setUsuarios] = useState([]);
-	const [userSearchTerm, setUserSearchTerm] = useState('');
+    const [userSearchTerm, setUserSearchTerm] = useState('');
     const [userExcludeTerm, setUserExcludeTerm] = useState('');
     const [userEmailFilter, setUserEmailFilter] = useState('any');
     const [userRoleFilter, setUserRoleFilter] = useState('all');
-    const [showUserModal, setShowUserModal] = useState(false); 
+    const [showUserModal, setShowUserModal] = useState(false);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [editingUser, setEditingUser] = useState(null); 
-    const [userFormData, setUserFormData] = useState({ email: "", senha: "", nome: "", role: ROLE_ATTENDANT, lojaId: "", lojaIds: [], permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT) });
+    const [editingUser, setEditingUser] = useState(null);
+    const [selectedExistingUserId, setSelectedExistingUserId] = useState('');
+    const [userFormData, setUserFormData] = useState({
+        email: "",
+        senha: "",
+        nome: "",
+        role: ROLE_ATTENDANT,
+        lojaId: "",
+        lojaIds: [],
+        permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT),
+        applyCustomProfile: true,
+        uid: ''
+    });
     const [newPassword, setNewPassword] = useState("");
 	
 	const effectiveStoreId = useMemo(() => {
@@ -4544,28 +4555,56 @@ const effectiveStoreName = useMemo(() => {
           };
   }, []);
     
-    // Handlers para Usuários
-    const handleNewUser = () => {
-        setEditingUser(null);
-        setUserFormData({
-            email: "",
-            senha: "",
-            nome: "",
-            role: ROLE_ATTENDANT,
-            lojaId: effectiveStoreId || '',
-            lojaIds: effectiveStoreId ? [effectiveStoreId] : [],
-            permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT)
-        });
-        setShowUserModal(true);
-    };
-    const handleEditUser = (userToEdit) => {
-        const normalizedRole = normalizeRole(userToEdit.role);
+    const getCustomPermissionsForUser = useCallback(async (userProfile) => {
+        const normalizedRole = normalizeRole(userProfile?.role || ROLE_ATTENDANT);
+        const fallbackPermissions = sanitizePermissions(userProfile?.permissions, normalizedRole);
+        const uid = userProfile?.uid || userProfile?.id;
+
+        if (!uid) {
+            return { permissions: fallbackPermissions, hasCustomProfile: false, normalizedRole };
+        }
+
+        try {
+            const customProfileSnap = await getDoc(doc(db, 'customProfiles', uid));
+            if (customProfileSnap.exists()) {
+                return {
+                    permissions: sanitizePermissions(customProfileSnap.data()?.permissions, normalizedRole),
+                    hasCustomProfile: true,
+                    normalizedRole,
+                };
+            }
+        } catch (err) {
+            console.error('Erro ao carregar perfil personalizado:', err);
+        }
+
+        return { permissions: fallbackPermissions, hasCustomProfile: false, normalizedRole };
+    }, []);
+
+    const buildUserFormState = useCallback(async (userToEdit = null) => {
+        if (!userToEdit) {
+            setEditingUser(null);
+            setSelectedExistingUserId('');
+            setUserFormData({
+                email: "",
+                senha: "",
+                nome: "",
+                role: ROLE_ATTENDANT,
+                lojaId: effectiveStoreId || '',
+                lojaIds: effectiveStoreId ? [effectiveStoreId] : [],
+                permissions: getDefaultPermissionsForRole(ROLE_ATTENDANT),
+                applyCustomProfile: true,
+                uid: ''
+            });
+            return;
+        }
+
         const lojas = Array.isArray(userToEdit.lojaIds)
             ? userToEdit.lojaIds
             : (userToEdit.lojaId ? [userToEdit.lojaId] : []);
-        const permissions = sanitizePermissions(userToEdit.permissions, normalizedRole);
 
+        const { permissions, hasCustomProfile, normalizedRole } = await getCustomPermissionsForUser(userToEdit);
         setEditingUser(userToEdit);
+        setSelectedExistingUserId(userToEdit.uid || userToEdit.id || '');
         setUserFormData({
             email: userToEdit.email || "",
             senha: "",
@@ -4573,9 +4612,34 @@ const effectiveStoreName = useMemo(() => {
             role: normalizedRole,
             lojaId: lojas[0] || '',
             lojaIds: lojas,
-            permissions
+            permissions,
+            applyCustomProfile: hasCustomProfile,
+            uid: userToEdit.uid || userToEdit.id || ''
         });
+    }, [effectiveStoreId, getCustomPermissionsForUser]);
+
+    // Handlers para Usuários
+    const handleNewUser = () => {
+        buildUserFormState();
         setShowUserModal(true);
+    };
+
+    const handleEditUser = (userToEdit) => {
+        buildUserFormState(userToEdit);
+        setShowUserModal(true);
+    };
+
+    const handleExistingUserSelect = async (uid) => {
+        setSelectedExistingUserId(uid);
+        if (!uid) {
+            await buildUserFormState();
+            return;
+        }
+
+        const selectedUser = (usuarios || []).find((u) => (u.uid || u.id) === uid);
+        if (selectedUser) {
+            await buildUserFormState(selectedUser);
+        }
     };
 
 	const handleUserSubmit = async (e) => {
@@ -4601,7 +4665,13 @@ const effectiveStoreName = useMemo(() => {
                 const lojasSelecionadas = selectedRole === ROLE_OWNER
                     ? (userFormData.lojaIds && userFormData.lojaIds.length ? userFormData.lojaIds : [])
                     : (singleStoreId ? [singleStoreId] : []);
-                const permissions = sanitizePermissions(userFormData.permissions, selectedRole);
+                const sanitizedPermissions = sanitizePermissions(userFormData.permissions, selectedRole);
+                const applyCustomProfile = Boolean(userFormData.applyCustomProfile);
+                const permissionsToPersist = applyCustomProfile
+                    ? sanitizedPermissions
+                    : getDefaultPermissionsForRole(selectedRole);
+
+                let updatedUserId = editingUser?.uid || editingUser?.id;
 
                 if (editingUser) {
                   const updateUserFn = httpsCallable(functions, 'updateUser');
@@ -4612,21 +4682,40 @@ const effectiveStoreName = useMemo(() => {
                         email: userFormData.email,
                         lojaId: singleStoreId || null,
                         lojaIds: lojasSelecionadas,
-                        permissions
+                        permissions: permissionsToPersist
                   });
+                  updatedUserId = editingUser.uid;
                   alert('Usuário atualizado com sucesso!');
                 } else {
                   const createUserFn = httpsCallable(functions, 'createUser');
-                  await createUserFn({
+                  const result = await createUserFn({
                         email: userFormData.email,
                         senha: userFormData.senha,
                         nome: userFormData.nome,
                         role: selectedRole,
                         lojaId: singleStoreId || null,
                         lojaIds: lojasSelecionadas,
-                        permissions
+                        permissions: permissionsToPersist
                   });
+                  updatedUserId = result?.data?.uid || updatedUserId;
                   alert('Usuário criado com sucesso!');
+                }
+
+                if (!applyCustomProfile && updatedUserId) {
+                    try {
+                        await deleteDoc(doc(db, 'customProfiles', updatedUserId));
+                    } catch (deleteError) {
+                        console.error('Erro ao remover perfil personalizado:', deleteError);
+                    }
+                }
+
+                if (updatedUserId && user?.auth?.uid === updatedUserId) {
+                    setUser((prev) => prev ? {
+                        ...prev,
+                        permissions: permissionsToPersist,
+                        customPermissions: applyCustomProfile ? permissionsToPersist : null,
+                        hasCustomProfile: applyCustomProfile,
+                    } : prev);
                 }
 
                 setShowUserModal(false);
@@ -5094,6 +5183,22 @@ const effectiveStoreName = useMemo(() => {
             
             <Modal isOpen={showUserModal} onClose={() => setShowUserModal(false)} title={editingUser ? "Editar Usuário" : "Novo Usuário"}>
                  <form onSubmit={handleUserSubmit} className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="block text-sm font-medium text-gray-700" title="Escolha um usuário já cadastrado para carregar os dados automaticamente">Selecionar usuário existente</label>
+                        <select
+                            value={selectedExistingUserId}
+                            onChange={(e) => handleExistingUserSelect(e.target.value)}
+                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        >
+                            <option value="">Cadastrar novo usuário</option>
+                            {(usuarios || []).map((u) => (
+                                <option key={u.uid || u.id} value={u.uid || u.id}>
+                                    {(u.nome || u.email || 'Usuário').trim()} • {(u.email || 'sem email')} ({normalizeRole(u.role)})
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-500">Use esta lista para localizar rapidamente um perfil e editar as permissões personalizadas.</p>
+                    </div>
                     <Input label="Nome" value={userFormData.nome || ''} onChange={e => setUserFormData({...userFormData, nome: e.target.value})} required />
                     <Input
                         label="Email"
@@ -5186,24 +5291,61 @@ const effectiveStoreName = useMemo(() => {
                                 <p className="text-sm font-semibold text-gray-800">Permissões personalizadas</p>
                                 <p className="text-xs text-gray-500">Selecione quais menus o usuário pode acessar.</p>
                             </div>
-                            <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setUserFormData({
-                                    ...userFormData,
-                                    permissions: getDefaultPermissionsForRole(userFormData.role)
-                                })}
-                            >
-                                Restaurar padrão do papel
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-2 text-xs text-gray-600" title="Ative para personalizar o menu deste usuário">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(userFormData.applyCustomProfile)}
+                                        onChange={(e) => {
+                                            const useCustom = e.target.checked;
+                                            setUserFormData((prev) => ({
+                                                ...prev,
+                                                applyCustomProfile: useCustom,
+                                                permissions: useCustom ? prev.permissions : getDefaultPermissionsForRole(prev.role)
+                                            }));
+                                        }}
+                                    />
+                                    Ativar perfil personalizado
+                                </label>
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    title="Voltar para o padrão do papel selecionado"
+                                    onClick={() => setUserFormData({
+                                        ...userFormData,
+                                        permissions: getDefaultPermissionsForRole(userFormData.role),
+                                        applyCustomProfile: false,
+                                    })}
+                                >
+                                    Usar padrão do papel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    title="Recarrega a checklist com o padrão do papel, mantendo o perfil personalizado ativo"
+                                    onClick={() => setUserFormData({
+                                        ...userFormData,
+                                        permissions: getDefaultPermissionsForRole(userFormData.role),
+                                        applyCustomProfile: true,
+                                    })}
+                                >
+                                    Restaurar checklist
+                                </Button>
+                            </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {allMenuItems.map((item) => (
-                                <label key={item.id} className="flex items-center gap-2 text-sm text-gray-700">
+                                <label
+                                    key={item.id}
+                                    className={`flex items-center gap-2 text-sm text-gray-700 ${!userFormData.applyCustomProfile ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    title={`Permitir acesso ao menu "${item.label}"`}
+                                >
                                     <input
                                         type="checkbox"
                                         checked={Boolean(userFormData.permissions?.[item.id])}
+                                        disabled={!userFormData.applyCustomProfile}
                                         onChange={(e) => {
                                             setUserFormData({
                                                 ...userFormData,
