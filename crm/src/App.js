@@ -2113,6 +2113,23 @@ function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
+  const isiOS = useMemo(() => {
+    const platform = Capacitor.getPlatform();
+    if (platform === 'ios') return true;
+
+    if (platform === 'web' && typeof navigator !== 'undefined') {
+      const ua = navigator.userAgent || '';
+      return /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    }
+
+    return false;
+  }, []);
+
+  const [soundUnlocked, setSoundUnlocked] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('iosSoundUnlocked') === 'true';
+  });
+
   const [isAlarmSnoozed, setIsAlarmSnoozed] = useState(false);
   const [snoozeEndTime, setSnoozeEndTime] = useState(null);
   // --- Estado audioUnlocked agora é derivado do AudioManager ---
@@ -2131,6 +2148,39 @@ function App() {
   const [selectedStoreId, setSelectedStoreId] = usePersistentState('selectedStoreId', null);
   const [showStoreManager, setShowStoreManager] = useState(false);
   const [isCreatingStore, setIsCreatingStore] = useState(false);
+
+  useEffect(() => {
+    if (!isiOS || soundUnlocked) return undefined;
+
+    const unlockWithGesture = () => {
+      try {
+        audioManager.userUnlock();
+
+        const htmlAudio = new Audio('/alarm.mp3');
+        const playPromise = htmlAudio.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {});
+        }
+        htmlAudio.pause();
+        htmlAudio.currentTime = 0;
+      } catch (error) {
+        console.warn('[App.js] Não foi possível iniciar o áudio no gesto de desbloqueio:', error);
+      }
+
+      localStorage.setItem('iosSoundUnlocked', 'true');
+      setSoundUnlocked(true);
+      window.removeEventListener('touchstart', unlockWithGesture);
+      window.removeEventListener('click', unlockWithGesture);
+    };
+
+    window.addEventListener('touchstart', unlockWithGesture, { passive: true });
+    window.addEventListener('click', unlockWithGesture, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', unlockWithGesture);
+      window.removeEventListener('click', unlockWithGesture);
+    };
+  }, [isiOS, soundUnlocked]);
 
 
   // --- REVISADO: Refs de Áudio ---
@@ -2328,11 +2378,15 @@ function App() {
 
   // --- SUBSTITUÍDO: Nova função playAlarm ---
   const playAlarm = useCallback(async () => {
-		// Só toca se não estiver em modo soneca
-		if (isSnoozedRef.current) {
-			console.log("[App.js] Alarme em soneca, não tocando.");
-			return;
-		}
+                if (isiOS && !soundUnlocked) {
+                        console.warn("[App.js] Áudio bloqueado no iOS aguardando interação do usuário.");
+                        return;
+                }
+                // Só toca se não estiver em modo soneca
+                if (isSnoozedRef.current) {
+                        console.log("[App.js] Alarme em soneca, não tocando.");
+                        return;
+                }
 		
 		// Se já está tocando, não faz nada
 		if (isAlarmPlaying) {
@@ -2372,7 +2426,7 @@ function App() {
 			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
 			setIsAlarmPlaying(false);
 		}
-	}, [isAlarmPlaying]); // Adicione isAlarmPlaying como dependência
+        }, [isiOS, isAlarmPlaying, soundUnlocked]); // Adicione isAlarmPlaying como dependência
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
 	  useEffect(() => {
@@ -6669,7 +6723,7 @@ const handleSubmit = async (e) => {
 
   return (
     // --- REMOVIDO: onClick={unlockAudio} da div principal ---
-    <div className="relative md:flex h-screen bg-gray-100 font-sans"> 
+    <div className="relative md:flex h-screen bg-gray-100 font-sans">
         {/* --- NOVO: Botão de ativação global renderizado condicionalmente --- */}
         {showActivateSoundButton && (
              <button
@@ -6683,7 +6737,16 @@ const handleSubmit = async (e) => {
                 🔊 Ativar som de pedidos
              </button>
         )}
-        
+
+        {isiOS && !soundUnlocked && (
+          <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/50 px-4">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 text-center max-w-sm w-full space-y-3">
+              <p className="text-lg font-semibold text-gray-800">Toque na tela para ativar o som</p>
+              <p className="text-sm text-gray-600">Precisamos da sua interação para liberar os alertas de pedidos no iOS.</p>
+            </div>
+          </div>
+        )}
+
         {!isDesktop && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-30"></div>}
         
         <div className={`fixed md:relative flex flex-col bg-white shadow-lg h-full transition-transform duration-300 z-40 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDesktop ? (sidebarOpen ? 'w-64' : 'w-20') : 'w-64'}`}>
