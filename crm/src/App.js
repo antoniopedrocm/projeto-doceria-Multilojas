@@ -2152,9 +2152,9 @@ function App() {
   useEffect(() => {
     if (!isiOS || soundUnlocked) return undefined;
 
-    const unlockWithGesture = () => {
+    const unlockWithGesture = async () => {
       try {
-        audioManager.userUnlock();
+        await audioManager.userUnlock({ userGesture: true });
 
         const htmlAudio = new Audio('/alarm.mp3');
         const playPromise = htmlAudio.play();
@@ -2429,25 +2429,25 @@ function App() {
         }, [isiOS, isAlarmPlaying, soundUnlocked]); // Adicione isAlarmPlaying como dependência
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
-	  useEffect(() => {
-		const loadAudio = async () => {
-		  if (Capacitor.getPlatform() === 'android' || Capacitor.getPlatform() === 'ios') {
-			try {
-			  await NativeAudio.preload({
-					assetId: 'pedido',
-					assetPath: 'mixkit_vintage_warning_alarm_990.wav',
-					audioChannelNum: 1,
-					isUrl: false,
-			  });
-			  console.log('🔊 Áudio pré-carregado com sucesso!');
-			} catch (err) {
-			  console.error('Erro ao carregar áudio:', err);
-			}
-		  }
-		};
+          useEffect(() => {
+                const loadAudio = async () => {
+                  if (Capacitor.getPlatform() === 'android') {
+                        try {
+                          await NativeAudio.preload({
+                                        assetId: 'pedido',
+                                        assetPath: 'mixkit_vintage_warning_alarm_990.wav',
+                                        audioChannelNum: 1,
+                                        isUrl: false,
+                          });
+                          console.log('🔊 Áudio pré-carregado com sucesso!');
+                        } catch (err) {
+                          console.error('Erro ao carregar áudio:', err);
+                        }
+                  }
+                };
 
-		loadAudio();
-	  }, []);
+                loadAudio();
+          }, []);
 
   // --- SUBSTITUÍDO: Novo useEffect de inicialização do AudioManager ---
   useEffect(() => {
@@ -6725,11 +6725,11 @@ const handleSubmit = async (e) => {
     // --- REMOVIDO: onClick={unlockAudio} da div principal ---
     <div className="relative md:flex h-screen bg-gray-100 font-sans">
         {/* --- NOVO: Botão de ativação global renderizado condicionalmente --- */}
-        {showActivateSoundButton && (
+                {showActivateSoundButton && (
              <button
                 id="btn-ativar-som"
                 onClick={async () => {
-                    await audioManager.userUnlock();
+                    await audioManager.userUnlock({ userGesture: true });
                     setShowActivateSoundButton(!audioManager.unlocked); // Esconde se desbloqueado
                 }}
                 className="fixed bottom-4 right-4 z-[9999] px-4 py-2 rounded-xl bg-pink-600 text-white border-none shadow-lg hover:bg-pink-700 transition-colors cursor-pointer"

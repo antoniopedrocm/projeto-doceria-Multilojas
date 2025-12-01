@@ -23,7 +23,7 @@ class AudioManager {
   _setupAutoUnlockListener() {
 
     const unlockHandler = async () => {
-      await this.userUnlock();
+      await this.userUnlock({ userGesture: true });
       unlockEvents.forEach((ev) => document.removeEventListener(ev, unlockHandler));
     };
  unlockEvents.forEach((ev) => document.addEventListener(ev, unlockHandler, { once: true }));
@@ -130,11 +130,16 @@ async _ensureNativePreload() {
     return this.nativePreloadPromise;
   }
   
-  async userUnlock() {
+  async userUnlock({ userGesture = false } = {}) {
     if (!this.audioCtx || this.audioCtx.state === "closed") {
       await this.init();
       if (!this.audioCtx) return;
     }
+
+    const platform = Capacitor.getPlatform();
+    const isIOS =
+      platform === "ios" ||
+      (platform === "web" && typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent));
 
     if (this.audioCtx.state === "suspended") {
       try {
@@ -142,6 +147,10 @@ async _ensureNativePreload() {
         this.unlocked = true;
         localStorage.setItem("audioUnlocked", "true");
         console.log("[AudioManager] unlocked by user");
+
+        if (userGesture && isIOS) {
+          await this._ensureNativePreload();
+        }
       } catch (e) {
         console.error("[AudioManager] failed to unlock:", e);
         this.unlocked = false;
@@ -151,6 +160,10 @@ async _ensureNativePreload() {
       this.unlocked = true;
       localStorage.setItem("audioUnlocked", "true");
       console.log("[AudioManager] context already running, confirmed unlock by user");
+
+      if (userGesture && isIOS) {
+        await this._ensureNativePreload();
+      }
     }
   }
 
