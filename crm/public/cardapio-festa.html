@@ -638,16 +638,6 @@
                 </div>
 
 
-                <!-- Cupom -->
-                <div class="space-y-2">
-                    <h3 class="text-lg font-semibold text-gray-800">Cupom de Desconto</h3>
-                    <div class="flex gap-2">
-                        <input id="guest-cupom-input" type="text" placeholder="Tem um cupom?" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 uppercase">
-                        <button id="guest-verify-cupom-button" class="bg-gray-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-700 transition-colors flex-shrink-0">Aplicar</button>
-                    </div>
-                    <p id="guest-cupom-message" class="text-sm"></p>
-                </div>
-
                 <!-- Resumo e Pagamento -->
                 <div>
                     <h3 class="text-lg font-semibold text-gray-800">Resumo e Pagamento</h3>
@@ -667,8 +657,8 @@
                     </select>
                 </div>
             </div>
-            <div class="p-6 border-t bg-gray-50">
-                <button id="send-whatsapp-button" class="w-full bg-green-500 text-white py-3 rounded-lg font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+            <div class="p-6 pt-0">
+                <button id="send-whatsapp-button" class="w-full bg-green-500 text-white py-3 px-4 rounded-lg font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2 mt-4">
                     <i class="fa-brands fa-whatsapp"></i> Finalizar e Enviar via WhatsApp
                 </button>
             </div>
@@ -1037,9 +1027,6 @@
               closePlatformConfirmationButton = document.getElementById('close-platform-confirmation'),
               toast = document.getElementById('toast'),
               toastMessage = document.getElementById('toast-message'),
-              guestCupomInput = document.getElementById('guest-cupom-input'),
-              guestVerifyCupomButton = document.getElementById('guest-verify-cupom-button'),
-              guestCupomMessage = document.getElementById('guest-cupom-message'),
               paymentCupomInput = document.getElementById('payment-cupom-input'),
               paymentVerifyCupomButton = document.getElementById('payment-verify-cupom-button'),
               paymentCupomMessage = document.getElementById('payment-cupom-message');
@@ -1511,8 +1498,7 @@
                 location.reload(); 
             });
 
-            guestVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('guest'));
-            paymentVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('payment'));
+            if (paymentVerifyCupomButton) paymentVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('payment'));
         
             ['guest-address-street', 'guest-address-number', 'guest-address-neighborhood', 'guest-address-city'].forEach(id => {
                 const input = document.getElementById(id);
@@ -1989,9 +1975,10 @@
 
         async function handleVerifyCupom(type) {
             const isGuest = type === 'guest';
-            const cupomInput = isGuest ? guestCupomInput : paymentCupomInput;
-            const cupomMessage = isGuest ? guestCupomMessage : paymentCupomMessage;
-            const verifyButton = isGuest ? guestVerifyCupomButton : paymentVerifyCupomButton;
+            if (isGuest) return;
+            const cupomInput = paymentCupomInput;
+            const cupomMessage = paymentCupomMessage;
+            const verifyButton = paymentVerifyCupomButton;
             
             if (appliedCupom) { removeCupom(); return; }
             
@@ -2056,9 +2043,9 @@
 
         function removeCupom() {
             if (appliedCupom) { showToast('Cupom removido.'); appliedCupom = null; }
-            [guestCupomInput, paymentCupomInput].forEach(input => { input.value = ''; input.disabled = false; });
-            [guestVerifyCupomButton, paymentVerifyCupomButton].forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
-            [guestCupomMessage, paymentCupomMessage].forEach(msg => { msg.textContent = ''; });
+            [paymentCupomInput].filter(Boolean).forEach(input => { input.value = ''; input.disabled = false; });
+            [paymentVerifyCupomButton].filter(Boolean).forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
+            [paymentCupomMessage].filter(Boolean).forEach(msg => { msg.textContent = ''; });
             updateAllSummaries();
         }
 
