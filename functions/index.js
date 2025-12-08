@@ -209,6 +209,131 @@ const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
 app.use(express.json());
 
+const CLIENTS_COLLECTION = 'clientes';
+const getClientsCollection = () => db.collection(CLIENTS_COLLECTION);
+
+const sanitizeClientPayload = (input = {}) => {
+  const {
+    comprasIncrement,
+    incrementarCompras,
+    totalComprasIncrement,
+    totalCompras,
+    compras,
+    lojasVisitadas,
+    criadoEm,
+    criadoEmOriginal,
+    updatedAt,
+    atualizadoEm,
+    createdAt,
+    ...rest
+  } = input || {};
+
+  const purchaseIncrement = Number(
+    comprasIncrement ?? incrementarCompras ?? totalComprasIncrement ?? totalCompras ?? compras ?? 0,
+  );
+
+  return {
+    data: rest,
+    purchaseIncrement: Number.isFinite(purchaseIncrement) ? purchaseIncrement : 0,
+    createdAt: criadoEm || createdAt || criadoEmOriginal || null,
+  };
+};
+
+const findClientByPhone = async (telefone) => {
+  if (!telefone) return null;
+  const snapshot = await getClientsCollection().where('telefone', '==', telefone).limit(1).get();
+  if (snapshot.empty) return null;
+  const docSnap = snapshot.docs[0];
+  return {id: docSnap.id, data: docSnap.data()};
+};
+
+const upsertClientDocument = async ({
+  targetRef,
+  data,
+  lojaId,
+  setCreatedIfMissing = false,
+  purchaseIncrement = 0,
+  createdAt = null,
+}) => {
+  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  return db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(targetRef);
+    const payload = {
+      ...data,
+      lojaId: data.lojaId || lojaId || data.lojaId,
+      atualizadoEm: timestamp,
+    };
+
+    if (lojaId) {
+      payload.lojasVisitadas = admin.firestore.FieldValue.arrayUnion(lojaId);
+    }
+
+    if (Number.isFinite(purchaseIncrement) && purchaseIncrement !== 0) {
+      payload.totalCompras = admin.firestore.FieldValue.increment(purchaseIncrement);
+    }
+
+    if (!snap.exists && setCreatedIfMissing) {
+      payload.criadoEm = createdAt || timestamp;
+    }
+
+    transaction.set(targetRef, payload, {merge: true});
+    return {id: targetRef.id};
+  });
+};
+
+const ensureClientFromLegacy = async (clientId, lojaId) => {
+  if (!clientId || !lojaId) return null;
+
+  const legacyRef = db.collection('lojas').doc(lojaId).collection('clientes').doc(clientId);
+  const legacySnap = await legacyRef.get();
+
+  if (!legacySnap.exists) return null;
+
+  const {data, purchaseIncrement, createdAt} = sanitizeClientPayload(legacySnap.data() || {});
+  const targetRef = getClientsCollection().doc(clientId);
+
+  await upsertClientDocument({
+    targetRef,
+    data,
+    lojaId,
+    setCreatedIfMissing: true,
+    purchaseIncrement,
+    createdAt,
+  });
+
+  const updatedSnap = await targetRef.get();
+  return {id: targetRef.id, data: updatedSnap.data()};
+};
+
+const migrateClientsFromStore = async (lojaId) => {
+  const legacyCollection = db.collection('lojas').doc(lojaId).collection('clientes');
+  const snapshot = await legacyCollection.get();
+
+  if (snapshot.empty) return {lojaId, migrated: 0, clientIds: []};
+
+  const migratedIds = [];
+
+  for (const docSnap of snapshot.docs) {
+    const {data, purchaseIncrement, createdAt} = sanitizeClientPayload(docSnap.data() || {});
+    const telefone = typeof data.telefone === 'string' ? data.telefone.trim() : '';
+    const existing = await findClientByPhone(telefone);
+    const targetRef = existing ? getClientsCollection().doc(existing.id) : getClientsCollection().doc(docSnap.id);
+
+    await upsertClientDocument({
+      targetRef,
+      data,
+      lojaId,
+      setCreatedIfMissing: true,
+      purchaseIncrement,
+      createdAt,
+    });
+
+    migratedIds.push(targetRef.id);
+  }
+
+  return {lojaId, migrated: migratedIds.length, clientIds: migratedIds};
+};
+
 // Rota para buscar todos os produtos ativos
 app.get("/produtos", async (req, res) => {
   const lojaId = requireStoreId(req, res);
@@ -225,50 +350,93 @@ app.get("/produtos", async (req, res) => {
 
 // Rota para buscar todos os clientes
 app.get("/clientes", async (req, res) => {
-    const lojaId = requireStoreId(req, res);
-    if (!lojaId) return;
-    try {
-        const snapshot = await db.collection("lojas").doc(lojaId).collection("clientes").get();
-        const clients = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        res.status(200).json(clients);
-    } catch (error) {
-        logger.error("Erro ao buscar clientes:", error);
-        res.status(500).send("Erro ao buscar clientes.");
-    }
-});
+  const lojaId = requireStoreId(req, res);
+  if (!lojaId) return;
+  try {
+    const snapshot = await getClientsCollection().where('lojasVisitadas', 'array-contains', lojaId).get();
+    let clients = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
 
+    if (!clients.length) {
+      const legacySnapshot = await db.collection("lojas").doc(lojaId).collection(CLIENTS_COLLECTION).get();
+      if (!legacySnapshot.empty) {
+        await migrateClientsFromStore(lojaId);
+        const updatedSnapshot = await getClientsCollection().where('lojasVisitadas', 'array-contains', lojaId).get();
+        clients = updatedSnapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
+      }
+    }
+
+    res.status(200).json(clients);
+  } catch (error) {
+    logger.error("Erro ao buscar clientes:", error);
+    res.status(500).send("Erro ao buscar clientes.");
+  }
+});
 
 // Rota para criar um novo cliente
 app.post("/clientes", async (req, res) => {
-    const lojaId = requireStoreId(req, res);
-    if (!lojaId) return;
-    try {
-       const newClient = req.body;
-       const docRef = await db.collection("lojas").doc(lojaId).collection("clientes").add({ ...newClient, lojaId });
-        res.status(201).json({ id: docRef.id, ...newClient, lojaId });
-    } catch (error) {
-        logger.error("Erro ao criar cliente:", error);
-        res.status(500).send("Erro ao criar cliente.");
-    }
+  const lojaId = requireStoreId(req, res);
+  if (!lojaId) return;
+
+  try {
+    const {data: newClient, purchaseIncrement} = sanitizeClientPayload(req.body || {});
+    const telefone = typeof newClient.telefone === 'string' ? newClient.telefone.trim() : '';
+
+    const existing = await findClientByPhone(telefone);
+    const targetRef = existing ? getClientsCollection().doc(existing.id) : getClientsCollection().doc();
+
+    await upsertClientDocument({
+      targetRef,
+      data: newClient,
+      lojaId,
+      setCreatedIfMissing: !existing,
+      purchaseIncrement,
+    });
+
+    const savedSnap = await targetRef.get();
+    const responseStatus = existing ? 200 : 201;
+    res.status(responseStatus).json({id: targetRef.id, ...savedSnap.data()});
+  } catch (error) {
+    logger.error("Erro ao criar cliente:", error);
+    res.status(500).send("Erro ao criar cliente.");
+  }
 });
 
-// Rota para atualizar um cliente (adicionar endereço)
+// Rota para atualizar um cliente (adicionar endereço ou registrar compra)
 app.put("/clientes/:id", async (req, res) => {
-	const lojaId = requireStoreId(req, res);
-    if (!lojaId) return;
-    try {
-        const { id } = req.params;
-        const { newAddress } = req.body;
-        const clientRef = db.collection("lojas").doc(lojaId).collection("clientes").doc(id);
-        await clientRef.update({
-            enderecos: admin.firestore.FieldValue.arrayUnion(newAddress)
-        });
+  const lojaId = requireStoreId(req, res);
+  if (!lojaId) return;
 
-        res.status(200).send("Endereço adicionado com sucesso.");
-    } catch (error) {
-        logger.error("Erro ao atualizar cliente:", error);
-        res.status(500).send("Erro ao atualizar cliente.");
+  try {
+    const {id} = req.params;
+    const {newAddress, ...rawData} = req.body || {};
+    const {data: clientData, purchaseIncrement} = sanitizeClientPayload(rawData);
+    const clientRef = getClientsCollection().doc(id);
+    const updates = {...clientData};
+
+    if (newAddress) {
+      updates.enderecos = admin.firestore.FieldValue.arrayUnion(newAddress);
     }
+
+    let snapshot = await clientRef.get();
+    if (!snapshot.exists) {
+      await ensureClientFromLegacy(id, lojaId);
+      snapshot = await clientRef.get();
+    }
+
+    await upsertClientDocument({
+      targetRef: clientRef,
+      data: updates,
+      lojaId,
+      setCreatedIfMissing: true,
+      purchaseIncrement,
+    });
+
+    const updatedSnap = await clientRef.get();
+    res.status(200).json({id, ...updatedSnap.data()});
+  } catch (error) {
+    logger.error("Erro ao atualizar cliente:", error);
+    res.status(500).send("Erro ao atualizar cliente.");
+  }
 });
 
 
@@ -287,6 +455,30 @@ app.post("/pedidos", async (req, res) => {
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
     res.status(500).send("Erro ao criar pedido.");
+  }
+});
+
+// Rota para migrar clientes das coleções legadas para a coleção raiz
+app.post("/clientes/migrar", async (req, res) => {
+  const lojaId = req.body?.lojaId || req.query?.lojaId;
+
+  try {
+    if (lojaId) {
+      const result = await migrateClientsFromStore(lojaId);
+      return res.status(200).json(result);
+    }
+
+    const lojasSnapshot = await db.collection('lojas').get();
+    const summary = [];
+
+    for (const lojaDoc of lojasSnapshot.docs) {
+      summary.push(await migrateClientsFromStore(lojaDoc.id));
+    }
+
+    res.status(200).json({migratedStores: summary.length, summary});
+  } catch (error) {
+    logger.error("Erro ao migrar clientes:", error);
+    res.status(500).send("Erro ao migrar clientes.");
   }
 });
 
