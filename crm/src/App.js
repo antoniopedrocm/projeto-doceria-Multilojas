@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, increment } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -103,6 +103,8 @@ const getInitialDataState = () => ({
   }), {}),
   users: []
 });
+
+const normalizePhone = (value) => (value || '').replace(/\D/g, '');
 
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_DEFAULT;
@@ -2268,9 +2270,9 @@ function App() {
 
     const addResolvedStoreToClient = (cliente) => {
       const visitedStores = Array.isArray(cliente.lojasVisitadas) ? cliente.lojasVisitadas : [];
-      const resolvedLojaId = visitedStores.length === 1
-        ? visitedStores[0]
-        : (cliente.lojaAtual || cliente.lojaId || null);
+      const resolvedLojaId = cliente.lojaId
+        || cliente.lojaAtual
+        || (visitedStores.length > 0 ? visitedStores[0] : null);
 
       if (!resolvedLojaId) return cliente;
       return { ...cliente, lojaId: resolvedLojaId };
@@ -2947,36 +2949,96 @@ function App() {
     // useEffect(() => { if (audioUnlocked && ...) ... });
 
 
+  const registerClientePurchase = async (clienteId, storeId, purchaseTotal = 0) => {
+    if (!clienteId || !storeId) return;
+
+    try {
+      await updateDoc(doc(db, 'clientes', clienteId), {
+        lojasVisitadas: arrayUnion(storeId),
+        lojaAtual: storeId,
+        lojaId: storeId,
+        totalCompras: increment(Number(purchaseTotal) || 0),
+        numeroCompras: increment(1),
+        ultimaCompra: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('[App.js] Erro ao registrar compra do cliente:', error);
+    }
+  };
+
   const addItem = async (section, item, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        const payload = {
+        const timestamp = serverTimestamp();
+        const basePayload = {
             ...item,
-                        ...(item?.lojaId ? {} : { lojaId: storeId }),
-            createdAt: new Date()
-         };
+            ...(item?.lojaId ? {} : { lojaId: storeId }),
+        };
+
+        let docRef = null;
+        let logAction = `Novo item adicionado em ${section}`;
+        let logDetails = null;
 
         if (section === 'clientes') {
-            const lojasVisitadas = Array.isArray(payload.lojasVisitadas) ? payload.lojasVisitadas : [];
+            const lojasVisitadas = Array.isArray(basePayload.lojasVisitadas) ? basePayload.lojasVisitadas : [];
             const mergedLojas = new Set(lojasVisitadas);
             mergedLojas.add(storeId);
 
-            payload.lojasVisitadas = Array.from(mergedLojas);
-            payload.lojaAtual = payload.lojaAtual || storeId;
-            payload.lojaId = payload.lojaId || payload.lojaAtual;
+            const normalizedPhone = normalizePhone(basePayload.telefone);
+            const clientePayload = {
+                ...basePayload,
+                lojasVisitadas: Array.from(mergedLojas),
+                lojaAtual: basePayload.lojaAtual || storeId,
+                lojaId: basePayload.lojaId || basePayload.lojaAtual || storeId,
+                telefoneNormalizado: normalizedPhone || undefined,
+                updatedAt: timestamp,
+            };
+
+            let existingSnapshot = null;
+            if (normalizedPhone) {
+                existingSnapshot = await getDocs(query(collection(db, 'clientes'), where('telefoneNormalizado', '==', normalizedPhone)));
+            }
+            if ((!existingSnapshot || existingSnapshot.empty) && basePayload.telefone) {
+                existingSnapshot = await getDocs(query(collection(db, 'clientes'), where('telefone', '==', basePayload.telefone)));
+            }
+
+            if (existingSnapshot && !existingSnapshot.empty) {
+                const existingDoc = existingSnapshot.docs[0];
+                await updateDoc(existingDoc.ref, {
+                    ...clientePayload,
+                    lojasVisitadas: arrayUnion(storeId),
+                });
+                docRef = existingDoc.ref;
+                logAction = 'Cliente existente reutilizado em clientes';
+                logDetails = `ID: ${docRef.id} associado à loja ${storeId}`;
+            } else {
+                docRef = await addDoc(collection(db, 'clientes'), {
+                    ...clientePayload,
+                    createdAt: timestamp,
+                });
+            }
+        } else {
+            docRef = await addDoc(getStoreCollectionRef(storeId, section), {
+                ...basePayload,
+                createdAt: timestamp,
+            });
         }
-        const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
-        if (user && section !== 'logs') {
+
+        if (docRef && !logDetails) {
+            logDetails = `ID: ${docRef.id}`;
+        }
+
+        if (user && section !== 'logs' && docRef) {
             await addDoc(getStoreCollectionRef(storeId, 'logs'), {
-                action: `Novo item adicionado em ${section}`,
-                details: `ID: ${docRef.id}`,
+                action: logAction,
+                details: logDetails,
                 userEmail: user?.auth?.email || 'N/A',
-                timestamp: new Date()
+                timestamp,
             });
         }
     } catch (e) {
         console.error("Erro ao adicionar documento: ", e);
-		if (e && e.message) {
+                if (e && e.message) {
             alert(e.message);
         }
     }
@@ -3003,12 +3065,12 @@ function App() {
                         action: `Item atualizado em ${section}`,
                         details: `ID ${id} com alterações: ${JSON.stringify(changes)}`,
                         userEmail: user?.auth?.email || 'N/A',
-                        timestamp: new Date()
+                        timestamp: serverTimestamp()
                     });
                 }
              }
         }
-        await updateDoc(itemDoc, updatedItem);
+        await updateDoc(itemDoc, { ...updatedItem, updatedAt: serverTimestamp() });
     } catch (e) {
         console.error("Erro ao atualizar documento: ", e);
 		if (e && e.message) {
@@ -3026,7 +3088,7 @@ function App() {
                 action: `Item deletado de ${section}`,
                 details: `ID: ${id}`,
                 userEmail: user?.auth?.email || 'N/A',
-                timestamp: new Date()
+                timestamp: serverTimestamp()
             });
         }
     } catch (e) {
@@ -6061,17 +6123,23 @@ const effectiveStoreName = useMemo(() => {
 
 const handleSubmit = async (e) => {
     e.preventDefault();
-    // Garante que clienteNome seja definido mesmo se não for encontrado
-    const clienteSelecionado = data.clientes.find(c => c.id === formData.clienteId);
-    const orderData = { 
-        ...formData, 
-        clienteNome: clienteSelecionado ? clienteSelecionado.nome : 'Cliente não selecionado' 
+    const centralClientes = clientesDataRef.current || [];
+    const clienteSelecionado = centralClientes.find(c => c.id === formData.clienteId) || data.clientes.find(c => c.id === formData.clienteId);
+    const activeStoreId = resolveActiveStoreForWrite();
+    const orderStoreId = formData.lojaId || editingOrder?.lojaId || activeStoreId;
+    const wasFinalizedBefore = editingOrder?.status === 'Finalizado';
+    const isFinalizedNow = formData.status === 'Finalizado';
+
+    const orderData = {
+        ...formData,
+        lojaId: orderStoreId,
+        clienteNome: clienteSelecionado ? clienteSelecionado.nome : 'Cliente não selecionado'
     };
-    
+
     if (editingOrder) {
         const { id, ...updateData } = orderData;
         await updateItem('pedidos', editingOrder.id, updateData);
-        
+
         // Atualiza estoque se status mudou para/de Finalizado
         if (orderData.status === 'Finalizado' && editingOrder.status !== 'Finalizado') {
             await updateStockForOrder(orderData.itens, 'decrease');
@@ -6081,13 +6149,17 @@ const handleSubmit = async (e) => {
         }
     } else {
         await addItem('pedidos', orderData);
-        
+
         // Atualiza estoque se novo pedido já é Finalizado
         if (orderData.status === 'Finalizado') {
             await updateStockForOrder(orderData.itens, 'decrease');
         }
     }
-    
+
+    if (isFinalizedNow && !wasFinalizedBefore) {
+        await registerClientePurchase(orderData.clienteId, orderStoreId, orderData.total);
+    }
+
     setShowModal(false);
     resetForm();
 };
