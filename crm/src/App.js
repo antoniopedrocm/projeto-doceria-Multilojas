@@ -63,17 +63,24 @@ const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false
 };
 
 const getStoreCollectionRef = (storeId, collectionName, useLegacyPath = false) => {
+  if (collectionName === 'clientes') {
+    return collection(db, 'clientes');
+  }
+
   return collection(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath));
 };
 
 const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) => {
+  if (collectionName === 'clientes') {
+    return doc(db, 'clientes', docId);
+  }
+
   return doc(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath), docId);
 };
 
 const getStoreConfigDocRef = (storeId) => doc(db, 'lojas', storeId, 'configuracoes', CONFIG_DOC_ID);
 
 const COLLECTIONS_TO_SYNC = [
-  'clientes',
   'produtos',
   'subcategorias',
   'categoriasFornecedores',
@@ -89,6 +96,7 @@ const COLLECTIONS_TO_SYNC = [
 ];
 
 const getInitialDataState = () => ({
+  clientes: [],
   ...COLLECTIONS_TO_SYNC.reduce((acc, collection) => ({
     ...acc,
     [collection]: []
@@ -2190,6 +2198,7 @@ function App() {
   const isSnoozedRef = useRef(false);
   const initialDataLoaded = useRef(false);
   const storeCollectionsDataRef = useRef({});
+  const clientesDataRef = useRef([]);
   const pushTokenRef = useRef(null);
   const configMigrationStatusRef = useRef(new Set());
   // --- REMOVIDO: audioRef e alarmIntervalRef ---
@@ -2245,6 +2254,33 @@ function App() {
         }
       });
     });
+
+    const allClientes = clientesDataRef.current || [];
+    const storeIdSet = new Set(storeIds);
+
+    const matchesStore = (cliente) => {
+      const visitedStores = Array.isArray(cliente.lojasVisitadas) ? cliente.lojasVisitadas : [];
+      if (visitedStores.some((id) => storeIdSet.has(id))) return true;
+      if (cliente.lojaId && storeIdSet.has(cliente.lojaId)) return true;
+      if (cliente.lojaAtual && storeIdSet.has(cliente.lojaAtual)) return true;
+      return false;
+    };
+
+    const addResolvedStoreToClient = (cliente) => {
+      const visitedStores = Array.isArray(cliente.lojasVisitadas) ? cliente.lojasVisitadas : [];
+      const resolvedLojaId = visitedStores.length === 1
+        ? visitedStores[0]
+        : (cliente.lojaAtual || cliente.lojaId || null);
+
+      if (!resolvedLojaId) return cliente;
+      return { ...cliente, lojaId: resolvedLojaId };
+    };
+
+    if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
+      base.clientes = allClientes.map(addResolvedStoreToClient);
+    } else {
+      base.clientes = allClientes.filter(matchesStore).map(addResolvedStoreToClient);
+    }
 
     return base;
   }, [user, resolveStoreIdsForView, selectedStoreId]);
@@ -2690,13 +2726,15 @@ function App() {
           if (!user || !storeIds.length) {
                 setData(getInitialDataState());
                 setPendingOrders([]);
+                clientesDataRef.current = [];
+                storeCollectionsDataRef.current = {};
                 setLoading(false);
                 initialDataLoaded.current = false;
                 return;
           }
 
           let isMounted = true;
-          let pendingInitial = storeIds.length * COLLECTIONS_TO_SYNC.length;
+          let pendingInitial = (storeIds.length * COLLECTIONS_TO_SYNC.length) + 1;
           const unsubscribes = [];
 
           const markInitialLoaded = () => {
@@ -2716,6 +2754,50 @@ function App() {
                 setLoading(true);
                 initialDataLoaded.current = false;
           }
+
+          const setupClientesListener = () => {
+                const uniqueStoreIds = Array.from(new Set(storeIds)).filter(Boolean);
+                const clientesRef = collection(db, 'clientes');
+
+                let clientesQuery;
+                if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
+                      clientesQuery = query(clientesRef);
+                } else if (uniqueStoreIds.length === 1) {
+                      clientesQuery = query(clientesRef, where('lojasVisitadas', 'array-contains', uniqueStoreIds[0]));
+                } else if (uniqueStoreIds.length > 1) {
+                      clientesQuery = query(clientesRef, where('lojasVisitadas', 'array-contains-any', uniqueStoreIds.slice(0, 10)));
+                } else {
+                      clientesQuery = query(clientesRef);
+                }
+
+                let initialResolved = false;
+                const unsubscribe = onSnapshot(
+                      clientesQuery,
+                      (snapshot) => {
+                            if (!isMounted) return;
+
+                            clientesDataRef.current = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+                            const computedData = recomputeDataForView();
+                            setData(computedData);
+
+                            if (!initialResolved) {
+                                  markInitialLoaded();
+                                  initialResolved = true;
+                            }
+                      },
+                      (error) => {
+                            console.error('[App.js] Erro ao sincronizar clientes:', error);
+                            if (!initialResolved) {
+                                  markInitialLoaded();
+                                  initialResolved = true;
+                            }
+                      }
+                );
+
+                unsubscribes.push(() => unsubscribe());
+          };
+
+          setupClientesListener();
 
           storeIds.forEach((storeId) => {
                 COLLECTIONS_TO_SYNC.forEach((collectionName) => {
@@ -2873,6 +2955,16 @@ function App() {
                         ...(item?.lojaId ? {} : { lojaId: storeId }),
             createdAt: new Date()
          };
+
+        if (section === 'clientes') {
+            const lojasVisitadas = Array.isArray(payload.lojasVisitadas) ? payload.lojasVisitadas : [];
+            const mergedLojas = new Set(lojasVisitadas);
+            mergedLojas.add(storeId);
+
+            payload.lojasVisitadas = Array.from(mergedLojas);
+            payload.lojaAtual = payload.lojaAtual || storeId;
+            payload.lojaId = payload.lojaId || payload.lojaAtual;
+        }
         const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
         if (user && section !== 'logs') {
             await addDoc(getStoreCollectionRef(storeId, 'logs'), {
@@ -3053,6 +3145,7 @@ function App() {
                 } else {
                   setUser(null);
                   storeCollectionsDataRef.current = {};
+                  clientesDataRef.current = [];
                   setAvailableStores([]);
                   setStoreInfoMap({});
                   setSelectedStoreId(null);
