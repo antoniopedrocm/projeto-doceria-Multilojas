@@ -965,6 +965,10 @@
                 return storeConfigDocPath(first, ...rest);
             }
 
+            if (first === 'clientes') {
+                return ['clientes', ...rest];
+            }
+
             return ["lojas", STORE_ID, first, ...rest];
         };
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
@@ -1853,7 +1857,11 @@
                         aniversario: newBirthdate,
                         telefone: phone.replace(/\D/g, ''),
                         enderecos: [],
-                        createdAt: serverTimestamp(),
+                        lojasVisitadas: [STORE_ID],
+                        numeroDeCompras: 0,
+                        valorEmCompras: 0,
+                        criadoEm: serverTimestamp(),
+                        atualizadoEm: serverTimestamp(),
                         lojaId: STORE_ID
                     };
                     const docRef = await addDoc(collection(db, ...storePath("clientes")), newClientData);
@@ -1890,15 +1898,21 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
             
             try {
-                const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
+                const { db, collection, getDocs, query, where, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
                 const q = query(collection(db, ...storePath("clientes")), where("telefone", "==", phoneDigits));
                 const querySnapshot = await getDocs(q);
-                
+
                 phoneLoginModal.classList.add('hidden');
 
                 if (!querySnapshot.empty) {
                     const clientDoc = querySnapshot.docs[0];
-                    currentClient = { id: clientDoc.id, ...clientDoc.data() };
+                    await updateDoc(doc(db, 'clientes', clientDoc.id), {
+                        lojasVisitadas: arrayUnion(STORE_ID),
+                        lojaId: STORE_ID
+                    });
+                    const existingData = clientDoc.data();
+                    const lojasVisitadas = Array.from(new Set([...(existingData.lojasVisitadas || []), STORE_ID]));
+                    currentClient = { id: clientDoc.id, ...existingData, lojasVisitadas };
                     console.log("✅ Cliente encontrado:", currentClient);
                     openAddressManagementModal(currentClient);
                 } else {

@@ -32,6 +32,7 @@ import { Capacitor } from '@capacitor/core';
 
 // ✅ CORREÇÃO: URL alterada para o Firebase Storage para evitar erro de CORS
 const ALARM_SOUND_URL = "https://firebasestorage.googleapis.com/v0/b/crmdoceria-9959e.firebasestorage.app/o/audio%2Fmixkit-vintage-warning-alarm-990.wav?alt=media&token=6277f61e-51ab-413e-88d8-afef7835e465"; // <-- URL de exemplo, troque pela sua
+const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
@@ -2307,9 +2308,9 @@ function App() {
   }, []);
 
   const resolveActiveStoreForWrite = useCallback(() => {
-	if (!user) {
-	  throw new Error('Usuário não autenticado.');
-	}
+        if (!user) {
+          throw new Error('Usuário não autenticado.');
+        }
 
 	if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
 	  throw new Error('Selecione uma loja específica para executar esta ação.');
@@ -2321,8 +2322,29 @@ function App() {
 	  throw new Error('Nenhuma loja associada ao usuário.');
 	}
 
-	return storeId;
+        return storeId;
   }, [user, selectedStoreId, availableStores]);
+
+  const callClientApi = useCallback(async (path, { method = 'GET', body = null } = {}) => {
+    const storeId = resolveActiveStoreForWrite();
+    const url = `${API_BASE_URL}${path}${path.includes('?') ? '&' : '?'}lojaId=${encodeURIComponent(storeId)}`;
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || 'Erro ao comunicar com a API de clientes.');
+    }
+
+    if (response.status === 204) return null;
+    return response.json();
+  }, [resolveActiveStoreForWrite]);
   
   const selectStoreById = useCallback((value) => {
         if (value === STORE_ALL_KEY) {
@@ -2950,21 +2972,18 @@ function App() {
   const addItem = async (section, item, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
+
+        if (section === 'clientes') {
+            await callClientApi('/clientes', { method: 'POST', body: item });
+            return;
+        }
+
         const payload = {
             ...item,
                         ...(item?.lojaId ? {} : { lojaId: storeId }),
             createdAt: new Date()
          };
 
-        if (section === 'clientes') {
-            const lojasVisitadas = Array.isArray(payload.lojasVisitadas) ? payload.lojasVisitadas : [];
-            const mergedLojas = new Set(lojasVisitadas);
-            mergedLojas.add(storeId);
-
-            payload.lojasVisitadas = Array.from(mergedLojas);
-            payload.lojaAtual = payload.lojaAtual || storeId;
-            payload.lojaId = payload.lojaId || payload.lojaAtual;
-        }
         const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
         if (user && section !== 'logs') {
             await addDoc(getStoreCollectionRef(storeId, 'logs'), {
@@ -2976,7 +2995,7 @@ function App() {
         }
     } catch (e) {
         console.error("Erro ao adicionar documento: ", e);
-		if (e && e.message) {
+                if (e && e.message) {
             alert(e.message);
         }
     }
@@ -2985,6 +3004,12 @@ function App() {
   const updateItem = async (section, id, updatedItem, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
+
+        if (section === 'clientes') {
+            await callClientApi(`/clientes/${id}`, { method: 'PUT', body: updatedItem });
+            return;
+        }
+
         const itemDoc = getStoreDocRef(storeId, section, id);
         if (user && section !== 'logs') {
              const docSnap = await getDoc(itemDoc);
@@ -4519,7 +4544,7 @@ function App() {
             const { id, ...updateData } = formData;
             await updateItem('clientes', editingClient.id, updateData);
         } else {
-            await addItem('clientes', { ...formData, totalCompras: 0 });
+            await addItem('clientes', { ...formData, numeroDeCompras: 0, valorEmCompras: 0 });
         }
         setShowModal(false);
         resetForm();
@@ -4538,7 +4563,7 @@ function App() {
             return `${day}/${month}`;
           }
         },
-        { header: "Total Compras", render: (row) => (<span className="font-semibold text-green-600">R$ {(row.totalCompras || 0).toFixed(2)}</span>) },
+        { header: "Valor em Compras", render: (row) => (<span className="font-semibold text-green-600">R$ {(row.valorEmCompras || 0).toFixed(2)}</span>) },
         { header: "Última Compra", render: (row) => row.ultimaCompra ? getJSDate(row.ultimaCompra)?.toLocaleDateString('pt-BR') : '-' },
         { header: "Status", render: (row) => (<span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'VIP' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}`}>{row.status}</span>) }
     ];
