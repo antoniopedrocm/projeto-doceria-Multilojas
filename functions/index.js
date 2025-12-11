@@ -209,6 +209,19 @@ const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
 app.use(express.json());
 
+const parseAllowedOrigins = (value) => {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const MAPS_API_KEY = process.env.MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+const MAPS_ALLOWED_ORIGINS = parseAllowedOrigins(
+  process.env.MAPS_ALLOWED_ORIGINS || process.env.GOOGLE_MAPS_ALLOWED_ORIGINS,
+);
+
 const CLIENTS_COLLECTION = 'clientes';
 const getClientsCollection = () => db.collection(CLIENTS_COLLECTION);
 
@@ -258,6 +271,20 @@ const findClientByPhone = async (telefone) => {
   const docSnap = snapshot.docs[0];
   return {id: docSnap.id, data: docSnap.data()};
 };
+
+app.get('/maps-key', (req, res) => {
+  if (!MAPS_API_KEY) {
+    return res.status(503).json({message: 'Chave do Google Maps não configurada no servidor.'});
+  }
+
+  const origin = req.headers.origin;
+  if (MAPS_ALLOWED_ORIGINS.length && (!origin || !MAPS_ALLOWED_ORIGINS.includes(origin))) {
+    return res.status(403).json({message: 'Origem não autorizada para usar a chave do Google Maps.'});
+  }
+
+  res.set('Cache-Control', 'private, max-age=300');
+  return res.json({key: MAPS_API_KEY});
+});
 
 const upsertClientDocument = async ({
   targetRef,

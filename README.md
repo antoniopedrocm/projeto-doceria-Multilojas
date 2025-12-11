@@ -91,6 +91,27 @@ http-server
    > ```bash
    > git push origin master
    > ```
+
+---
+## 🔑 Configuração segura da chave do Google Maps
+
+1. **Habilite as APIs necessárias** no projeto do Google Cloud usado pelo Firebase: Maps JavaScript API, Geocoding API e Places API. O faturamento deve estar ativo para a chave funcionar.
+2. **Defina a chave como segredo das Functions** para que ela não fique exposta no código-fonte:
+   ```bash
+   firebase functions:secrets:set MAPS_API_KEY
+   # Adicione os domínios de produção e homolog separados por vírgula
+   firebase functions:secrets:set MAPS_ALLOWED_ORIGINS
+   ```
+   Depois, redeploy:
+   ```bash
+   firebase deploy --only functions:api
+   ```
+3. **Aplique restrições na chave no Console do Google Cloud**:
+   - Tipo de restrição: *Aplicativos da Web* (chave JavaScript).
+   - URLs autorizadas: domínios de produção e homologação utilizados pelo cardápio público.
+   - APIs permitidas: Maps JavaScript API, Geocoding API e Places API.
+4. **Como funciona no frontend**: as páginas `cardapio-*.html` carregam a chave via endpoint `/maps-key` da Cloud Function usando o arquivo `crm/public/mapsApiConfig.js`. A chave é interpolada na URL do script do Maps em tempo de execução, evitando hardcode no HTML.
+5. **Monitoramento**: se o endpoint `/maps-key` retornar 503, a chave não foi configurada; se retornar 403, a origem não está na lista permitida. Ajuste as secrets ou os domínios autorizados para evitar bloqueios futuros.
    
    firebase deploy --only hosting --project crmdoceria-9959e
 firebase deploy --only hosting --project ana-guimaraes
