@@ -735,8 +735,12 @@
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
-	let map, marker, geocoder, placeAutocomplete;
-    window.currentLatLng = null; 
+        let map, marker, geocoder, placeAutocomplete;
+    let mapsApiAvailable = true;
+    let mapsErrorLogged = false;
+    let geocoderErrorLogged = false;
+    let guestGeocoderErrorLogged = false;
+    window.currentLatLng = null;
 
     const saveAddressBtn = document.getElementById('save-manual-address-button');
     if(saveAddressBtn) {
@@ -744,17 +748,53 @@
         saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
     }
 
-	function validateAddressForm() {
-	  const rua = document.getElementById('manual-address-street').value.trim();
-	  const numero = document.getElementById('manual-address-number').value.trim();
-	  const bairro = document.getElementById('manual-address-neighborhood').value.trim();
-	  const cidade = document.getElementById('manual-address-city').value.trim();
-	  const apelido = document.getElementById('manual-address-nickname').value.trim();
-	  const hasCoords = window.currentLatLng?.lat && window.currentLatLng?.lng;
-	  const hasBasicInfo = rua.length > 0 && numero.length > 0 && bairro.length > 0 && cidade.length > 0 && apelido.length > 0;
-	  const isValid = hasCoords && hasBasicInfo;
-	  
-	  if (saveAddressBtn) {
+        function markMapsUnavailable(reason) {
+          mapsApiAvailable = false;
+          if (!mapsErrorLogged) {
+            console.error('Google Maps indisponível:', reason);
+            mapsErrorLogged = true;
+          }
+
+          const warning = `<div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm">Não foi possível carregar o mapa agora. Preencha o endereço manualmente para continuar.</div>`;
+          const containers = [
+            document.getElementById('address-map-container'),
+            document.getElementById('guest-address-map-container')
+          ];
+
+          containers.forEach((container) => {
+            if (container && container.innerHTML.trim() === '') {
+              container.innerHTML = warning;
+            } else if (container) {
+              container.insertAdjacentHTML('afterbegin', warning);
+            }
+          });
+
+          const manualSections = [
+            document.getElementById('new-address-section'),
+            document.getElementById('guest-address-form')
+          ];
+          manualSections.forEach((section) => {
+            if (section) {
+              section.classList.add('ring', 'ring-amber-300', 'ring-offset-1');
+            }
+          });
+        }
+
+        function canUseMaps() {
+          return mapsApiAvailable && window.google?.maps;
+        }
+
+        function validateAddressForm() {
+          const rua = document.getElementById('manual-address-street').value.trim();
+          const numero = document.getElementById('manual-address-number').value.trim();
+          const bairro = document.getElementById('manual-address-neighborhood').value.trim();
+          const cidade = document.getElementById('manual-address-city').value.trim();
+          const apelido = document.getElementById('manual-address-nickname').value.trim();
+          const hasCoords = window.currentLatLng?.lat && window.currentLatLng?.lng;
+          const hasBasicInfo = rua.length > 0 && numero.length > 0 && bairro.length > 0 && cidade.length > 0 && apelido.length > 0;
+          const isValid = (hasCoords && hasBasicInfo) || (!canUseMaps() && hasBasicInfo);
+
+          if (saveAddressBtn) {
         if (isValid) {
             saveAddressBtn.disabled = false;
             saveAddressBtn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -763,7 +803,7 @@
             saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
       }
-	}
+        }
 
     async function initAddressMap() {
         const addressMapContainer = document.getElementById('address-map-container');
@@ -771,6 +811,7 @@
 
         try {
             await window.loadGoogleMapsScript();
+            mapsApiAvailable = !!window.google?.maps;
             const defaultCenter = { lat: -16.644661430463806, lng: -49.324890665224544 };
             geocoder = new google.maps.Geocoder();
             const { Map } = await google.maps.importLibrary("maps");
@@ -836,13 +877,13 @@
             addressMapContainer.append(placeAutocomplete, locationBtn, mapDiv);
             validateAddressForm();
         } catch (error) {
-            console.error("Erro ao inicializar o mapa:", error);
-            addressMapContainer.innerHTML = `<div class="bg-red-50 p-4 rounded-lg text-red-700">Erro ao carregar o mapa.</div>`;
+            markMapsUnavailable(error);
+            addressMapContainer.innerHTML = `<div class="bg-amber-50 p-4 rounded-lg text-amber-800">Mapa indisponível no momento. Preencha os campos para salvar o endereço.</div>`;
         }
     }
 
-	function reverseGeocode(latlng) {
-		let normalizedLatLng = null;
+        function reverseGeocode(latlng) {
+                let normalizedLatLng = null;
 		
 		try {
 			if (latlng && typeof latlng.lat === 'function' && typeof latlng.lng === 'function') {
@@ -868,19 +909,27 @@
 			console.error('❌ Erro crítico ao normalizar coordenadas:', error, latlng);
 			showToast('Erro ao processar localização. Tente novamente.', true);
 			return;
-		}
-		
-		validateAddressForm();
-		
-		geocoder.geocode({ location: normalizedLatLng }, (results, status) => {
-			if (status === 'OK' && results[0]) {
-				fillAddressFields(results[0]);
-				validateAddressForm();
-			} else {
-				console.warn('Geocodificação reversa falhou:', status);
-			}
-		});
-	}
+                }
+
+                validateAddressForm();
+
+                if (!canUseMaps() || !geocoder) {
+                  if (!geocoderErrorLogged) {
+                    console.error('Geocoder indisponível para reverse geocode.');
+                    geocoderErrorLogged = true;
+                  }
+                  return;
+                }
+
+                geocoder.geocode({ location: normalizedLatLng }, (results, status) => {
+                        if (status === 'OK' && results[0]) {
+                                fillAddressFields(results[0]);
+                                validateAddressForm();
+                        } else {
+                                console.warn('Geocodificação reversa falhou:', status);
+                        }
+                });
+        }
 
         function fillAddressFields(place) {
           const rawComponents = place?.addressComponents || place?.address_components || [];
@@ -1515,6 +1564,11 @@
                             const fullAddressForGeocode = `${street}, ${number}, ${neighborhood}, ${city}`;
 
                             try {
+                                if (!canUseMaps()) {
+                                    window.updateGuestShippingAndSummary(null);
+                                    return;
+                                }
+
                                 await window.aguardarGoogleMaps();
                                 const geocoder = new google.maps.Geocoder();
                                 geocoder.geocode({ address: fullAddressForGeocode }, (results, status) => {
@@ -1530,6 +1584,7 @@
                                     }
                                 });
                             } catch (error) {
+                                markMapsUnavailable(error);
                                 console.error('Erro ao geocodificar endereço do visitante:', error);
                             }
                         } else {
@@ -1561,10 +1616,10 @@
             const city = document.getElementById('manual-address-city').value.trim();
             const zip = document.getElementById('manual-address-zip').value.trim();
 
-			if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
-				showToast("Selecione a localização no mapa antes de salvar.", true);
-				return;
-			}
+                        if (canUseMaps() && (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined')) {
+                                showToast("Selecione a localização no mapa antes de salvar.", true);
+                                return;
+                        }
 
 			if (!street) {
 					showToast("Informe a rua do endereço.", true);
@@ -1593,10 +1648,10 @@
                 }
                 const existingAddresses = clientSnap.data().enderecos || [];
 
-                const lat = parseFloat(window.currentLatLng.lat);
-                const lng = parseFloat(window.currentLatLng.lng);
+                const lat = canUseMaps() ? parseFloat(window.currentLatLng?.lat) : null;
+                const lng = canUseMaps() ? parseFloat(window.currentLatLng?.lng) : null;
 
-                if (isNaN(lat) || isNaN(lng)) {
+                if (canUseMaps() && (isNaN(lat) || isNaN(lng))) {
                     showToast("Localização inválida. Tente selecionar novamente no mapa.", true);
                     return;
                 }
@@ -2264,6 +2319,12 @@
             return;
         }
 
+        if (!canUseMaps()) {
+            window.valorFrete = 0;
+            window.updateGuestSummary();
+            return;
+        }
+
         document.getElementById('guest-shipping').textContent = 'Calculando...';
         window.valorFrete = 0;
         window.updateGuestSummary();
@@ -2275,6 +2336,7 @@
             window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
         } catch (error) {
+            markMapsUnavailable(error);
             console.error('Falha ao calcular frete para visitante:', error);
             window.showToast('Não foi possível calcular o frete.', true);
             window.valorFrete = 0;
@@ -2330,12 +2392,21 @@
             return;
         }
 
+        if (!canUseMaps()) {
+          if (!guestGeocoderErrorLogged) {
+            console.error('Geocoder para visitante indisponível.');
+            guestGeocoderErrorLogged = true;
+          }
+          updateGuestShippingAndSummary(normalizedLatLng);
+          return;
+        }
+
         if (!guestGeocoder) {
             guestGeocoder = new google.maps.Geocoder();
         }
 
         guestGeocoder.geocode({ location: normalizedLatLng }, (results, status) => {
-		if (status === 'OK' && results[0]) {
+                if (status === 'OK' && results[0]) {
                 fillGuestAddressFields(results[0]);
             }
             updateGuestShippingAndSummary(normalizedLatLng);
@@ -2349,6 +2420,7 @@
 
         try {
             await window.loadGoogleMapsScript();
+            mapsApiAvailable = !!window.google?.maps;
             const defaultCenter = { lat: -16.644661430463806, lng: -49.324890665224544 };
             guestGeocoder = new google.maps.Geocoder();
 
@@ -2405,31 +2477,32 @@
             addressMapContainer.append(guestPlaceAutocomplete, locationBtn, mapDiv);
             addressMapContainer.dataset.initialized = 'true';
         } catch (error) {
-            console.error("Erro ao inicializar mapa do visitante:", error);
-            addressMapContainer.innerHTML = `<div class="bg-red-50 p-4 text-red-700 rounded-lg">Erro ao carregar o mapa.</div>`;
+            markMapsUnavailable(error);
+            addressMapContainer.innerHTML = `<div class="bg-amber-50 p-4 text-amber-800 rounded-lg">Mapa indisponível. Preencha o endereço manualmente para continuar.</div>`;
         }
     }
 	// ==================== CÁLCULO DE FRETE - VERSÃO ÚNICA ====================
 
 	// Função auxiliar para aguardar o Google Maps carregar
-	function aguardarGoogleMaps() {
-		return new Promise((resolve, reject) => {
-			if (window.google && window.google.maps) {
-				return resolve();
-			}
+        function aguardarGoogleMaps() {
+                return new Promise((resolve, reject) => {
+                        if (window.google && window.google.maps) {
+                                return resolve();
+                        }
             let attempt = 0;
-			const checkInterval = setInterval(() => {
+                        const checkInterval = setInterval(() => {
                 attempt++;
-				if (window.google && window.google.maps) {
-					clearInterval(checkInterval);
-					resolve();
-				} else if (attempt > 50) { // Timeout after 10 seconds
+                                if (window.google && window.google.maps) {
+                                        clearInterval(checkInterval);
+                                        resolve();
+                                } else if (attempt > 50) { // Timeout after 10 seconds
                     clearInterval(checkInterval);
+                    markMapsUnavailable('Timeout: Google Maps não carregou.');
                     reject('Timeout: Google Maps não carregou.');
                 }
-			}, 200);
-		});
-	}
+                        }, 200);
+                });
+        }
     window.aguardarGoogleMaps = aguardarGoogleMaps;
 
 	// Função para calcular frete usando Google Distance Matrix API

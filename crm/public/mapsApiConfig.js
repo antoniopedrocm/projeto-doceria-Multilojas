@@ -10,6 +10,7 @@
   const configuredEndpoint = normalizeUrl(window.MAPS_KEY_ENDPOINT);
   const mapsKeyEndpoint = configuredEndpoint || `${defaultApiBaseUrl}/maps-key`;
   let mapsScriptPromise = null;
+  let mapsLoadError = null;
 
   const fetchMapsApiKey = async () => {
     const response = await fetch(mapsKeyEndpoint, { credentials: 'omit' });
@@ -45,10 +46,23 @@
           )}&libraries=places,marker&v=weekly`;
           script.async = true;
           script.defer = true;
-          script.onload = () => resolve(window.google?.maps);
-          script.onerror = () => {
+
+          const timeoutId = setTimeout(() => {
             mapsScriptPromise = null;
-            reject(new Error('Não foi possível carregar o Google Maps.'));
+            mapsLoadError = new Error('Tempo excedido ao carregar o Google Maps.');
+            reject(mapsLoadError);
+          }, 15000);
+
+          script.onload = () => {
+            clearTimeout(timeoutId);
+            mapsLoadError = null;
+            resolve(window.google?.maps);
+          };
+          script.onerror = () => {
+            clearTimeout(timeoutId);
+            mapsScriptPromise = null;
+            mapsLoadError = new Error('Não foi possível carregar o Google Maps.');
+            reject(mapsLoadError);
           };
 
           document.head.appendChild(script);
@@ -57,4 +71,6 @@
 
     return mapsScriptPromise;
   };
+
+  window.hasMapsLoadError = () => Boolean(mapsLoadError);
 })();
