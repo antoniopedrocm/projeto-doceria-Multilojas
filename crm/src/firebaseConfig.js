@@ -15,22 +15,40 @@ import {
 } from 'firebase/messaging';
 
 // --- Firebase project configuration ---
-// The values below were provided by the user and correspond to the
-// development instance hosted at ana‑guimaraes.firebaseapp.com.  When
-// switching to a custom domain in the future, these values should
-// remain the same as long as the underlying Firebase project doesn't change.
+// Prefer environment variables so production deployments can use a
+// dedicated API key and auth domain. Hard-coded fallbacks keep local
+// development working out of the box.
+const envVar = (key) => process.env[key] || import.meta.env?.[key] || '';
+
 const firebaseConfig = {
-  apiKey: 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
-  authDomain: 'ana-guimaraes.firebaseapp.com',
-  projectId: 'ana-guimaraes',
+  apiKey: envVar('REACT_APP_FIREBASE_API_KEY') ||
+    'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
+  authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') ||
+    'ana-guimaraes.firebaseapp.com',
+  projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
   // Use the default Firebase storage host (appspot.com). The previous value
   // pointed to firebasestorage.app, which is only for direct download links
   // and breaks SDK requests.
-  storageBucket: 'ana-guimaraes.appspot.com',
-  messagingSenderId: '847824537421',
-  appId: '1:847824537421:web:75861057fd6f998ee49904',
-  measurementId: 'G-F8BVTNLEW7',
+  storageBucket:
+    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.appspot.com',
+  messagingSenderId:
+    envVar('REACT_APP_FIREBASE_MESSAGING_SENDER_ID') || '847824537421',
+  appId:
+    envVar('REACT_APP_FIREBASE_APP_ID') ||
+    '1:847824537421:web:75861057fd6f998ee49904',
+  measurementId: envVar('REACT_APP_FIREBASE_MEASUREMENT_ID') || 'G-F8BVTNLEW7',
 };
+
+const missingEnvKeys = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missingEnvKeys.length) {
+  console.warn(
+    '[firebaseConfig] Variáveis de ambiente ausentes, usando valores de fallback:',
+    missingEnvKeys.join(', ')
+  );
+}
 
 // Single source for the VAPID key so all modules read the same value and
 // we can fail gracefully when it is absent.
