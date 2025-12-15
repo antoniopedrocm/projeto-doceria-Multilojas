@@ -306,10 +306,15 @@
 		}
 	</style>
 	
-	<!-- Google Maps API -->
-	<script 
-		src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc&libraries=places,marker&v=weekly"
-		async defer></script>
+        <!-- Google Maps API -->
+        <script>
+                const GOOGLE_MAPS_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
+                const googleMapsScript = document.createElement('script');
+                googleMapsScript.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,marker&v=weekly`;
+                googleMapsScript.async = true;
+                googleMapsScript.defer = true;
+                document.head.appendChild(googleMapsScript);
+        </script>
 		
 </head>
 <body class="bg-pink-50">

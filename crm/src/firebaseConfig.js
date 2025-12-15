@@ -20,9 +20,10 @@ import {
 // development working out of the box.
 const envVar = (key) => process.env[key] || import.meta.env?.[key] || '';
 
+const GOOGLE_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
+
 const firebaseConfig = {
-  apiKey: envVar('REACT_APP_FIREBASE_API_KEY') ||
-    'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
+  apiKey: envVar('REACT_APP_FIREBASE_API_KEY') || GOOGLE_API_KEY,
   authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') ||
     'ana-guimaraes.firebaseapp.com',
   projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
