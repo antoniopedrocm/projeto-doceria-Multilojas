@@ -96,8 +96,10 @@ self.addEventListener('fetch', (event) => {
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
+const GOOGLE_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
+
 const firebaseConfig = {
-  apiKey: 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc',
+  apiKey: GOOGLE_API_KEY,
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
   // Match the SDK configuration (appspot.com is the correct host for the bucket)
