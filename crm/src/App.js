@@ -6793,6 +6793,18 @@ const handleSubmit = async (e) => {
     return user.role === ROLE_OWNER || user.role === ROLE_MANAGER;
   }, [user]);
 
+  const effectiveStoreId = useMemo(() => {
+    if (!user) return null;
+    if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
+      return null;
+    }
+    try {
+      return resolveActiveStoreForWrite();
+    } catch (error) {
+      return null;
+    }
+  }, [resolveActiveStoreForWrite, selectedStoreId, user]);
+
   const currentStoreIdForDisplay = useMemo(() => {
     if (!user) return null;
     if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
