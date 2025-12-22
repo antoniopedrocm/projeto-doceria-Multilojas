@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, runTransaction, increment } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -90,6 +90,7 @@ const COLLECTIONS_TO_SYNC = [
   'fornecedores',
   'pedidosCompra',
   'estoque',
+  'kardex',
   'perdasDescarte',
   'logs',
   'cupons',
@@ -790,7 +791,7 @@ const getJSDate = (firestoreTimestamp) => {
 
 // --- NOVOS COMPONENTES ---
 
-const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete, effectiveStoreId }) => {
+const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete, effectiveStoreId, updateStock, currentUser }) => {
     const [activeTab, setActiveTab] = usePersistentState('fornecedores_activeTab', 'fornecedores');
     
     // States
@@ -811,6 +812,9 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [showPerdaModal, setShowPerdaModal] = useState(false);
     const [editingPerda, setEditingPerda] = useState(null);
     const [perdaFormData, setPerdaFormData] = useState({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: '', motivo: 'Vencimento', outroMotivo: '' });
+
+    const [stockMovementModal, setStockMovementModal] = useState({ isOpen: false, type: 'entrada', item: null });
+    const [stockMovementQuantity, setStockMovementQuantity] = useState('');
     
     const [isAddingFornecedorCategoria, setIsAddingFornecedorCategoria] = useState(false);
     const [newFornecedorCategoria, setNewFornecedorCategoria] = useState('');
@@ -827,6 +831,40 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
     const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
     const resetPerdaForm = () => setPerdaFormData({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: new Date().toISOString().split('T')[0], motivo: 'Vencimento', outroMotivo: '' });
+
+    const openStockMovementModal = (item, type) => {
+        setStockMovementModal({ isOpen: true, type, item });
+        setStockMovementQuantity('');
+    };
+
+    const closeStockMovementModal = () => {
+        setStockMovementModal({ isOpen: false, type: 'entrada', item: null });
+        setStockMovementQuantity('');
+    };
+
+    const handleStockMovementSubmit = async (event) => {
+        event.preventDefault();
+        const quantity = parseFloat(stockMovementQuantity);
+
+        if (!quantity || quantity <= 0) {
+            alert('Informe uma quantidade válida para a movimentação.');
+            return;
+        }
+
+        try {
+            await updateStock(
+                stockMovementModal.item.id,
+                stockMovementModal.type,
+                quantity,
+                `Movimentação rápida - ${stockMovementModal.type}`,
+                currentUser
+            );
+            closeStockMovementModal();
+        } catch (error) {
+            console.error('Erro ao movimentar estoque', error);
+            alert(error.message || 'Erro ao atualizar estoque.');
+        }
+    };
 
     const fornecedorCategories = useMemo(() => {
         const customCategories = (data.categoriasFornecedores || [])
@@ -1049,19 +1087,35 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
              {activeTab === 'estoque' && (
                  <div>
                     <div className="flex justify-end mb-6"><Button onClick={handleNewEstoque}><PackagePlus className="w-4 h-4" /> Novo Item de Estoque</Button></div>
-                    <Table 
+                    <Table
                         columns={[
                             { header: 'Item', key: 'nome' },
                             { header: 'Fornecedor', key: 'fornecedorNome' },
-                            { header: 'Quantidade', render: (row) => `${row.quantidade || 0} ${row.unidade}` },
-                            { header: 'Custo Unitário', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` },
-                            { header: 'Status', render: (row) => {
-                                const nivel = row.quantidade; const min = row.nivelMinimo;
-                                let status = { text: 'OK', className: 'bg-green-100 text-green-800' };
-                                if(nivel <= min) status = { text: 'Baixo', className: 'bg-yellow-100 text-yellow-800' };
-                                if(nivel <= 0) status = { text: 'Crítico', className: 'bg-red-100 text-red-800' };
-                                return <span className={`px-3 py-1 rounded-full text-xs font-medium ${status.className}`}>{status.text}</span>;
-                            }}
+                            { header: 'Estoque Atual', render: (row) => `${row.quantidade || 0} ${row.unidade}` },
+                            {
+                                header: 'Movimentação Rápida',
+                                render: (row) => (
+                                    <div className="flex gap-2">
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="!px-3 !py-2 text-xs"
+                                            onClick={() => openStockMovementModal(row, 'entrada')}
+                                        >
+                                            + Entrada
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="!px-3 !py-2 text-xs text-red-600 border-red-200 hover:border-red-300 hover:text-red-700"
+                                            onClick={() => openStockMovementModal(row, 'saida')}
+                                        >
+                                            - Saída
+                                        </Button>
+                                    </div>
+                                )
+                            },
+                            { header: 'Custo Unitário', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` }
                         ]}
                         data={estoqueComNomes}
                         actions={[ { icon: Edit, label: "Editar", onClick: handleEditEstoque }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('estoque', row.id) }) } ]}
@@ -1184,6 +1238,32 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                         <Input label="Nível Mínimo de Estoque" type="number" value={estoqueFormData.nivelMinimo || ''} onChange={e => setEstoqueFormData({...estoqueFormData, nivelMinimo: e.target.value})} />
                     </div>
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowEstoqueModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
+                </form>
+            </Modal>
+            <Modal
+                isOpen={stockMovementModal.isOpen}
+                onClose={closeStockMovementModal}
+                title={`Registrar ${stockMovementModal.type === 'entrada' ? 'Entrada' : 'Saída'} de Estoque`}
+                size="sm"
+            >
+                <form onSubmit={handleStockMovementSubmit} className="space-y-4">
+                    <div className="text-sm text-gray-700">
+                        <p className="font-semibold">Item</p>
+                        <p>{stockMovementModal.item?.nome || '-'}</p>
+                    </div>
+                    <Input
+                        label="Quantidade"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={stockMovementQuantity}
+                        onChange={(e) => setStockMovementQuantity(e.target.value)}
+                        required
+                    />
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button variant="secondary" type="button" onClick={closeStockMovementModal}>Cancelar</Button>
+                        <Button type="submit">Confirmar</Button>
+                    </div>
                 </form>
             </Modal>
             <Modal isOpen={showPerdaModal} onClose={() => setShowPerdaModal(false)} title={editingPerda ? 'Editar Perda/Descarte' : 'Nova Perda/Descarte'} size="lg">
@@ -2965,8 +3045,52 @@ function App() {
         }
     }, [pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
 
-    // --- REMOVIDO: Antigo useEffect de desbloqueio ---
-    // useEffect(() => { if (audioUnlocked && ...) ... });
+  // --- REMOVIDO: Antigo useEffect de desbloqueio ---
+  // useEffect(() => { if (audioUnlocked && ...) ... });
+
+
+  const updateStock = useCallback(async (productId, type, quantity, reason = 'Movimentação de estoque', userInfo = null, targetStoreId = null) => {
+    const normalizedQuantity = Number(quantity);
+    if (!productId) throw new Error('Produto inválido.');
+    if (!['entrada', 'saida'].includes(type)) throw new Error('Tipo de movimentação inválido.');
+    if (!normalizedQuantity || normalizedQuantity <= 0) throw new Error('Informe uma quantidade maior que zero.');
+
+    const storeId = targetStoreId || resolveActiveStoreForWrite();
+
+    await runTransaction(db, async (transaction) => {
+      const stockRef = getStoreDocRef(storeId, 'estoque', productId);
+      const stockSnap = await transaction.get(stockRef);
+
+      if (!stockSnap.exists()) {
+        throw new Error('Item de estoque não encontrado.');
+      }
+
+      const stockData = stockSnap.data() || {};
+      const currentQuantity = Number(stockData.quantidade) || 0;
+      const delta = type === 'entrada' ? normalizedQuantity : -normalizedQuantity;
+      const newQuantity = currentQuantity + delta;
+
+      transaction.update(stockRef, {
+        quantidade: increment(delta),
+        updatedAt: serverTimestamp()
+      });
+
+      const movementRef = doc(getStoreCollectionRef(storeId, 'kardex'));
+      transaction.set(movementRef, {
+        produtoId: productId,
+        tipo: type,
+        quantidade: normalizedQuantity,
+        delta,
+        motivo: reason,
+        usuarioId: userInfo?.uid || userInfo?.auth?.uid || null,
+        usuarioEmail: userInfo?.email || userInfo?.auth?.email || null,
+        createdAt: serverTimestamp(),
+        estoqueAnterior: currentQuantity,
+        estoquePosterior: newQuantity,
+        lojaId: storeId,
+      });
+    });
+  }, [resolveActiveStoreForWrite]);
 
 
   const addItem = async (section, item, targetStoreId = null) => {
@@ -6834,7 +6958,7 @@ const handleSubmit = async (e) => {
       case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
       case 'pedidos': return userHasPermission('pedidos') ? <Pedidos /> : <PaginaInicial />;
       case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
-      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} /> : <PaginaInicial />;
+      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : <PaginaInicial />;
       case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : <PaginaInicial />;
       case 'meu-espaco': return userHasPermission('meu-espaco') ? (
         <MeuEspaco
