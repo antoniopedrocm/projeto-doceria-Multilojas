@@ -4706,13 +4706,18 @@ function App() {
     const [searchTerm, setSearchTerm] = usePersistentState("produtos_searchTerm", ""); 
     const [showModal, setShowModal] = useState(false); 
     const [editingProduct, setEditingProduct] = useState(null); 
-    const [formData, setFormData] = useState({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" }); 
-    const [imageFile, setImageFile] = useState(null); 
-    const [imagePreview, setImagePreview] = useState(null); 
+    const initialProductForm = { nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: 0, status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" };
+    const [formData, setFormData] = useState(initialProductForm);
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isAddingSubcategory, setIsAddingSubcategory] = useState(false);
     const [newSubcategory, setNewSubcategory] = useState("");
     const [isSavingSubcategory, setIsSavingSubcategory] = useState(false);
+    const [stockModal, setStockModal] = useState({ isOpen: false, product: null, type: 'entrada' });
+    const [stockForm, setStockForm] = useState({ quantidade: '', motivo: 'Compra', observacao: '' });
+    const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+    const updateStockService = useMemo(() => httpsCallable(functions, 'updateStock'), []);
 
     const defaultSubcategorias = useMemo(() => ({
       Delivery: [ 'Queridinhos', 'Mousse', 'Palha Italiana', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado' ],
@@ -4802,7 +4807,7 @@ function App() {
     const resetForm = () => {
       setShowModal(false);
       setEditingProduct(null);
-      setFormData({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" });
+      setFormData(initialProductForm);
       setImageFile(null);
       setImagePreview(null);
       setIsAddingSubcategory(false);
@@ -4819,7 +4824,7 @@ function App() {
             await uploadBytes(imageRef, imageFile);
             imageUrl = await getDownloadURL(imageRef);
         }
-        const productData = { ...formData, preco: parseFloat(formData.preco || 0), custo: parseFloat(formData.custo || 0), estoque: parseInt(formData.estoque || 0), imageUrl: imageUrl };
+        const productData = { ...formData, preco: parseFloat(formData.preco || 0), custo: parseFloat(formData.custo || 0), estoque: parseInt(formData.estoque ?? 0) || 0, imageUrl: imageUrl };
         if (editingProduct) {
             const { id, ...updateData } = productData;
             await updateItem('produtos', editingProduct.id, updateData);
@@ -4831,14 +4836,88 @@ function App() {
     };
     const handleEdit = (product) => {
       setEditingProduct(product);
-      setFormData({ ...product, preco: String(product.preco), custo: String(product.custo), estoque: String(product.estoque) });
+      setFormData({ ...product, preco: String(product.preco), custo: String(product.custo), estoque: Number(product.estoque) || 0 });
       setImagePreview(product.imageUrl || null);
       setIsAddingSubcategory(false);
       setNewSubcategory("");
       setIsSavingSubcategory(false);
       setShowModal(true);
     };
-    const columns = [ { header: "Produto", render: (row) => (<div className="flex items-center gap-3"><img src={row.imageUrl || 'https://placehold.co/40x40/FFC0CB/FFFFFF?text=Doce'} alt={row.nome} className="w-10 h-10 rounded-xl object-cover shadow-md" onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/40x40/FFC0CB/FFFFFF?text=Erro'; }}/><div><p className="font-semibold text-gray-800">{row.nome}</p><p className="text-sm text-gray-500">{row.categoria} / {row.subcategoria}</p></div></div>)}, { header: "Preço", render: (row) => <span className="font-semibold text-green-600">R$ {(row.preco || 0).toFixed(2)}</span> }, { header: "Estoque", render: (row) => <span className={`font-medium ${row.estoque < 10 ? 'text-red-600' : 'text-gray-800'}`}>{row.estoque} un</span> }, { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{row.status}</span> } ];
+    const openStockModal = (product, type) => {
+      setStockModal({ isOpen: true, product, type });
+      setStockForm({ quantidade: '', motivo: type === 'entrada' ? 'Compra' : 'Venda', observacao: '' });
+    };
+
+    const closeStockModal = () => {
+      setStockModal({ isOpen: false, product: null, type: 'entrada' });
+      setStockForm({ quantidade: '', motivo: 'Compra', observacao: '' });
+    };
+
+    const handleStockUpdate = async (e) => {
+      e.preventDefault();
+      if (!stockModal.product) return;
+
+      const quantidade = Number(stockForm.quantidade);
+      if (!quantidade || quantidade <= 0) {
+        alert('Informe uma quantidade válida.');
+        return;
+      }
+
+      try {
+        setIsUpdatingStock(true);
+        await updateStockService({
+          productId: stockModal.product.id,
+          type: stockModal.type,
+          quantity: quantidade,
+          reason: stockForm.motivo,
+          note: stockForm.observacao || '',
+        });
+        alert('Estoque atualizado com sucesso!');
+        closeStockModal();
+      } catch (error) {
+        console.error('Erro ao atualizar estoque:', error);
+        alert('Não foi possível atualizar o estoque. Tente novamente.');
+      } finally {
+        setIsUpdatingStock(false);
+      }
+    };
+    const columns = [
+      {
+        header: "Produto",
+        render: (row) => (
+          <div className="flex items-center gap-3">
+            <img
+              src={row.imageUrl || 'https://placehold.co/40x40/FFC0CB/FFFFFF?text=Doce'}
+              alt={row.nome}
+              className="w-10 h-10 rounded-xl object-cover shadow-md"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src='https://placehold.co/40x40/FFC0CB/FFFFFF?text=Erro';
+              }}
+            />
+            <div>
+              <p className="font-semibold text-gray-800">{row.nome}</p>
+              <p className="text-sm text-gray-500">{row.categoria} / {row.subcategoria}</p>
+            </div>
+          </div>
+        )
+      },
+      { header: "Preço", render: (row) => <span className="font-semibold text-green-600">R$ {(row.preco || 0).toFixed(2)}</span> },
+      { header: "Estoque", render: (row) => <span className={`font-medium ${row.estoque < 10 ? 'text-red-600' : 'text-gray-800'}`}>{row.estoque} un</span> },
+      {
+        header: "Movimentação Rápida",
+        render: (row) => (
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => openStockModal(row, 'entrada')}>
+              [+] Entrada
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => openStockModal(row, 'saida')}>
+              [-] Saída
+            </Button>
+          </div>
+        )
+      }
+    ];
     const actions = [ { icon: Edit, label: "Editar", onClick: handleEdit }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('produtos', row.id) }) } ];
     
     return (
@@ -4846,6 +4925,50 @@ function App() {
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4"><div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Produtos</h1><p className="text-gray-600 mt-1">Gerencie seu cardápio e estoque</p></div><Button onClick={() => setShowModal(true)} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Novo Produto</Button></div>
         <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
         <Table columns={columns} data={filteredProducts} actions={actions} />
+        <Modal
+          isOpen={stockModal.isOpen}
+          onClose={closeStockModal}
+          title={`Movimentação de Estoque - ${stockModal.product?.nome || ''}`}
+          size="md"
+        >
+          <form onSubmit={handleStockUpdate} className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Registre uma movimentação de {stockModal.type === 'entrada' ? 'entrada' : 'saída'} para este produto.
+            </p>
+            <Input
+              label="Quantidade"
+              type="number"
+              min="1"
+              value={stockForm.quantidade}
+              onChange={(e) => setStockForm({ ...stockForm, quantidade: e.target.value })}
+              required
+            />
+            <Select
+              label="Motivo"
+              value={stockForm.motivo}
+              onChange={(e) => setStockForm({ ...stockForm, motivo: e.target.value })}
+              required
+            >
+              <option value="Compra">Compra</option>
+              <option value="Venda">Venda</option>
+              <option value="Perda">Perda</option>
+              <option value="Ajuste">Ajuste</option>
+            </Select>
+            <Textarea
+              label="Observação (opcional)"
+              rows="3"
+              value={stockForm.observacao}
+              onChange={(e) => setStockForm({ ...stockForm, observacao: e.target.value })}
+              placeholder="Detalhe o motivo ou outras informações importantes"
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" type="button" onClick={closeStockModal}>Cancelar</Button>
+              <Button type="submit" disabled={isUpdatingStock}>
+                {isUpdatingStock ? 'Atualizando...' : 'Confirmar'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
         <Modal isOpen={showModal} onClose={resetForm} title={editingProduct ? "Editar Produto" : "Novo Produto"} size="xl">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -4901,7 +5024,6 @@ function App() {
 					  )}
                   <Input label="Preço (R$)" type="number" step="0.01" value={formData.preco} onChange={(e) => setFormData({...formData, preco: e.target.value})} />
                   <Input label="Custo (R$)" type="number" step="0.01" value={formData.custo} onChange={(e) => setFormData({...formData, custo: e.target.value})} />
-                  <Input label="Estoque" type="number" value={formData.estoque} onChange={(e) => setFormData({...formData, estoque: e.target.value})} />
                   <Input label="Tempo de Preparo" value={formData.tempoPreparo} onChange={(e) => setFormData({...formData, tempoPreparo: e.target.value})} />
                   <Select label="Status" value={formData.status || 'Ativo'} onChange={(e) => setFormData({...formData, status: e.target.value})} required>
                     <option value="Ativo">Ativo</option>
