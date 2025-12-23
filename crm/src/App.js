@@ -4679,6 +4679,8 @@ function App() {
     const [stockMovementModal, setStockMovementModal] = useState({ isOpen: false, type: 'entrada', product: null });
     const [stockMovementQuantity, setStockMovementQuantity] = useState('');
     const [stockMovementReason, setStockMovementReason] = useState('venda');
+    const [statusLoading, setStatusLoading] = useState({});
+    const [statusOverrides, setStatusOverrides] = useState({});
 
     const defaultSubcategorias = useMemo(() => ({
       Delivery: [ 'Queridinhos', 'Mousse', 'Palha Italiana', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado' ],
@@ -4813,7 +4815,40 @@ function App() {
       }
     };
 
+    const handleToggleStatus = async (product) => {
+      const currentStatus = statusOverrides[product.id] ?? product.status;
+      const newStatus = currentStatus === 'Ativo' ? 'Inativo' : 'Ativo';
+
+      setStatusOverrides(prev => ({ ...prev, [product.id]: newStatus }));
+      setStatusLoading(prev => ({ ...prev, [product.id]: true }));
+
+      try {
+        await updateItem('produtos', product.id, { status: newStatus });
+      } catch (error) {
+        console.error('Erro ao atualizar status do produto', error);
+        alert(error.message || 'Não foi possível atualizar o status.');
+        setStatusOverrides(prev => ({ ...prev, [product.id]: currentStatus }));
+      } finally {
+        setStatusLoading(prev => ({ ...prev, [product.id]: false }));
+      }
+    };
+
     const filteredProducts = (data.produtos || []).filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    useEffect(() => {
+      setStatusOverrides(prev => {
+        const updatedOverrides = { ...prev };
+
+        (data.produtos || []).forEach((product) => {
+          if (updatedOverrides[product.id] && updatedOverrides[product.id] === product.status) {
+            delete updatedOverrides[product.id];
+          }
+        });
+
+        return updatedOverrides;
+      });
+    }, [data.produtos]);
+
     const resetForm = () => {
       setShowModal(false);
       setEditingProduct(null);
@@ -4896,7 +4931,39 @@ function App() {
           </div>
         )
       },
-      { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{row.status}</span> }
+      {
+        header: "Status",
+        render: (row) => {
+          const effectiveStatus = statusOverrides[row.id] ?? row.status;
+          const isActive = effectiveStatus === 'Ativo';
+
+          return (
+            <label className="inline-flex items-center gap-3 select-none">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={isActive}
+                onChange={() => handleToggleStatus(row)}
+                disabled={!!statusLoading[row.id]}
+              />
+              <div
+                className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                  isActive ? 'bg-green-500' : 'bg-gray-200'
+                } ${statusLoading[row.id] ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} peer-focus:outline-none`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 h-5 w-5 bg-white rounded-full shadow-md transition-transform duration-200 ${
+                    isActive ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+              <span className={`text-sm font-medium ${isActive ? 'text-green-700' : 'text-gray-600'}`}>
+                {isActive ? 'Ativo' : 'Inativo'}
+              </span>
+            </label>
+          );
+        }
+      }
     ];
     const actions = [ { icon: Edit, label: "Editar", onClick: handleEdit }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('produtos', row.id) }) } ];
     
