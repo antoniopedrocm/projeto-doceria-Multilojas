@@ -19,12 +19,13 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, runTransaction, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
 import { audioManager } from './utils/AudioManager.js';
 import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
+import { updateStock as updateStockService } from './services/stockService.js';
 
 // --- importação para Android
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -3050,46 +3051,8 @@ function App() {
 
 
   const updateStock = useCallback(async (productId, type, quantity, reason = 'Movimentação de estoque', userInfo = null, targetStoreId = null) => {
-    const normalizedQuantity = Number(quantity);
-    if (!productId) throw new Error('Produto inválido.');
-    if (!['entrada', 'saida'].includes(type)) throw new Error('Tipo de movimentação inválido.');
-    if (!normalizedQuantity || normalizedQuantity <= 0) throw new Error('Informe uma quantidade maior que zero.');
-
     const storeId = targetStoreId || resolveActiveStoreForWrite();
-
-    await runTransaction(db, async (transaction) => {
-      const stockRef = getStoreDocRef(storeId, 'estoque', productId);
-      const stockSnap = await transaction.get(stockRef);
-
-      if (!stockSnap.exists()) {
-        throw new Error('Item de estoque não encontrado.');
-      }
-
-      const stockData = stockSnap.data() || {};
-      const currentQuantity = Number(stockData.quantidade) || 0;
-      const delta = type === 'entrada' ? normalizedQuantity : -normalizedQuantity;
-      const newQuantity = currentQuantity + delta;
-
-      transaction.update(stockRef, {
-        quantidade: increment(delta),
-        updatedAt: serverTimestamp()
-      });
-
-      const movementRef = doc(getStoreCollectionRef(storeId, 'kardex'));
-      transaction.set(movementRef, {
-        produtoId: productId,
-        tipo: type,
-        quantidade: normalizedQuantity,
-        delta,
-        motivo: reason,
-        usuarioId: userInfo?.uid || userInfo?.auth?.uid || null,
-        usuarioEmail: userInfo?.email || userInfo?.auth?.email || null,
-        createdAt: serverTimestamp(),
-        estoqueAnterior: currentQuantity,
-        estoquePosterior: newQuantity,
-        lojaId: storeId,
-      });
-    });
+    await updateStockService(productId, type, quantity, reason, userInfo, storeId);
   }, [resolveActiveStoreForWrite]);
 
 
@@ -4708,11 +4671,14 @@ function App() {
     const [editingProduct, setEditingProduct] = useState(null); 
     const [formData, setFormData] = useState({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" }); 
     const [imageFile, setImageFile] = useState(null); 
-    const [imagePreview, setImagePreview] = useState(null); 
+    const [imagePreview, setImagePreview] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isAddingSubcategory, setIsAddingSubcategory] = useState(false);
     const [newSubcategory, setNewSubcategory] = useState("");
     const [isSavingSubcategory, setIsSavingSubcategory] = useState(false);
+    const [stockMovementModal, setStockMovementModal] = useState({ isOpen: false, type: 'entrada', product: null });
+    const [stockMovementQuantity, setStockMovementQuantity] = useState('');
+    const [stockMovementReason, setStockMovementReason] = useState('venda');
 
     const defaultSubcategorias = useMemo(() => ({
       Delivery: [ 'Queridinhos', 'Mousse', 'Palha Italiana', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado' ],
@@ -4798,6 +4764,55 @@ function App() {
       }
     };
 
+    const openStockMovementModal = (product, type) => {
+      setStockMovementModal({ isOpen: true, type, product });
+      setStockMovementQuantity('');
+      setStockMovementReason('venda');
+    };
+
+    const closeStockMovementModal = () => {
+      setStockMovementModal({ isOpen: false, type: 'entrada', product: null });
+      setStockMovementQuantity('');
+      setStockMovementReason('venda');
+    };
+
+    const buildReasonLabel = () => {
+      if (stockMovementModal.type === 'saida') {
+        const reasonLabels = {
+          venda: 'Venda',
+          doacao: 'Doação',
+          perca: 'Perda',
+        };
+        return `Saída - ${reasonLabels[stockMovementReason] || 'Movimentação'}`;
+      }
+      return 'Entrada rápida de estoque';
+    };
+
+    const handleStockMovementSubmit = async (event) => {
+      event.preventDefault();
+
+      const quantity = parseFloat(stockMovementQuantity);
+
+      if (!quantity || quantity <= 0) {
+        alert('Informe uma quantidade válida para a movimentação.');
+        return;
+      }
+
+      try {
+        await updateStock(
+          stockMovementModal.product.id,
+          stockMovementModal.type,
+          quantity,
+          buildReasonLabel(),
+          currentUser,
+        );
+        closeStockMovementModal();
+      } catch (error) {
+        console.error('Erro ao movimentar estoque', error);
+        alert(error.message || 'Erro ao atualizar estoque.');
+      }
+    };
+
     const filteredProducts = (data.produtos || []).filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
     const resetForm = () => {
       setShowModal(false);
@@ -4838,7 +4853,51 @@ function App() {
       setIsSavingSubcategory(false);
       setShowModal(true);
     };
-    const columns = [ { header: "Produto", render: (row) => (<div className="flex items-center gap-3"><img src={row.imageUrl || 'https://placehold.co/40x40/FFC0CB/FFFFFF?text=Doce'} alt={row.nome} className="w-10 h-10 rounded-xl object-cover shadow-md" onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/40x40/FFC0CB/FFFFFF?text=Erro'; }}/><div><p className="font-semibold text-gray-800">{row.nome}</p><p className="text-sm text-gray-500">{row.categoria} / {row.subcategoria}</p></div></div>)}, { header: "Preço", render: (row) => <span className="font-semibold text-green-600">R$ {(row.preco || 0).toFixed(2)}</span> }, { header: "Estoque", render: (row) => <span className={`font-medium ${row.estoque < 10 ? 'text-red-600' : 'text-gray-800'}`}>{row.estoque} un</span> }, { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{row.status}</span> } ];
+    const columns = [
+      {
+        header: "Produto",
+        render: (row) => (
+          <div className="flex items-center gap-3">
+            <img
+              src={row.imageUrl || 'https://placehold.co/40x40/FFC0CB/FFFFFF?text=Doce'}
+              alt={row.nome}
+              className="w-10 h-10 rounded-xl object-cover shadow-md"
+              onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/40x40/FFC0CB/FFFFFF?text=Erro'; }}
+            />
+            <div>
+              <p className="font-semibold text-gray-800">{row.nome}</p>
+              <p className="text-sm text-gray-500">{row.categoria} / {row.subcategoria}</p>
+            </div>
+          </div>
+        )
+      },
+      { header: "Preço", render: (row) => <span className="font-semibold text-green-600">R$ {(row.preco || 0).toFixed(2)}</span> },
+      { header: "Estoque", render: (row) => <span className={`font-medium ${row.estoque < 10 ? 'text-red-600' : 'text-gray-800'}`}>{row.estoque} un</span> },
+      {
+        header: 'Movimentação Rápida',
+        render: (row) => (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="!px-3 !py-2 text-xs"
+              onClick={() => openStockMovementModal(row, 'entrada')}
+            >
+              + Entrada
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="!px-3 !py-2 text-xs text-red-600 border-red-200 hover:border-red-300 hover:text-red-700"
+              onClick={() => openStockMovementModal(row, 'saida')}
+            >
+              - Saída
+            </Button>
+          </div>
+        )
+      },
+      { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${row.status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{row.status}</span> }
+    ];
     const actions = [ { icon: Edit, label: "Editar", onClick: handleEdit }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('produtos', row.id) }) } ];
     
     return (
@@ -4846,6 +4905,51 @@ function App() {
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4"><div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Produtos</h1><p className="text-gray-600 mt-1">Gerencie seu cardápio e estoque</p></div><Button onClick={() => setShowModal(true)} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Novo Produto</Button></div>
         <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
         <Table columns={columns} data={filteredProducts} actions={actions} />
+        <Modal
+          isOpen={stockMovementModal.isOpen}
+          onClose={closeStockMovementModal}
+          title={`Registrar ${stockMovementModal.type === 'entrada' ? 'Entrada' : 'Saída'} de Estoque`}
+          size="md"
+        >
+          <form onSubmit={handleStockMovementSubmit} className="space-y-5">
+            <div className="bg-pink-50/80 border border-pink-100 rounded-2xl p-4">
+              <p className="text-sm text-gray-500">Produto selecionado</p>
+              <p className="font-semibold text-gray-900">{stockMovementModal.product?.nome || '-'}</p>
+            </div>
+
+            <Input
+              label="Quantidade"
+              type="number"
+              min="0"
+              step="1"
+              value={stockMovementQuantity}
+              onChange={(e) => setStockMovementQuantity(e.target.value)}
+              required
+            />
+
+            {stockMovementModal.type === 'saida' && (
+              <Select
+                label="Motivo da Saída"
+                value={stockMovementReason}
+                onChange={(e) => setStockMovementReason(e.target.value)}
+                required
+              >
+                <option value="venda">Venda</option>
+                <option value="doacao">Doação</option>
+                <option value="perca">Perda</option>
+              </Select>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" type="button" onClick={closeStockMovementModal}>
+                Cancelar
+              </Button>
+              <Button type="submit">
+                <Save className="w-4 h-4" /> Confirmar
+              </Button>
+            </div>
+          </form>
+        </Modal>
         <Modal isOpen={showModal} onClose={resetForm} title={editingProduct ? "Editar Produto" : "Novo Produto"} size="xl">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
