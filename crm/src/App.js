@@ -4804,7 +4804,7 @@ function App() {
           stockMovementModal.type,
           quantity,
           buildReasonLabel(),
-          currentUser,
+          user,
         );
         closeStockMovementModal();
       } catch (error) {
