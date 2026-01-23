@@ -2264,11 +2264,11 @@
             console.warn('Coordenadas inválidas para cálculo de frete do visitante:', latlng);
             window.guestCurrentLatLng = null;
             window.valorFrete = 0;
-        window.guestCurrentLatLng = normalizedLatLng;
             window.updateGuestSummary();
             return;
         }
 
+        window.guestCurrentLatLng = normalizedLatLng;
         document.getElementById('guest-shipping').textContent = 'Calculando...';
         window.valorFrete = 0;
         window.updateGuestSummary();
@@ -2491,4 +2491,3 @@
 
 </body>
 </html>
-
