@@ -514,6 +514,13 @@
 							</div>
 						</div>
 
+                        <div id="manual-address-map-warning" class="hidden rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800" role="alert" aria-live="assertive">
+                            <div class="flex items-start gap-3">
+                                <i class="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600"></i>
+                                <p class="text-sm font-medium" data-message>É preciso mover o marcador no mapa para o local da entrega.</p>
+                            </div>
+                        </div>
+
 						<!-- Botões de Ação -->
 						<div class="flex gap-3 pt-4">
 							<button id="save-manual-address-button" 
@@ -745,10 +752,28 @@
     window.currentLatLng = null; 
 
     const saveAddressBtn = document.getElementById('save-manual-address-button');
+    const manualAddressMapWarning = document.getElementById('manual-address-map-warning');
+    const manualAddressMapWarningMessage = manualAddressMapWarning?.querySelector('[data-message]');
     if(saveAddressBtn) {
         saveAddressBtn.disabled = true;
         saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
     }
+
+    const showManualAddressMapWarning = () => {
+        if (!manualAddressMapWarning) return;
+        manualAddressMapWarning.classList.remove('hidden');
+        if (manualAddressMapWarningMessage) {
+            manualAddressMapWarningMessage.textContent = 'É preciso mover o marcador no mapa para o local da entrega.';
+        }
+        manualAddressMapWarning.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    const clearManualAddressMapWarning = () => {
+        if (!manualAddressMapWarning) return;
+        manualAddressMapWarning.classList.add('hidden');
+    };
+    window.showManualAddressMapWarning = showManualAddressMapWarning;
+    window.clearManualAddressMapWarning = clearManualAddressMapWarning;
 
 	function validateAddressForm() {
 	  const rua = document.getElementById('manual-address-street').value.trim();
@@ -874,6 +899,7 @@
 			}
 			
 			window.currentLatLng = normalizedLatLng;
+            clearManualAddressMapWarning();
 			
 		} catch (error) {
 			console.error('❌ Erro crítico ao normalizar coordenadas:', error, latlng);
@@ -938,6 +964,7 @@
         }
 
     document.getElementById('show-new-address-btn').addEventListener('click', () => {
+        clearManualAddressMapWarning();
         setTimeout(initAddressMap, 300);
     });
 
@@ -1502,6 +1529,7 @@
             closeAddressManagementModal.addEventListener('click', () => { 
                 addressManagementModal.classList.add('hidden'); 
                 currentClient = null; 
+                window.clearManualAddressMapWarning?.();
             });
 
             closePaymentModal.addEventListener('click', () => paymentModal.classList.add('hidden'));
@@ -1567,11 +1595,13 @@
         function showNewAddressSection() {
             document.getElementById('new-address-section').classList.remove('hidden');
             document.getElementById('show-new-address-btn').classList.add('hidden');
+            window.clearManualAddressMapWarning?.();
         }
 
         function cancelNewAddress() {
             document.getElementById('new-address-section').classList.add('hidden');
             document.getElementById('show-new-address-btn').classList.remove('hidden');
+            window.clearManualAddressMapWarning?.();
         }
 
         async function saveManualAddress() {
@@ -1599,7 +1629,7 @@
 			}
 
 			if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
-				showToast("É preciso mover o marcador no mapa para o local da entrega.", true);
+				window.showManualAddressMapWarning?.();
 				return;
 			}
 
@@ -1653,6 +1683,7 @@
 			currentClient = client;
 			addressList.innerHTML = '';
 			confirmCustomerName.textContent = client.nome || 'Cliente';
+            window.clearManualAddressMapWarning?.();
 			
 			document.getElementById('new-address-section').classList.add('hidden');
 			document.getElementById('show-new-address-btn').classList.remove('hidden');
