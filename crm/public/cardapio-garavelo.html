@@ -743,6 +743,7 @@
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
 	let map, marker, geocoder, placeAutocomplete;
     window.currentLatLng = null; 
+    window.hasMovedAddressMarker = false;
 
     const saveAddressBtn = document.getElementById('save-manual-address-button');
     if(saveAddressBtn) {
@@ -756,16 +757,14 @@
 	  const bairro = document.getElementById('manual-address-neighborhood').value.trim();
 	  const cidade = document.getElementById('manual-address-city').value.trim();
 	  const apelido = document.getElementById('manual-address-nickname').value.trim();
-	  const hasCoords = window.currentLatLng?.lat && window.currentLatLng?.lng;
 	  const hasBasicInfo = rua.length > 0 && numero.length > 0 && bairro.length > 0 && cidade.length > 0 && apelido.length > 0;
-	  const isValid = hasCoords && hasBasicInfo;
+	  const hasMovedMarker = window.hasMovedAddressMarker;
 	  
 	  if (saveAddressBtn) {
-        if (isValid) {
-            saveAddressBtn.disabled = false;
+        saveAddressBtn.disabled = !hasBasicInfo;
+        if (hasBasicInfo && hasMovedMarker) {
             saveAddressBtn.classList.remove('opacity-50', 'cursor-not-allowed');
         } else {
-            saveAddressBtn.disabled = true;
             saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
         }
       }
@@ -848,6 +847,7 @@
 
 	function reverseGeocode(latlng) {
 		let normalizedLatLng = null;
+        window.hasMovedAddressMarker = true;
 		
 		try {
 			if (latlng && typeof latlng.lat === 'function' && typeof latlng.lng === 'function') {
@@ -932,13 +932,22 @@
         }
 
     document.getElementById('show-new-address-btn').addEventListener('click', () => {
+        window.hasMovedAddressMarker = false;
         setTimeout(initAddressMap, 300);
     });
 
     ['manual-address-street','manual-address-number','manual-address-neighborhood','manual-address-city','manual-address-nickname']
     .forEach(id => {
         const el = document.getElementById(id);
-        if(el) el.addEventListener('input', validateAddressForm);
+        if (el) {
+            el.addEventListener('input', validateAddressForm);
+            el.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    saveManualAddress();
+                }
+            });
+        }
     });
 	</script>
     
@@ -1566,11 +1575,6 @@
             const city = document.getElementById('manual-address-city').value.trim();
             const zip = document.getElementById('manual-address-zip').value.trim();
 
-			if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
-				showToast("Selecione a localização no mapa antes de salvar.", true);
-				return;
-			}
-
 			if (!street) {
 					showToast("Informe a rua do endereço.", true);
 					return;
@@ -1584,6 +1588,16 @@
 			if (!nickname) {
 					showToast("Digite um apelido para o endereço.", true);
 					return;
+			}
+
+            if (!window.hasMovedAddressMarker) {
+                showToast("É preciso mover o marcador no mapa para o local da entrega.", true);
+                return;
+            }
+
+			if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
+				showToast("Selecione a localização no mapa antes de salvar.", true);
+				return;
 			}
 
             const addressText = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
