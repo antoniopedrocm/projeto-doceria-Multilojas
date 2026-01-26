@@ -814,8 +814,9 @@
             
             const mapDiv = document.createElement('div');
             mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem;';
+            mapDiv.style.touchAction = 'none';
             
-            map = new Map(mapDiv, { center: defaultCenter, zoom: 14, mapId: 'DEMO_MAP_ID' });
+            map = new Map(mapDiv, { center: defaultCenter, zoom: 14, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
             marker = new AdvancedMarkerElement({ map: map, position: defaultCenter, gmpDraggable: true });
 			const storeInfoWindow = new google.maps.InfoWindow({
                 content: '<div style="font-weight:600;color:#db2777;font-size:0.95rem;">Ana Guimarães doceria</div>',
@@ -2409,8 +2410,9 @@
             
             const mapDiv = document.createElement('div');
             mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem;';
+            mapDiv.style.touchAction = 'none';
             
-            guestMap = new Map(mapDiv, { center: defaultCenter, zoom: 14, mapId: 'DEMO_MAP_ID' });
+            guestMap = new Map(mapDiv, { center: defaultCenter, zoom: 14, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
             guestMarker = new AdvancedMarkerElement({ map: guestMap, position: defaultCenter, gmpDraggable: true });
 			const guestStoreInfoWindow = new google.maps.InfoWindow({
                 content: '<div style="font-weight:600;color:#db2777;font-size:0.95rem;">Ana Guimarães doceria</div>',
