@@ -151,6 +151,9 @@ async _ensureNativePreload() {
         if (userGesture && isIOS) {
           await this._ensureNativePreload();
         }
+        if (userGesture) {
+          this._playSilentBuffer();
+        }
       } catch (e) {
         console.error("[AudioManager] failed to unlock:", e);
         this.unlocked = false;
@@ -164,6 +167,32 @@ async _ensureNativePreload() {
       if (userGesture && isIOS) {
         await this._ensureNativePreload();
       }
+      if (userGesture) {
+        this._playSilentBuffer();
+      }
+    }
+  }
+
+  _playSilentBuffer() {
+    if (!this.audioCtx || this.audioCtx.state !== 'running') {
+      return;
+    }
+
+    try {
+      const buffer = this.audioCtx.createBuffer(1, 1, 22050);
+      const source = this.audioCtx.createBufferSource();
+      source.buffer = buffer;
+
+      const gain = this.audioCtx.createGain();
+      gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+
+      source.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      source.start(0);
+      source.stop(this.audioCtx.currentTime + 0.01);
+    } catch (error) {
+      console.warn('[AudioManager] Falha ao tocar buffer silencioso:', error);
     }
   }
 
@@ -226,7 +255,7 @@ async _ensureNativePreload() {
       try {
         const buffer = await this._fetchAndDecode(url);
         if (!buffer) {
-          return () => {};
+          return null;
         }
 
         const src = this.audioCtx.createBufferSource();
@@ -255,6 +284,7 @@ async _ensureNativePreload() {
         };
       } catch (e) {
         console.error('[AudioManager] Error playing sound:', e);
+        return null;
       }
     }
 
@@ -298,7 +328,7 @@ async _ensureNativePreload() {
       };
     } catch (e) {
       console.error("[AudioManager] Error playing sound:", e);
-      return () => {};
+      return null;
     }
   }
 }
