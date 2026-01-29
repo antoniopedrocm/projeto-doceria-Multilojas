@@ -2222,7 +2222,6 @@ function App() {
 
   const [isAlarmSnoozed, setIsAlarmSnoozed] = useState(false);
   const [snoozeEndTime, setSnoozeEndTime] = useState(null);
-  const pendingAlarmRef = useRef(false);
   // --- Estado audioUnlocked agora é derivado do AudioManager ---
   // const [audioUnlocked, setAudioUnlocked] = useState(...);
 
@@ -2260,10 +2259,6 @@ function App() {
 
       localStorage.setItem('iosSoundUnlocked', 'true');
       setSoundUnlocked(true);
-      if (pendingAlarmRef.current && audioManager.unlocked && !isSnoozedRef.current) {
-        pendingAlarmRef.current = false;
-        playAlarmRef.current();
-      }
       window.removeEventListener('touchstart', unlockWithGesture);
       window.removeEventListener('click', unlockWithGesture);
     };
@@ -2524,7 +2519,6 @@ function App() {
   const playAlarm = useCallback(async () => {
                 if (isiOS && !soundUnlocked) {
                         console.warn("[App.js] Áudio bloqueado no iOS aguardando interação do usuário.");
-                        pendingAlarmRef.current = true;
                         return;
                 }
                 // Só toca se não estiver em modo soneca
@@ -2540,12 +2534,17 @@ function App() {
 		}
 
 		console.log("[App.js] Tentando tocar alarme...");
+		setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
+
 		// Chama o AudioManager para tocar o som
 		// Verifica se o áudio está desbloqueado antes de tentar tocar
 		if (!audioManager.unlocked) {
 		  console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
-		  pendingAlarmRef.current = true;
-		  return;
+		  try {
+			await audioManager.userUnlock();
+		  } catch (e) {
+			console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
+		  }
 		}
 
 		// Só tenta tocar o som se o contexto estiver ativo
@@ -2556,13 +2555,11 @@ function App() {
 		  if (stopFn && typeof stopFn === 'function') {
 			setStopAlarmFn(() => stopFn); // Armazena no estado
 			stopAlarmRef.current = stopFn; // Armazena na ref
-			pendingAlarmRef.current = false;
 			console.log("[App.js] Alarme iniciado.");
-			setIsAlarmPlaying(true); // Define como tocando após iniciar
 		  } else {
 			// Se foi bloqueado ou falhou, reseta o estado da UI
 			console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
-			setIsAlarmPlaying(false);
+			setIsAlarmPlaying(false); 
 		  }
 		} else {
 			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
@@ -2616,38 +2613,6 @@ function App() {
     }
   
   }, [user]); // Depende do 'user' para saber se deve mostrar o botão
-
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const handleUserGestureUnlock = async () => {
-      try {
-        await audioManager.userUnlock({ userGesture: true });
-      } catch (error) {
-        console.warn('[App.js] Não foi possível desbloquear o áudio após interação do usuário:', error);
-      }
-
-      if (audioManager.unlocked) {
-        window.removeEventListener('click', handleUserGestureUnlock);
-        window.removeEventListener('touchstart', handleUserGestureUnlock);
-
-        if (pendingAlarmRef.current && !isSnoozedRef.current) {
-          pendingAlarmRef.current = false;
-          playAlarmRef.current();
-        }
-      }
-    };
-
-    window.addEventListener('click', handleUserGestureUnlock, { passive: true });
-    window.addEventListener('touchstart', handleUserGestureUnlock, { passive: true });
-
-    return () => {
-      window.removeEventListener('click', handleUserGestureUnlock);
-      window.removeEventListener('touchstart', handleUserGestureUnlock);
-    };
-  }, [user]);
 
   // --- NOVO: Estado para controlar a exibição do botão de ativar som ---
   const [showActivateSoundButton, setShowActivateSoundButton] = useState(false);
@@ -2977,7 +2942,21 @@ function App() {
                                                 console.log('[App.js] Tentando tocar alarme...');
                                                 (async () => {
                                                   try {
-                                                        playAlarmRef.current();
+                                                        if (!audioManager.unlocked) {
+                                                          console.warn("[App.js] Áudio bloqueado — aguardando interação do usuário.");
+                                                          try {
+                                                                await audioManager.userUnlock();
+                                                          } catch (e) {
+                                                                console.warn("[App.js] Não foi possível desbloquear o áudio automaticamente:", e);
+                                                          }
+                                                        }
+
+                                                        if (audioManager.unlocked) {
+                                                          playAlarmRef.current();
+                                                        } else {
+                                                          console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+                                                        }
+
                                                   } catch (error) {
                                                         console.error("[App.js] Erro ao tentar tocar alarme:", error);
                                                   }
