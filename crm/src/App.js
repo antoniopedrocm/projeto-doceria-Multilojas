@@ -2570,7 +2570,7 @@ function App() {
 			setIsAlarmPlaying(false);
 			setShowActivateSoundButton(true);
 		}
-        }, [isiOS, isAlarmPlaying, soundUnlocked, setShowActivateSoundButton]); // Adicione isAlarmPlaying como dependência
+        }, [isiOS, isAlarmPlaying, soundUnlocked]); // Adicione isAlarmPlaying como dependência
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
           useEffect(() => {
