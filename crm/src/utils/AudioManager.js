@@ -226,7 +226,7 @@ async _ensureNativePreload() {
       try {
         const buffer = await this._fetchAndDecode(url);
         if (!buffer) {
-          return null;
+          return () => {};
         }
 
         const src = this.audioCtx.createBufferSource();
@@ -303,7 +303,7 @@ async _ensureNativePreload() {
       };
     } catch (e) {
       console.error("[AudioManager] Error playing sound:", e);
-      return null;
+      return () => {};
     }
   }
 }
