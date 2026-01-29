@@ -226,7 +226,7 @@ async _ensureNativePreload() {
       try {
         const buffer = await this._fetchAndDecode(url);
         if (!buffer) {
-          return () => {};
+          return null;
         }
 
         const src = this.audioCtx.createBufferSource();
@@ -271,7 +271,12 @@ async _ensureNativePreload() {
       audioElement.crossOrigin = 'anonymous';
       audioElement.volume = Math.min(Math.max(volume, 0), 1);
 
-      await audioElement.play();
+      try {
+        await audioElement.play();
+      } catch (error) {
+        console.error('[AudioManager] Falha no fallback de HTMLAudio:', error);
+        return null;
+      }
 
       this.htmlAudioPlayers.add(audioElement);
       audioElement.addEventListener(
@@ -298,7 +303,7 @@ async _ensureNativePreload() {
       };
     } catch (e) {
       console.error("[AudioManager] Error playing sound:", e);
-      return () => {};
+      return null;
     }
   }
 }

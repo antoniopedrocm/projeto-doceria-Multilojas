@@ -2534,7 +2534,6 @@ function App() {
 		}
 
 		console.log("[App.js] Tentando tocar alarme...");
-		setIsAlarmPlaying(true); // Define como tocando (para UI) ANTES de tentar tocar
 
 		// Chama o AudioManager para tocar o som
 		// Verifica se o áudio está desbloqueado antes de tentar tocar
@@ -2553,19 +2552,22 @@ function App() {
 		  
 		  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
 		  if (stopFn && typeof stopFn === 'function') {
+			setIsAlarmPlaying(true); // Define como tocando (para UI) somente após iniciar
 			setStopAlarmFn(() => stopFn); // Armazena no estado
 			stopAlarmRef.current = stopFn; // Armazena na ref
 			console.log("[App.js] Alarme iniciado.");
 		  } else {
 			// Se foi bloqueado ou falhou, reseta o estado da UI
 			console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
-			setIsAlarmPlaying(false); 
+			setIsAlarmPlaying(false);
+			setShowActivateSoundButton(true);
 		  }
 		} else {
 			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
 			setIsAlarmPlaying(false);
+			setShowActivateSoundButton(true);
 		}
-        }, [isiOS, isAlarmPlaying, soundUnlocked]); // Adicione isAlarmPlaying como dependência
+        }, [isiOS, isAlarmPlaying, soundUnlocked, setShowActivateSoundButton]); // Adicione isAlarmPlaying como dependência
 	
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
           useEffect(() => {
