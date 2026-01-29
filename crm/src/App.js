@@ -2222,6 +2222,7 @@ function App() {
 
   const [isAlarmSnoozed, setIsAlarmSnoozed] = useState(false);
   const [snoozeEndTime, setSnoozeEndTime] = useState(null);
+  const [audioAllowed, setAudioAllowed] = useState(audioManager.unlocked);
   // --- Estado audioUnlocked agora é derivado do AudioManager ---
   // const [audioUnlocked, setAudioUnlocked] = useState(...);
 
@@ -2245,6 +2246,7 @@ function App() {
     const unlockWithGesture = async () => {
       try {
         await audioManager.userUnlock({ userGesture: true });
+        setAudioAllowed(audioManager.unlocked);
 
         const htmlAudio = new Audio('/alarm.mp3');
         const playPromise = htmlAudio.play();
@@ -2259,6 +2261,7 @@ function App() {
 
       localStorage.setItem('iosSoundUnlocked', 'true');
       setSoundUnlocked(true);
+      setAudioAllowed(audioManager.unlocked);
       window.removeEventListener('touchstart', unlockWithGesture);
       window.removeEventListener('click', unlockWithGesture);
     };
@@ -2604,6 +2607,7 @@ function App() {
       } catch (e) {
         console.error("Erro ao inicializar audioManager:", e);
       }
+      setAudioAllowed(audioManager.unlocked);
   
       // --- CORREÇÃO: Lógica do botão movida para um state para ser renderizado pelo React ---
       // O botão será renderizado condicionalmente no JSX principal
@@ -3041,12 +3045,12 @@ function App() {
     useEffect(() => {
         const hasPendingOrders = pendingOrders.some(order => order.status === 'Pendente');
 
-        if (hasPendingOrders && !isAlarmSnoozed && !isAlarmPlaying) {
+        if (audioAllowed && hasPendingOrders && !isAlarmSnoozed && !isAlarmPlaying) {
           console.log('[App.js] Pedidos pendentes encontrados enquanto o alarme estava parado. Reativando alarme.');
           setHasNewPendingOrders(true);
           playAlarmRef.current();
         }
-    }, [pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
+    }, [audioAllowed, pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
 
   // --- REMOVIDO: Antigo useEffect de desbloqueio ---
   // useEffect(() => { if (audioUnlocked && ...) ... });
@@ -7157,6 +7161,7 @@ const handleSubmit = async (e) => {
                 id="btn-ativar-som"
                 onClick={async () => {
                     await audioManager.userUnlock({ userGesture: true });
+                    setAudioAllowed(audioManager.unlocked);
                     setShowActivateSoundButton(!audioManager.unlocked); // Esconde se desbloqueado
                 }}
                 className="fixed bottom-4 right-4 z-[9999] px-4 py-2 rounded-xl bg-pink-600 text-white border-none shadow-lg hover:bg-pink-700 transition-colors cursor-pointer"
