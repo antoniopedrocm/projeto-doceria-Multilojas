@@ -216,6 +216,7 @@ async _ensureNativePreload() {
         };
       } catch (err) {
         console.error('[AudioManager] Falha ao tocar via NativeAudio:', err);
+        return null;
       }
     }
 
@@ -226,7 +227,8 @@ async _ensureNativePreload() {
       try {
         const buffer = await this._fetchAndDecode(url);
         if (!buffer) {
-          return () => {};
+          console.warn('[AudioManager] Buffer indisponível, tentando fallback com HTMLAudio:', url);
+          return this._playUsingHtmlAudio(url, { loop, volume });
         }
 
         const src = this.audioCtx.createBufferSource();
@@ -255,6 +257,7 @@ async _ensureNativePreload() {
         };
       } catch (e) {
         console.error('[AudioManager] Error playing sound:', e);
+        return null;
       }
     }
 
@@ -303,7 +306,7 @@ async _ensureNativePreload() {
       };
     } catch (e) {
       console.error("[AudioManager] Error playing sound:", e);
-      return () => {};
+      return null;
     }
   }
 }
