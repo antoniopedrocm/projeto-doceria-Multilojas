@@ -31,8 +31,8 @@ import { updateStock as updateStockService } from './services/stockService.js';
 import { NativeAudio } from '@capacitor-community/native-audio';
 import { Capacitor } from '@capacitor/core';
 
-// ✅ CORREÇÃO: URL alterada para o Firebase Storage para evitar erro de CORS
-const ALARM_SOUND_URL = "https://firebasestorage.googleapis.com/v0/b/crmdoceria-9959e.firebasestorage.app/o/audio%2Fmixkit-vintage-warning-alarm-990.wav?alt=media&token=6277f61e-51ab-413e-88d8-afef7835e465"; // <-- URL de exemplo, troque pela sua
+// ✅ CORREÇÃO: URL local para evitar erro de pré-condição no Firebase Storage
+const ALARM_SOUND_URL = "/audio/mixkit-vintage-warning-alarm-990.wav";
 const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 
 const ROLE_OWNER = 'dono';
@@ -2551,8 +2551,13 @@ function App() {
 
 		// Só tenta tocar o som se o contexto estiver ativo
 		if (audioManager.unlocked) {
-		  const stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
-		  
+		  let stopFn = null;
+		  try {
+			stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
+		  } catch (error) {
+			console.error("[App.js] Erro ao iniciar o alarme:", error);
+		  }
+
 		  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
 		  if (stopFn && typeof stopFn === 'function') {
 			setIsAlarmPlaying(true); // Define como tocando (para UI) somente após iniciar
