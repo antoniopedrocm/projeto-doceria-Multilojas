@@ -7,7 +7,7 @@ const PRECACHE_URLS = [
   '/manifest.json',
   '/logo192.png',
   '/logo512.png',
-  '/mixkit-vintage-warning-alarm-990.wav'
+  '/audio/mixkit_vintage_warning_alarm_990.mp3'
 ];
 
 self.addEventListener('install', (event) => {
@@ -115,7 +115,7 @@ if (!firebase.apps.length) {
 
 const messaging = firebase.messaging();
 const PUSH_EVENT_TYPE = 'NEW_ORDER_PUSH';
-const DEFAULT_AUDIO_URL = '/mixkit-vintage-warning-alarm-990.wav';
+const DEFAULT_AUDIO_URL = '/audio/mixkit_vintage_warning_alarm_990.mp3';
 
 async function notifyClients(message) {
   try {

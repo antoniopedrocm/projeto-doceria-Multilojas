@@ -4,7 +4,7 @@ import { Capacitor } from '../shims/capacitor.js';
 import { NativeAudio } from '../shims/nativeAudio.js';
 
 const NATIVE_ASSET_ID = 'pedido';
-const NATIVE_ASSET_PATH = 'mixkit_vintage_warning_alarm_990.wav';
+const NATIVE_ASSET_PATH = 'mixkit_vintage_warning_alarm_990.mp3';
 const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'keydown', 'pointerdown'];
 
 class AudioManager {

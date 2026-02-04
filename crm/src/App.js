@@ -32,7 +32,7 @@ import { NativeAudio } from '@capacitor-community/native-audio';
 import { Capacitor } from '@capacitor/core';
 
 // ✅ CORREÇÃO: URL local para evitar erro de pré-condição no Firebase Storage
-const ALARM_SOUND_URL = "/audio/mixkit-vintage-warning-alarm-990.wav";
+const ALARM_SOUND_URL = "/audio/mixkit_vintage_warning_alarm_990.mp3";
 const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 
 const ROLE_OWNER = 'dono';
@@ -2584,7 +2584,7 @@ function App() {
                         try {
                           await NativeAudio.preload({
                                         assetId: 'pedido',
-                                        assetPath: 'mixkit_vintage_warning_alarm_990.wav',
+                                        assetPath: 'mixkit_vintage_warning_alarm_990.mp3',
                                         audioChannelNum: 1,
                                         isUrl: false,
                           });
