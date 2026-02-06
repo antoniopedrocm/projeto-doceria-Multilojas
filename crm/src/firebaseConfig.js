@@ -40,11 +40,17 @@ const firebaseConfig = {
   measurementId: envVar('REACT_APP_FIREBASE_MEASUREMENT_ID') || 'G-F8BVTNLEW7',
 };
 
+const runtimeEnv =
+  (typeof process !== 'undefined' && process.env && process.env.NODE_ENV) ||
+  import.meta.env?.MODE ||
+  '';
+const isDev = runtimeEnv !== 'production';
+
 const missingEnvKeys = Object.entries(firebaseConfig)
   .filter(([, value]) => !value)
   .map(([key]) => key);
 
-if (missingEnvKeys.length) {
+if (missingEnvKeys.length && isDev) {
   console.warn(
     '[firebaseConfig] Variáveis de ambiente ausentes, usando valores de fallback:',
     missingEnvKeys.join(', ')
@@ -92,16 +98,15 @@ export const messagingPromise = (async () => {
     const supported = await messagingIsSupported();
     if (!supported) return null;
     const messaging = getMessaging(app);
+    if (!VAPID_KEY) {
+      return messaging;
+    }
     // Request permission to send notifications.  This must be
     // triggered from a user gesture in most browsers; failure to
     // request here will cause the promise to reject.
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       console.warn('🔔 Notification permission not granted');
-      return messaging;
-    }
-    if (!VAPID_KEY) {
-      console.warn('VAPID key não configurada; notificações push permanecerão desativadas.');
       return messaging;
     }
 
