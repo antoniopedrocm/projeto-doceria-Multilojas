@@ -16,8 +16,8 @@ import { auth, db, storage, functions } from './firebaseConfig.js';
 import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
-// ATUALIZADO: Adicionado GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
+// ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, getRedirectResult, sendPasswordResetEmail } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -3417,29 +3417,54 @@ function App() {
         setLoginError('');
         const provider = new GoogleAuthProvider();
         try {
-            const result = await signInWithPopup(auth, provider);
-            const googleUser = result.user;
-
-            const q = query(collection(db, "users"), where("email", "==", googleUser.email));
-            const querySnapshot = await getDocs(q);
-
-            if (querySnapshot.empty) {
-                await signOut(auth);
-                setLoginError("Usuário não autorizado. Solicite acesso ao administrador.");
-            } else {
-                setShowLogin(false);
-                setCurrentPage('dashboard');
-                 // O onAuthStateChanged cuidará de inicializar o AudioManager se necessário
-            }
+            await signInWithRedirect(auth, provider);
         } catch (error) {
             console.error("Erro no login com Google:", error);
-            if (error.code === 'auth/popup-closed-by-user') {
-                // Não mostra erro se o usuário simplesmente fechou
-            } else if (error.code !== 'auth/cancelled-popup-request') { // Ignora erro comum de popup fechado rapidamente
-                 setLoginError('Ocorreu um erro ao entrar com Google.');
-            }
+            setLoginError('Ocorreu um erro ao entrar com Google.');
         }
     };
+
+    useEffect(() => {
+        let active = true;
+
+        const validateGoogleRedirectResult = async () => {
+            try {
+                const result = await getRedirectResult(auth);
+                const googleUser = result?.user;
+
+                if (!googleUser?.email) {
+                    return;
+                }
+
+                const q = query(collection(db, "users"), where("email", "==", googleUser.email));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) {
+                    await signOut(auth);
+                    if (active) {
+                        setLoginError("Usuário não autorizado. Solicite acesso ao administrador.");
+                    }
+                    return;
+                }
+
+                if (active) {
+                    setShowLogin(false);
+                    setCurrentPage('dashboard');
+                }
+            } catch (error) {
+                console.error("Erro ao processar retorno do login com Google:", error);
+                if (active) {
+                    setLoginError('Ocorreu um erro ao entrar com Google.');
+                }
+            }
+        };
+
+        validateGoogleRedirectResult();
+
+        return () => {
+            active = false;
+        };
+    }, []);
     
     const handlePasswordReset = async () => {
         if (!passwordResetEmail) {
