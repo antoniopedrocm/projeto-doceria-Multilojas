@@ -2573,7 +2573,7 @@ function App() {
 	  // --- PRÉ-CARREGAMENTO DO ÁUDIO NATIVO (Capacitor Android/iOS) ---
           useEffect(() => {
                 const loadAudio = async () => {
-                  if (Capacitor.getPlatform() === 'android') {
+                  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
                         try {
                           await NativeAudio.preload({
                                         assetId: 'pedido',
