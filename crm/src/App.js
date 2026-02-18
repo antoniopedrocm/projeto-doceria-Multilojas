@@ -17,7 +17,7 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, getRedirectResult, sendPasswordResetEmail } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -42,6 +42,7 @@ const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const CONFIG_DOC_ID = 'config';
+const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
 const MENU_PERMISSION_KEYS = [
   'pagina-inicial',
@@ -3249,6 +3250,11 @@ function App() {
                                           hasCustomProfile: Boolean(customProfileData),
                                         };
                                         setUser(userData)
+			if (sessionStorage.getItem(GOOGLE_AUTH_FLOW_KEY) === 'true') {
+			  setShowLogin(false);
+			  setCurrentPage('dashboard');
+			  sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+			}
 			// Tenta inicializar/resumir o AudioManager APÓS o login
 			if (localStorage.getItem("audioUnlocked") === "true") {
 			  audioManager.init().catch((e) => {
@@ -3411,8 +3417,23 @@ function App() {
         setLoginError('');
         const provider = new GoogleAuthProvider();
         try {
-            await signInWithRedirect(auth, provider);
+            await setPersistence(auth, browserLocalPersistence);
+            await signInWithPopup(auth, provider);
+            sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+            setShowLogin(false);
+            setCurrentPage('dashboard');
         } catch (error) {
+            const fallbackToRedirect = error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request';
+
+            if (fallbackToRedirect) {
+                try {
+                    sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, 'true');
+                    await signInWithRedirect(auth, provider);
+                    return;
+                } catch (redirectError) {
+                    console.error('Erro no fallback de redirect do Google:', redirectError);
+                }
+            }
             console.error("Erro no login com Google:", error);
             setLoginError('Ocorreu um erro ao entrar com Google.');
         }
@@ -3429,17 +3450,7 @@ function App() {
                 if (!googleUser?.email) {
                     return;
                 }
-
-                const q = query(collection(db, "users"), where("email", "==", googleUser.email));
-                const querySnapshot = await getDocs(q);
-
-                if (querySnapshot.empty) {
-                    await signOut(auth);
-                    if (active) {
-                        setLoginError("Usuário não autorizado. Solicite acesso ao administrador.");
-                    }
-                    return;
-                }
+                sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
 
                 if (active) {
                     setShowLogin(false);
