@@ -13,6 +13,8 @@ class AudioManager {
     this.unlocked = false;
     this.cache = new Map();
 	this.htmlAudioPlayers = new Set();
+    this.pendingPlay = false;
+    this.alarmStopFn = null;
     this.nativeAudioReady = false;
     this.nativePreloadPromise = null;
     this._visibilityHandler = this._handleVisibilityChange.bind(this);
@@ -165,6 +167,47 @@ async _ensureNativePreload() {
         await this._ensureNativePreload();
       }
     }
+
+    await this.retryPending();
+  }
+
+  async playAlarmSound() {
+    if (!this.unlocked) {
+      this.pendingPlay = true;
+      return false;
+    }
+
+    if (typeof this.alarmStopFn === 'function') {
+      return true;
+    }
+
+    const stopFn = await this.playSound('/audio/alarm.mp3', { loop: true, volume: 0.8 });
+    if (typeof stopFn === 'function') {
+      this.alarmStopFn = stopFn;
+      this.pendingPlay = false;
+      return true;
+    }
+
+    return false;
+  }
+
+  async retryPending() {
+    if (!this.pendingPlay || !this.unlocked) {
+      return false;
+    }
+
+    const started = await this.playAlarmSound();
+    if (started) {
+      this.pendingPlay = false;
+    }
+    return started;
+  }
+
+  stopAlarmSound() {
+    if (typeof this.alarmStopFn === 'function') {
+      this.alarmStopFn();
+      this.alarmStopFn = null;
+    }
   }
 
   async _fetchAndDecode(url) {
@@ -269,6 +312,12 @@ async _ensureNativePreload() {
 
     try {
       const audioElement = new Audio(url);
+      const normalizedUrl = (url || '').toLowerCase();
+
+      if (!normalizedUrl.endsWith('.mp3') && !normalizedUrl.endsWith('.wav') && !normalizedUrl.endsWith('.ogg')) {
+        console.warn('[AudioManager] Formato de áudio possivelmente não suportado no fallback HTMLAudio:', url);
+      }
+
       audioElement.loop = loop;
       audioElement.preload = 'auto';
       audioElement.crossOrigin = 'anonymous';
