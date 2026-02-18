@@ -32,7 +32,7 @@ import { NativeAudio } from '@capacitor-community/native-audio';
 import { Capacitor } from '@capacitor/core';
 
 // ✅ CORREÇÃO: URL local para evitar erro de pré-condição no Firebase Storage
-const ALARM_SOUND_URL = "/audio/mixkit_vintage_warning_alarm_990.mp3";
+const ALARM_SOUND_URL = '/audio/alarm.mp3';
 const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 
 const ROLE_OWNER = 'dono';
@@ -2248,7 +2248,7 @@ function App() {
         await audioManager.userUnlock({ userGesture: true });
         setAudioAllowed(audioManager.unlocked);
 
-        const htmlAudio = new Audio('/alarm.mp3');
+        const htmlAudio = new Audio(ALARM_SOUND_URL);
         const playPromise = htmlAudio.play();
         if (playPromise && typeof playPromise.catch === 'function') {
           playPromise.catch(() => {});
@@ -2549,29 +2549,21 @@ function App() {
 		  }
 		}
 
-		// Só tenta tocar o som se o contexto estiver ativo
-		if (audioManager.unlocked) {
-		  let stopFn = null;
-		  try {
-			stopFn = await audioManager.playSound(ALARM_SOUND_URL, { loop: true, volume: 0.8 });
-		  } catch (error) {
+		let started = false;
+		try {
+			started = await audioManager.playAlarmSound();
+		} catch (error) {
 			console.error("[App.js] Erro ao iniciar o alarme:", error);
-		  }
+		}
 
-		  // CORREÇÃO: Armazena a função de parada tanto no estado quanto na ref
-		  if (stopFn && typeof stopFn === 'function') {
-			setIsAlarmPlaying(true); // Define como tocando (para UI) somente após iniciar
-			setStopAlarmFn(() => stopFn); // Armazena no estado
-			stopAlarmRef.current = stopFn; // Armazena na ref
+		if (started) {
+			const stopFn = () => audioManager.stopAlarmSound();
+			setIsAlarmPlaying(true);
+			setStopAlarmFn(() => stopFn);
+			stopAlarmRef.current = stopFn;
 			console.log("[App.js] Alarme iniciado.");
-		  } else {
-			// Se foi bloqueado ou falhou, reseta o estado da UI
-			console.log("[App.js] Falha ao iniciar o alarme (provavelmente bloqueado).");
-			setIsAlarmPlaying(false);
-			setShowActivateSoundButton(true);
-		  }
 		} else {
-			console.log("[App.js] Áudio ainda bloqueado, não tocando alarme.");
+			console.log("[App.js] Alarme pendente aguardando desbloqueio do áudio.");
 			setIsAlarmPlaying(false);
 			setShowActivateSoundButton(true);
 		}
@@ -2609,6 +2601,8 @@ function App() {
           // tenta init para recuperar estado, mas pode ficar suspenso
           await audioManager.init().catch(()=>{});
         }
+
+        await audioManager.userUnlock({ userGesture: false });
       } catch (e) {
         console.error("Erro ao inicializar audioManager:", e);
       }
