@@ -4,7 +4,11 @@ import { Capacitor } from '../shims/capacitor.js';
 import { NativeAudio } from '../shims/nativeAudio.js';
 
 const NATIVE_ASSET_ID = 'pedido';
-const NATIVE_ASSET_PATH = 'mixkit_vintage_warning_alarm_990.mp3';
+const NATIVE_ASSET_PATHS = [
+  'mixkit_vintage_warning_alarm_990.mp3',
+  'audio/mixkit_vintage_warning_alarm_990.mp3',
+  '/audio/mixkit_vintage_warning_alarm_990.mp3',
+];
 const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'keydown', 'pointerdown'];
 
 class AudioManager {
@@ -107,12 +111,25 @@ async _ensureNativePreload() {
     }
 
     if (!this.nativePreloadPromise) {
-      this.nativePreloadPromise = NativeAudio.preload({
-        assetId: NATIVE_ASSET_ID,
-        assetPath: NATIVE_ASSET_PATH,
-        audioChannelNum: 1,
-        isUrl: false,
-      })
+      this.nativePreloadPromise = (async () => {
+        let lastError = null;
+
+        for (const assetPath of NATIVE_ASSET_PATHS) {
+          try {
+            await NativeAudio.preload({
+              assetId: NATIVE_ASSET_ID,
+              assetPath,
+              audioChannelNum: 1,
+              isUrl: false,
+            });
+            return;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        throw lastError || new Error('Falha ao pré-carregar asset de áudio nativo.');
+      })()
         .then(async () => {
           this.nativeAudioReady = true;
           try {
@@ -236,7 +253,7 @@ async _ensureNativePreload() {
     await this.init();
 
     // --- Suporte a Capacitor (Android/iOS) ---
-    if (Capacitor.getPlatform() === 'android' || Capacitor.getPlatform() === 'ios') {
+    if (Capacitor.isNativePlatform() && (Capacitor.getPlatform() === 'android' || Capacitor.getPlatform() === 'ios')) {
       try {
         await this._ensureNativePreload();
         if (typeof NativeAudio.setVolume === 'function') {
@@ -259,7 +276,7 @@ async _ensureNativePreload() {
         };
       } catch (err) {
         console.error('[AudioManager] Falha ao tocar via NativeAudio:', err);
-        return null;
+        return this._playUsingHtmlAudio(url, { loop, volume });
       }
     }
 
