@@ -2291,7 +2291,7 @@
             const desconto = cupomData?.valorDesconto || 0;
             const total = subtotal - desconto + window.valorFrete;
             
-            const { db, doc, updateDoc, arrayUnion, getDoc } = await import('./firebaseClientConfig.js');
+            const { db, doc, updateDoc, arrayUnion, getDoc, serverTimestamp } = await import('./firebaseClientConfig.js');
             
             const orderData = {
                 clienteId: clientId,
