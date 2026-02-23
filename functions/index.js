@@ -204,6 +204,56 @@ const getLegacyConfigDoc = (storeId, configId) => getStoreRef(storeId).collectio
 
 const getLegacyInfoDoc = (storeId) => getStoreRef(storeId).collection('info').doc(STORE_INFO_DOC_ID);
 
+const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
+
+const parseTimeToMinutes = (value) => {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return (hours * 60) + minutes;
+};
+
+const getNowInTimeZone = (timezone, now = new Date()) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || DEFAULT_STORE_TIMEZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const weekdayRaw = parts.find((part) => part.type === 'weekday')?.value?.toLowerCase() || 'sun';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+  const weekdayMap = {sun: 'sun', mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat'};
+  const weekday = weekdayMap[weekdayRaw.slice(0, 3)] || 'sun';
+  return {weekday, minutes: (hour * 60) + minute};
+};
+
+const isStoreOpenNow = (storeConfig = {}, now = new Date()) => {
+  const overrideMode = storeConfig?.manualOverride?.mode || 'auto';
+  if (overrideMode === 'force_open') return true;
+  if (overrideMode === 'force_closed') return false;
+
+  const timezone = storeConfig?.timezone || DEFAULT_STORE_TIMEZONE;
+  const schedule = storeConfig?.schedule || {};
+  const {weekday, minutes} = getNowInTimeZone(timezone, now);
+
+  const todayConfig = schedule[weekday];
+  if (!todayConfig || !todayConfig.enabled) return false;
+
+  const openMinutes = parseTimeToMinutes(todayConfig.open);
+  const closeMinutes = parseTimeToMinutes(todayConfig.close);
+  if (openMinutes === null || closeMinutes === null) return false;
+  if (closeMinutes <= openMinutes) return false;
+
+  return minutes >= openMinutes && minutes < closeMinutes;
+};
+
 // API Express para o Cardápio Online
 const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
@@ -429,6 +479,16 @@ app.post("/pedidos", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
+    const storeConfigSnap = await getStoreConfigDoc(lojaId).get();
+    const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
+
+    if (!isStoreOpenNow(storeConfig)) {
+      return res.status(403).json({
+        code: 'STORE_CLOSED',
+        message: 'A loja está fechada no momento. Volte em nosso horário de atendimento.',
+      });
+    }
+
     const newOrder = {
       ...req.body,
       lojaId,

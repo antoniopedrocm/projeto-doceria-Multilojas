@@ -83,6 +83,33 @@ const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) =
 
 const getStoreConfigDocRef = (storeId) => doc(db, 'lojas', storeId, 'configuracoes', CONFIG_DOC_ID);
 
+
+const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
+const WEEKDAYS = [
+  { key: 'mon', label: 'Segunda-feira' },
+  { key: 'tue', label: 'Terça-feira' },
+  { key: 'wed', label: 'Quarta-feira' },
+  { key: 'thu', label: 'Quinta-feira' },
+  { key: 'fri', label: 'Sexta-feira' },
+  { key: 'sat', label: 'Sábado' },
+  { key: 'sun', label: 'Domingo' }
+];
+
+const buildDefaultStoreSchedule = () => WEEKDAYS.reduce((acc, day) => ({
+  ...acc,
+  [day.key]: { enabled: false, open: '08:00', close: '18:00' }
+}), {});
+
+const getDefaultStoreHoursConfig = () => ({
+  timezone: DEFAULT_STORE_TIMEZONE,
+  schedule: buildDefaultStoreSchedule(),
+  manualOverride: {
+    mode: 'auto',
+    updatedAt: null,
+    updatedBy: ''
+  }
+});
+
 const COLLECTIONS_TO_SYNC = [
   'produtos',
   'subcategorias',
@@ -5314,6 +5341,9 @@ const effectiveStoreName = useMemo(() => {
     const [freteConfig, setFreteConfig] = useState({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
     const [isSavingFrete, setIsSavingFrete] = useState(false);
 
+    const [storeHoursConfig, setStoreHoursConfig] = useState(getDefaultStoreHoursConfig());
+    const [isSavingStoreHours, setIsSavingStoreHours] = useState(false);
+
     useEffect(() => {
         if (activeTab !== 'frete') return;
 
@@ -5363,6 +5393,46 @@ const effectiveStoreName = useMemo(() => {
             }
         };
         fetchFreteConfig();
+
+
+    useEffect(() => {
+        if (activeTab !== 'funcionamento') return;
+
+        if (!effectiveStoreId) {
+            setStoreHoursConfig(getDefaultStoreHoursConfig());
+            return;
+        }
+
+        const fetchStoreHoursConfig = async () => {
+            try {
+                const configRef = getStoreConfigDocRef(effectiveStoreId);
+                const configSnap = await getDoc(configRef);
+                if (!configSnap.exists()) {
+                    setStoreHoursConfig(getDefaultStoreHoursConfig());
+                    return;
+                }
+
+                const configData = configSnap.data() || {};
+                const mergedSchedule = {
+                    ...buildDefaultStoreSchedule(),
+                    ...(configData.schedule || {})
+                };
+
+                setStoreHoursConfig({
+                    timezone: configData.timezone || DEFAULT_STORE_TIMEZONE,
+                    schedule: mergedSchedule,
+                    manualOverride: {
+                        mode: configData?.manualOverride?.mode || 'auto',
+                        updatedAt: configData?.manualOverride?.updatedAt || null,
+                        updatedBy: configData?.manualOverride?.updatedBy || ''
+                    }
+                });
+            } catch (error) {
+                console.error('Erro ao carregar horário de funcionamento:', error);
+            }
+        };
+
+        fetchStoreHoursConfig();
     }, [activeTab, effectiveStoreId]);
 	
 	//Limpeza quando o componente desmontar
@@ -5697,6 +5767,91 @@ const effectiveStoreName = useMemo(() => {
         }
     };
 
+
+    const updateScheduleDay = (dayKey, field, value) => {
+        setStoreHoursConfig((prev) => ({
+            ...prev,
+            schedule: {
+                ...prev.schedule,
+                [dayKey]: {
+                    ...(prev.schedule?.[dayKey] || { enabled: false, open: '08:00', close: '18:00' }),
+                    [field]: value
+                }
+            }
+        }));
+    };
+
+    const handleSaveStoreHoursConfig = async (event) => {
+        event.preventDefault();
+
+        if (!effectiveStoreId) {
+            alert('Selecione uma loja específica para salvar o horário de funcionamento.');
+            return;
+        }
+
+        for (const day of WEEKDAYS) {
+            const dayConfig = storeHoursConfig.schedule?.[day.key];
+            if (!dayConfig?.enabled) continue;
+            if (!dayConfig.open || !dayConfig.close) {
+                alert(`Preencha abre e fecha para ${day.label}.`);
+                return;
+            }
+            if (dayConfig.close <= dayConfig.open) {
+                alert(`O horário de fechamento de ${day.label} deve ser maior que o de abertura.`);
+                return;
+            }
+        }
+
+        setIsSavingStoreHours(true);
+        try {
+            const configRef = getStoreConfigDocRef(effectiveStoreId);
+            await setDoc(configRef, {
+                timezone: storeHoursConfig.timezone || DEFAULT_STORE_TIMEZONE,
+                schedule: storeHoursConfig.schedule || buildDefaultStoreSchedule(),
+                manualOverride: {
+                    ...(storeHoursConfig.manualOverride || { mode: 'auto' }),
+                    updatedAt: serverTimestamp(),
+                    updatedBy: user?.auth?.email || user?.email || 'Sistema'
+                }
+            }, { merge: true });
+            alert('Horário de funcionamento salvo com sucesso!');
+        } catch (error) {
+            console.error('Erro ao salvar horário de funcionamento:', error);
+            alert('Não foi possível salvar o horário de funcionamento.');
+        } finally {
+            setIsSavingStoreHours(false);
+        }
+    };
+
+    const handleManualOverrideChange = async (mode) => {
+        if (!effectiveStoreId) {
+            alert('Selecione uma loja específica para alterar o status da loja.');
+            return;
+        }
+
+        try {
+            const configRef = getStoreConfigDocRef(effectiveStoreId);
+            await setDoc(configRef, {
+                manualOverride: {
+                    mode,
+                    updatedAt: serverTimestamp(),
+                    updatedBy: user?.auth?.email || user?.email || 'Sistema'
+                }
+            }, { merge: true });
+            setStoreHoursConfig((prev) => ({
+                ...prev,
+                manualOverride: {
+                    ...prev.manualOverride,
+                    mode,
+                    updatedBy: user?.auth?.email || user?.email || 'Sistema'
+                }
+            }));
+        } catch (error) {
+            console.error('Erro ao atualizar override manual da loja:', error);
+            alert('Não foi possível atualizar o status da loja.');
+        }
+    };
+
     const processedLogs = useMemo(() => {
         if (!data.logs || !Array.isArray(data.logs)) return [];
         return data.logs.map(log => {
@@ -5814,6 +5969,9 @@ const effectiveStoreName = useMemo(() => {
                     </button>
                     <button onClick={() => setActiveTab('frete')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'frete' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
                         Frete
+                    </button>
+                    <button onClick={() => setActiveTab('funcionamento')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'funcionamento' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
+                        Funcionamento
                     </button>
                     <button onClick={() => setActiveTab('logs')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'logs' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
                         Logs de Atividade
@@ -6000,6 +6158,85 @@ const effectiveStoreName = useMemo(() => {
                                 </Button>
                             </div>
                         </form>
+                    </div>
+                )
+
+            )}
+
+            {activeTab === 'funcionamento' && (
+                !effectiveStoreId ? (
+                    <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6 text-center text-gray-500">
+                        Selecione uma loja no topo da página para configurar o funcionamento.
+                    </div>
+                ) : (
+                    <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6 space-y-6">
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-800">Horário de funcionamento</h3>
+                            <p className="text-sm text-gray-500">Defina o fuso e os horários por dia da semana para esta loja.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input
+                                label="Fuso horário"
+                                value={storeHoursConfig.timezone || DEFAULT_STORE_TIMEZONE}
+                                onChange={(e) => setStoreHoursConfig((prev) => ({ ...prev, timezone: e.target.value }))}
+                                placeholder="America/Sao_Paulo"
+                            />
+                        </div>
+
+                        <div className="space-y-3">
+                            {WEEKDAYS.map((day) => {
+                                const dayConfig = storeHoursConfig.schedule?.[day.key] || { enabled: false, open: '08:00', close: '18:00' };
+                                return (
+                                    <div key={day.key} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end border border-gray-100 rounded-xl p-3">
+                                        <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(dayConfig.enabled)}
+                                                onChange={(e) => updateScheduleDay(day.key, 'enabled', e.target.checked)}
+                                            />
+                                            {day.label}
+                                        </label>
+                                        <Input
+                                            label="Abre"
+                                            type="time"
+                                            value={dayConfig.open || '08:00'}
+                                            onChange={(e) => updateScheduleDay(day.key, 'open', e.target.value)}
+                                            disabled={!dayConfig.enabled}
+                                        />
+                                        <Input
+                                            label="Fecha"
+                                            type="time"
+                                            value={dayConfig.close || '18:00'}
+                                            onChange={(e) => updateScheduleDay(day.key, 'close', e.target.value)}
+                                            disabled={!dayConfig.enabled}
+                                        />
+                                        <p className="text-xs text-gray-500">{dayConfig.enabled ? 'Dia ativo' : 'Fechado neste dia'}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="border border-gray-100 rounded-xl p-4 space-y-3">
+                            <h4 className="font-semibold text-gray-800">Status da loja (override manual)</h4>
+                            <div className="flex flex-wrap gap-2">
+                                <Button type="button" variant={storeHoursConfig.manualOverride?.mode === 'force_open' ? 'primary' : 'secondary'} onClick={() => handleManualOverrideChange('force_open')}>
+                                    Abrir agora
+                                </Button>
+                                <Button type="button" variant={storeHoursConfig.manualOverride?.mode === 'force_closed' ? 'primary' : 'secondary'} onClick={() => handleManualOverrideChange('force_closed')}>
+                                    Fechar agora
+                                </Button>
+                                <Button type="button" variant={storeHoursConfig.manualOverride?.mode === 'auto' ? 'primary' : 'secondary'} onClick={() => handleManualOverrideChange('auto')}>
+                                    Usar horário automático
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <Button type="button" onClick={handleSaveStoreHoursConfig} disabled={isSavingStoreHours}>
+                                <Save className="w-4 h-4" /> {isSavingStoreHours ? 'Salvando...' : 'Salvar horário de funcionamento'}
+                            </Button>
+                        </div>
                     </div>
                 )
             )}

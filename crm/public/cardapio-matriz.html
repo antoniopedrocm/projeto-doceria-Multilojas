@@ -339,6 +339,7 @@
 
     <!-- CONTEÚDO PRINCIPAL -->
     <main class="container mx-auto px-6 py-8">
+        <div id="store-status-banner" class="hidden mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"></div>
         <div id="product-list" class="space-y-12">
             <div id="loading-message" class="col-span-full flex flex-col items-center justify-center py-16">
                 <div class="loader"></div>
@@ -988,6 +989,8 @@
 
         // --- VARIÁVEIS GLOBAIS ---
         const WHATSAPP_NUMBER = '5562991056075';
+        const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
+        const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
         const STORE_ID = window.STORE_ID || 'ana-guimaraes-matriz';
         const CONFIG_DOC_ID = 'config';
         const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
@@ -1013,11 +1016,13 @@
         window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
         let storeConfig = {};
+        let storeIsOpenNow = true;
 
         // --- SELEÇÃO DE ELEMENTOS DOM ---
         const productList = document.getElementById('product-list'),
               subcategoryNav = document.getElementById('subcategory-nav'),
               loadingMessage = document.getElementById('loading-message'),
+              storeStatusBanner = document.getElementById('store-status-banner'),
               cartButton = document.getElementById('cart-button'),
               cartModal = document.getElementById('cart-modal'),
               closeCartButton = document.getElementById('close-cart'),
@@ -1081,6 +1086,12 @@
             try {
                 console.log(`🚀 Inicializando aplicação (${reason})...`);
                 await fetchStoreConfig();
+                const { db, doc, onSnapshot } = await import('./firebaseClientConfig.js');
+                onSnapshot(doc(db, ...storeConfigDocPath()), (snap) => {
+                    if (!snap.exists()) return;
+                    storeConfig = snap.data() || {};
+                    syncStoreAvailabilityStatus();
+                });
                 await fetchProducts();
                 setupEventListeners();
                 renderCart();
@@ -1138,6 +1149,7 @@
                     const data = configDoc.data() || {};
                     storeConfig = data.frete || data;
                     console.log("✅ Configurações da loja carregadas:", storeConfig);
+                    syncStoreAvailabilityStatus();
                     return;
                 }
 
@@ -1147,6 +1159,7 @@
                     const data = storeConfigDoc.data();
                     storeConfig = data?.frete || data || {};
                     console.log("✅ Configurações da loja carregadas:", storeConfig);
+                    syncStoreAvailabilityStatus();
                     return;
                 }
 
@@ -1154,6 +1167,7 @@
                 if (legacyFreteDoc.exists()) {
                     storeConfig = legacyFreteDoc.data();
                     console.log("⚠️ Usando configuração legada da loja:", storeConfig);
+                    syncStoreAvailabilityStatus();
                     return;
                 }
 
@@ -1161,6 +1175,7 @@
                 if (fallbackConfig.exists()) {
                     storeConfig = fallbackConfig.data();
                     console.log("⚠️ Configurações específicas não encontradas. Usando fallback padrão:", storeConfig);
+                    syncStoreAvailabilityStatus();
                 }
             } catch (error) {
                 console.error("Erro ao carregar configurações:", error);
@@ -1457,12 +1472,87 @@
         }
         window.showToast = showToast;
 
+        function parseTimeToMinutes(value) {
+            if (!value || typeof value !== "string") return null;
+            const match = value.match(/^(\d{2}):(\d{2})$/);
+            if (!match) return null;
+            const hh = Number(match[1]);
+            const mm = Number(match[2]);
+            if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+            return (hh * 60) + mm;
+        }
+
+        function getTimeDataForTimezone(timezone) {
+            try {
+                const formatter = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: timezone || DEFAULT_STORE_TIMEZONE,
+                    weekday: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                const parts = formatter.formatToParts(new Date());
+                const weekdayRaw = (parts.find((part) => part.type === 'weekday')?.value || 'sun').toLowerCase().slice(0, 3);
+                const weekdayMap = { mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat', sun: 'sun' };
+                const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+                const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+                return { weekday: weekdayMap[weekdayRaw] || 'sun', minutes: (hour * 60) + minute };
+            } catch (error) {
+                console.error('Falha ao converter horário da loja:', error);
+                return { weekday: 'sun', minutes: 0 };
+            }
+        }
+
+        function isStoreOpenNow(config) {
+            const overrideMode = config?.manualOverride?.mode || 'auto';
+            if (overrideMode === 'force_open') return true;
+            if (overrideMode === 'force_closed') return false;
+
+            const timezone = config?.timezone || DEFAULT_STORE_TIMEZONE;
+            const schedule = config?.schedule || {};
+            const { weekday, minutes } = getTimeDataForTimezone(timezone);
+            const day = schedule?.[weekday];
+            if (!day || !day.enabled) return false;
+
+            const openMinutes = parseTimeToMinutes(day.open);
+            const closeMinutes = parseTimeToMinutes(day.close);
+            if (openMinutes === null || closeMinutes === null) return false;
+            if (closeMinutes <= openMinutes) return false;
+
+            return minutes >= openMinutes && minutes < closeMinutes;
+        }
+
+        function updateStoreAvailabilityUI() {
+            const isClosed = !storeIsOpenNow;
+            if (checkoutButton) checkoutButton.disabled = isClosed;
+            if (checkoutButton) checkoutButton.classList.toggle('opacity-60', isClosed);
+            if (checkoutButton) checkoutButton.classList.toggle('cursor-not-allowed', isClosed);
+
+            if (storeStatusBanner) {
+                if (isClosed) {
+                    storeStatusBanner.textContent = 'A loja está fechada no momento. Volte em nosso horário de atendimento.';
+                    storeStatusBanner.classList.remove('hidden');
+                } else {
+                    storeStatusBanner.classList.add('hidden');
+                }
+            }
+        }
+
+        function syncStoreAvailabilityStatus() {
+            storeIsOpenNow = isStoreOpenNow(storeConfig || {});
+            updateStoreAvailabilityUI();
+        }
+
         // Event Listeners
         function setupEventListeners() {
             cartButton.addEventListener('click', () => cartModal.classList.remove('hidden'));
             closeCartButton.addEventListener('click', () => cartModal.classList.add('hidden'));
             
             checkoutButton.addEventListener('click', () => { 
+                if (!storeIsOpenNow) {
+                    showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
+                    return;
+                }
                 if (cart.length === 0) { 
                     showToast('Seu carrinho está vazio!', true); 
                     return; 
@@ -2051,6 +2141,10 @@
             const codigo = cupomInput.value.trim().toUpperCase(); 
             if (!codigo) { showToast('Digite um cupom.', true); return; }
             
+            if (!storeIsOpenNow) {
+                showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
+                throw new Error('STORE_CLOSED');
+            }
             const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0); 
             if (subtotal <= 0) { showToast('Adicione itens ao carrinho.', true); return; }
             
@@ -2185,6 +2279,10 @@
         }
 
         async function finalizeOrder(clientInfo, clientId, isPlatform) {
+            if (!storeIsOpenNow) {
+                showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
+                throw new Error('STORE_CLOSED');
+            }
             const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
             let cupomData = null;
             if(appliedCupom) {
@@ -2193,7 +2291,7 @@
             const desconto = cupomData?.valorDesconto || 0;
             const total = subtotal - desconto + window.valorFrete;
             
-            const { db, collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, getDoc } = await import('./firebaseClientConfig.js');
+            const { db, doc, updateDoc, arrayUnion, getDoc } = await import('./firebaseClientConfig.js');
             
             const orderData = {
                 clienteId: clientId,
@@ -2210,7 +2308,22 @@
             };
 
             try {
-                const docRef = await addDoc(collection(db, ...storePath("pedidos")), orderData);
+                const response = await fetch(`${API_BASE_URL}/pedidos?lojaId=${encodeURIComponent(STORE_ID)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(orderData)
+                });
+
+                const responseData = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    if (responseData?.code === 'STORE_CLOSED') {
+                        showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
+                        throw new Error('STORE_CLOSED');
+                    }
+                    throw new Error(responseData?.message || 'Erro ao criar pedido.');
+                }
+
+                const docRef = { id: responseData.id || 'sem-id' };
 
                 // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE ESTOQUE ---
                 for (const item of cart) {
