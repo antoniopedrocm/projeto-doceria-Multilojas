@@ -5394,6 +5394,8 @@ const effectiveStoreName = useMemo(() => {
         };
         fetchFreteConfig();
 
+    }, [activeTab, effectiveStoreId]);
+
 
     useEffect(() => {
         if (activeTab !== 'funcionamento') return;
