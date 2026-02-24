@@ -2320,6 +2320,19 @@ function App() {
   const [data, setData] = useState(getInitialDataState());
   const [loading, setLoading] = useState(true);
   const userId = user?.auth?.uid || null;
+  const isGeneralViewSelected = user?.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY;
+  const selectedStoreIdForAlarm = useMemo(() => {
+    if (!user || isGeneralViewSelected) return null;
+    if (selectedStoreId) return selectedStoreId;
+    if (availableStores.length) return availableStores[0];
+    if (user.lojaIds && user.lojaIds.length) return user.lojaIds[0];
+    return user.lojaId || null;
+  }, [user, isGeneralViewSelected, selectedStoreId, availableStores]);
+
+  const hasPendingOrdersForSelectedStore = useMemo(() => {
+    if (!selectedStoreIdForAlarm) return false;
+    return (data.pedidos || []).some((order) => order.status === 'Pendente' && order.lojaId === selectedStoreIdForAlarm);
+  }, [data.pedidos, selectedStoreIdForAlarm]);
 
   
    const resolveStoreIdsForView = useCallback(() => {
@@ -2734,6 +2747,19 @@ function App() {
   
    const handleIncomingPushNotification = useCallback((payload) => {
     console.log('[App.js] Notificação push recebida:', payload);
+
+    if (isGeneralViewSelected || !selectedStoreIdForAlarm) {
+      stopAlarm();
+      return;
+    }
+
+    const hasPendingForStore = (dataRef.current.pedidos || []).some(
+      (order) => order.status === 'Pendente' && order.lojaId === selectedStoreIdForAlarm
+    );
+    if (!hasPendingForStore) {
+      return;
+    }
+
     setHasNewPendingOrders(true);
 
     if (isSnoozedRef.current) {
@@ -2744,7 +2770,7 @@ function App() {
     if (typeof playAlarmRef.current === 'function') {
       playAlarmRef.current();
     }
-  }, []);
+  }, [isGeneralViewSelected, selectedStoreIdForAlarm, stopAlarm]);
 
   useEffect(() => {
     if (!userId) {
@@ -2842,7 +2868,9 @@ function App() {
         console.log('[App.js] Soneca terminada');
         
         // Verifica se ainda existem pedidos pendentes para tocar o alarme novamente
-        const hasPending = dataRef.current.pedidos && dataRef.current.pedidos.some(p => p.status === 'Pendente');
+        const hasPending = !isGeneralViewSelected && selectedStoreIdForAlarm && dataRef.current.pedidos && dataRef.current.pedidos.some(
+          (p) => p.status === 'Pendente' && p.lojaId === selectedStoreIdForAlarm
+        );
         if (hasPending) {
           console.log('[App.js] Pedidos pendentes encontrados após soneca, reativando alarme.');
           setHasNewPendingOrders(true); // Garante que o banner apareça (se necessário)
@@ -2853,7 +2881,7 @@ function App() {
       } 
       // O display do timer é gerenciado localmente pelo Dashboard
     }, 1000); // Atualiza a cada segundo
-  }, [stopAlarm]); // Removidas dependências instáveis (data, playAlarm, unlockAudio)
+  }, [stopAlarm, isGeneralViewSelected, selectedStoreIdForAlarm]); // Removidas dependências instáveis (data, playAlarm, unlockAudio)
 
   // EFFECT PARA SINCRONIZAR DADOS DO FIREBASE
         useEffect(() => {
@@ -2968,7 +2996,7 @@ function App() {
                                     if (initialDataLoaded.current) {
                                           const newPendingOrdersDetected = changes.some(change => change.type === 'added' && change.doc.data().status === 'Pendente');
 
-                                          if (newPendingOrdersDetected && !isAlarmPlaying && !isSnoozedRef.current) {
+                                          if (newPendingOrdersDetected && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlaying && !isSnoozedRef.current) {
                                                 console.log('[App.js] Novo pedido pendente detectado pelo listener!');
                                                 setHasNewPendingOrders(true);
 
@@ -3056,9 +3084,15 @@ function App() {
                 unsubscribes.forEach(unsubscribe => unsubscribe());
                 initialDataLoaded.current = false;
           };
-        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection]);
+        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm]);
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
+        if (isGeneralViewSelected) {
+          setHasNewPendingOrders(false);
+          stopAlarm();
+          return;
+        }
+
         const hasAnyPending = data.pedidos && data.pedidos.some(p => p.status === 'Pendente');
 
         if (!hasAnyPending && !isAlarmSnoozed) {
@@ -3066,18 +3100,18 @@ function App() {
           setHasNewPendingOrders(false);
           stopAlarm();
         }
-    }, [data.pedidos, isAlarmSnoozed, stopAlarm]);
+    }, [data.pedidos, isAlarmSnoozed, stopAlarm, isGeneralViewSelected]);
 
     // Garante que o alarme continue tocando enquanto houver pedidos pendentes
     useEffect(() => {
-        const hasPendingOrders = pendingOrders.some(order => order.status === 'Pendente');
+        const shouldPlayAlarm = !isGeneralViewSelected && !!selectedStoreIdForAlarm && hasPendingOrdersForSelectedStore && !isAlarmSnoozed;
 
-        if (audioAllowed && hasPendingOrders && !isAlarmSnoozed && !isAlarmPlaying) {
+        if (audioAllowed && shouldPlayAlarm && !isAlarmPlaying) {
           console.log('[App.js] Pedidos pendentes encontrados enquanto o alarme estava parado. Reativando alarme.');
           setHasNewPendingOrders(true);
           playAlarmRef.current();
         }
-    }, [audioAllowed, pendingOrders, isAlarmSnoozed, isAlarmPlaying]);
+    }, [audioAllowed, isGeneralViewSelected, selectedStoreIdForAlarm, hasPendingOrdersForSelectedStore, isAlarmSnoozed, isAlarmPlaying]);
 
   // --- REMOVIDO: Antigo useEffect de desbloqueio ---
   // useEffect(() => { if (audioUnlocked && ...) ... });
