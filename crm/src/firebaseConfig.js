@@ -27,11 +27,10 @@ const firebaseConfig = {
   authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') ||
     'ana-guimaraes.firebaseapp.com',
   projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
-  // Use the default Firebase storage host (appspot.com). The previous value
-  // pointed to firebasestorage.app, which is only for direct download links
-  // and breaks SDK requests.
+  // Keep the bucket aligned with the Firebase console for this project.
+  // Uploads from the CRM depend on this exact bucket name.
   storageBucket:
-    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.appspot.com',
+    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.firebasestorage.app',
   messagingSenderId:
     envVar('REACT_APP_FIREBASE_MESSAGING_SENDER_ID') || '847824537421',
   appId:
