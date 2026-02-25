@@ -10,7 +10,6 @@ import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 import {
   getMessaging,
-  getToken,
   isSupported as messagingIsSupported,
 } from 'firebase/messaging';
 
@@ -97,19 +96,6 @@ export const messagingPromise = (async () => {
     const supported = await messagingIsSupported();
     if (!supported) return null;
     const messaging = getMessaging(app);
-    if (!VAPID_KEY) {
-      return messaging;
-    }
-    // Request permission to send notifications.  This must be
-    // triggered from a user gesture in most browsers; failure to
-    // request here will cause the promise to reject.
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      console.warn('🔔 Notification permission not granted');
-      return messaging;
-    }
-
-    await getToken(messaging, { vapidKey: VAPID_KEY });
     return messaging;
   } catch (err) {
     console.error('Failed to initialise Firebase Messaging:', err);

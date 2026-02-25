@@ -94,6 +94,20 @@ export async function registerDeviceForPush(uid) {
 
     return token;
   } catch (error) {
+    const errorCode = error?.code || "";
+    const errorMessage = String(error?.message || "");
+    const isForbiddenTokenError =
+      errorCode.includes("messaging/token-subscribe-failed") ||
+      errorMessage.includes("registrations.googleapis.com") ||
+      errorMessage.includes("403");
+
+    if (isForbiddenTokenError) {
+      console.warn(
+        "Falha ao obter token de push (FCM 403). As demais funcionalidades continuarão operando normalmente."
+      );
+      return null;
+    }
+
     console.error("Falha ao registrar notificações push:", error);
     throw error;
   }
