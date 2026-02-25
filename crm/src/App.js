@@ -42,6 +42,9 @@ const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const CONFIG_DOC_ID = 'config';
+const DEFAULT_ALARM_PAUSE_MINUTES = 5;
+const MIN_ALARM_PAUSE_MINUTES = 1;
+const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
 const MENU_PERMISSION_KEYS = [
@@ -83,6 +86,16 @@ const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) =
 
 const getStoreConfigDocRef = (storeId) => doc(db, 'lojas', storeId, 'configuracoes', CONFIG_DOC_ID);
 
+const sanitizeAlarmPauseMinutes = (value) => {
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) return DEFAULT_ALARM_PAUSE_MINUTES;
+  const roundedValue = Math.round(parsedValue);
+  if (roundedValue < MIN_ALARM_PAUSE_MINUTES || roundedValue > MAX_ALARM_PAUSE_MINUTES) {
+    return DEFAULT_ALARM_PAUSE_MINUTES;
+  }
+  return roundedValue;
+};
+
 
 const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
 const WEEKDAYS = [
@@ -103,6 +116,7 @@ const buildDefaultStoreSchedule = () => WEEKDAYS.reduce((acc, day) => ({
 const getDefaultStoreHoursConfig = () => ({
   timezone: DEFAULT_STORE_TIMEZONE,
   schedule: buildDefaultStoreSchedule(),
+  alarmPauseMinutes: DEFAULT_ALARM_PAUSE_MINUTES,
   manualOverride: {
     mode: 'auto',
     updatedAt: null,
@@ -2328,6 +2342,37 @@ function App() {
     if (user.lojaIds && user.lojaIds.length) return user.lojaIds[0];
     return user.lojaId || null;
   }, [user, isGeneralViewSelected, selectedStoreId, availableStores]);
+  const [resolvedAlarmPauseMinutes, setResolvedAlarmPauseMinutes] = useState(DEFAULT_ALARM_PAUSE_MINUTES);
+
+  useEffect(() => {
+    if (isGeneralViewSelected || !selectedStoreIdForAlarm) {
+      setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchAlarmPauseMinutes = async () => {
+      try {
+        const configSnap = await getDoc(getStoreConfigDocRef(selectedStoreIdForAlarm));
+        if (!isMounted) return;
+
+        const configData = configSnap.exists() ? (configSnap.data() || {}) : {};
+        setResolvedAlarmPauseMinutes(sanitizeAlarmPauseMinutes(configData.alarmPauseMinutes));
+      } catch (error) {
+        console.error('[App.js] Erro ao buscar tempo de pausa do alarme:', error);
+        if (isMounted) {
+          setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
+        }
+      }
+    };
+
+    fetchAlarmPauseMinutes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isGeneralViewSelected, selectedStoreIdForAlarm]);
 
   const hasPendingOrdersForSelectedStore = useMemo(() => {
     if (!selectedStoreIdForAlarm) return false;
@@ -2848,7 +2893,7 @@ function App() {
 	setStopAlarmFn(null); // Limpa o estado da função de parada
     setIsAlarmSnoozed(true); // Ativa o estado de soneca
     
-    const endTime = new Date().getTime() + (5 * 60 * 1000); // 5 minutos a partir de agora
+    const endTime = new Date().getTime() + (resolvedAlarmPauseMinutes * 60 * 1000);
     setSnoozeEndTime(endTime); // Define o tempo final da soneca
     
     // Limpa timer anterior se existir
@@ -2881,7 +2926,7 @@ function App() {
       } 
       // O display do timer é gerenciado localmente pelo Dashboard
     }, 1000); // Atualiza a cada segundo
-  }, [stopAlarm, isGeneralViewSelected, selectedStoreIdForAlarm]); // Removidas dependências instáveis (data, playAlarm, unlockAudio)
+  }, [stopAlarm, isGeneralViewSelected, selectedStoreIdForAlarm, resolvedAlarmPauseMinutes]); // Removidas dependências instáveis (data, playAlarm, unlockAudio)
 
   // EFFECT PARA SINCRONIZAR DADOS DO FIREBASE
         useEffect(() => {
@@ -4451,7 +4496,7 @@ function App() {
   };
 
   // --- CORREÇÃO: Props do Dashboard atualizadas ---
-  const Dashboard = ({handleStopAndSnoozeAlarm, isAlarmPlaying, isAlarmSnoozed, hasNewPendingOrders, snoozeEndTime}) => {
+  const Dashboard = ({handleStopAndSnoozeAlarm, isAlarmPlaying, isAlarmSnoozed, hasNewPendingOrders, snoozeEndTime, alarmPauseMinutes}) => {
     const { pedidos, clientes } = data;
     
     // --- CORREÇÃO: Lógica de display da soneca movida para dentro do Dashboard ---
@@ -4632,7 +4677,7 @@ function App() {
                           className="text-xs" // Deixa o botão um pouco menor
                         >
                           <VolumeX className="w-4 h-4 mr-1" />
-                          {isAlarmPlaying ? "Parar" : "Pausar (5min)"}
+                          {isAlarmPlaying ? "Parar" : `Pausar (${alarmPauseMinutes}min)`}
                         </Button>
                       </div>
                     </div>
@@ -5457,6 +5502,7 @@ const effectiveStoreName = useMemo(() => {
                 setStoreHoursConfig({
                     timezone: configData.timezone || DEFAULT_STORE_TIMEZONE,
                     schedule: mergedSchedule,
+                    alarmPauseMinutes: sanitizeAlarmPauseMinutes(configData.alarmPauseMinutes),
                     manualOverride: {
                         mode: configData?.manualOverride?.mode || 'auto',
                         updatedAt: configData?.manualOverride?.updatedAt || null,
@@ -5844,6 +5890,7 @@ const effectiveStoreName = useMemo(() => {
             await setDoc(configRef, {
                 timezone: storeHoursConfig.timezone || DEFAULT_STORE_TIMEZONE,
                 schedule: storeHoursConfig.schedule || buildDefaultStoreSchedule(),
+                alarmPauseMinutes: sanitizeAlarmPauseMinutes(storeHoursConfig.alarmPauseMinutes),
                 manualOverride: {
                     ...(storeHoursConfig.manualOverride || { mode: 'auto' }),
                     updatedAt: serverTimestamp(),
@@ -6217,6 +6264,17 @@ const effectiveStoreName = useMemo(() => {
                                 value={storeHoursConfig.timezone || DEFAULT_STORE_TIMEZONE}
                                 onChange={(e) => setStoreHoursConfig((prev) => ({ ...prev, timezone: e.target.value }))}
                                 placeholder="America/Sao_Paulo"
+                            />
+                            <Input
+                                label="Tempo de pausa do alarme (min)"
+                                type="number"
+                                min={MIN_ALARM_PAUSE_MINUTES}
+                                max={MAX_ALARM_PAUSE_MINUTES}
+                                value={storeHoursConfig.alarmPauseMinutes ?? DEFAULT_ALARM_PAUSE_MINUTES}
+                                onChange={(e) => setStoreHoursConfig((prev) => ({
+                                    ...prev,
+                                    alarmPauseMinutes: sanitizeAlarmPauseMinutes(e.target.value)
+                                }))}
                             />
                         </div>
 
@@ -7437,6 +7495,7 @@ const handleSubmit = async (e) => {
                                         isAlarmSnoozed={isAlarmSnoozed}
                                         snoozeEndTime={snoozeEndTime}
                                         hasNewPendingOrders={hasNewPendingOrders}
+                                        alarmPauseMinutes={resolvedAlarmPauseMinutes}
                                         // --- REMOVIDO: unlockAudio e audioUnlocked ---
                                         /> : <PaginaInicial />;
       case 'clientes': return userHasPermission('clientes') ? <Clientes /> : <PaginaInicial />;
