@@ -55,12 +55,14 @@ const db = getFirestore(app);
 // Authentication service.
 const auth = getAuth(app);
 
-// Some Firebase projects restrict anonymous authentication at the admin
-// level.  Anonymous auth is now enabled by default (so freshly enabled
-// Firebase settings work out of the box), but you can disable it by
-// setting `window.DISABLE_ANON_AUTH = true` before loading this script
-// if the project explicitly blocks anonymous sessions.
-const ANONYMOUS_AUTH_ENABLED = window.DISABLE_ANON_AUTH !== true;
+// Some Firebase projects restrict anonymous authentication and return
+// 403 errors from securetoken.googleapis.com when visitors first open
+// the public page.  To avoid noisy errors for unauthenticated visitors,
+// anonymous auth is opt-in and only enabled when explicitly requested.
+//
+// Enable it by setting `window.ENABLE_ANON_AUTH = true` before loading
+// this script on pages that truly need anonymous sessions.
+const ANONYMOUS_AUTH_ENABLED = window.ENABLE_ANON_AUTH === true;
 
 if (!ANONYMOUS_AUTH_ENABLED) {
   window.firebaseAnonAuthUnavailable = true;
