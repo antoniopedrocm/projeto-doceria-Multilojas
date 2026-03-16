@@ -4980,7 +4980,9 @@ function App() {
       }
     };
 
-    const filteredProducts = (data.produtos || []).filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+    const filteredProducts = (data.produtos || [])
+      .filter((p) => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()))
+      .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     useEffect(() => {
       setStatusOverrides(prev => {
