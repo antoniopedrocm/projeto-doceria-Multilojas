@@ -17,7 +17,7 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -46,6 +46,19 @@ const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
 const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
+
+const isSafariBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+
+  const userAgent = navigator.userAgent || '';
+  const vendor = navigator.vendor || '';
+
+  const hasSafariToken = /safari/i.test(userAgent);
+  const isAppleVendor = /apple/i.test(vendor);
+  const excludedBrowsersRegex = /(chrome|crios|android|edg|edge|edgios|opr|opera|fxios|firefox|samsungbrowser)/i;
+
+  return hasSafariToken && isAppleVendor && !excludedBrowsersRegex.test(userAgent);
+};
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
 const MENU_PERMISSION_KEYS = [
   'pagina-inicial',
@@ -3522,8 +3535,26 @@ function App() {
     const handleGoogleSignIn = async () => {
         setLoginError('');
         const provider = new GoogleAuthProvider();
+        const isSafari = isSafariBrowser();
+
+        console.log('[Auth][Google] Browser detect:', isSafari ? 'Safari' : 'Non-Safari');
+
         try {
-            await setPersistence(auth, browserLocalPersistence);
+            try {
+                await setPersistence(auth, browserLocalPersistence);
+            } catch (persistError) {
+                console.warn('[Auth][Google] local persistence failed, falling back to session:', persistError?.code || persistError);
+                await setPersistence(auth, browserSessionPersistence);
+            }
+
+            if (isSafari) {
+                console.log('[Auth][Google] Method: redirect');
+                sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, 'true');
+                await signInWithRedirect(auth, provider);
+                return;
+            }
+
+            console.log('[Auth][Google] Method: popup');
             await signInWithPopup(auth, provider);
             sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
             setShowLogin(false);
@@ -3533,14 +3564,15 @@ function App() {
 
             if (fallbackToRedirect) {
                 try {
+                    console.log('[Auth][Google] Method fallback: redirect');
                     sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, 'true');
                     await signInWithRedirect(auth, provider);
                     return;
                 } catch (redirectError) {
-                    console.error('Erro no fallback de redirect do Google:', redirectError);
+                    console.error('Erro no fallback de redirect do Google:', redirectError?.code || redirectError);
                 }
             }
-            console.error("Erro no login com Google:", error);
+            console.error("Erro no login com Google:", error?.code || error);
             setLoginError('Ocorreu um erro ao entrar com Google.');
         }
     };
@@ -3553,6 +3585,12 @@ function App() {
                 const result = await getRedirectResult(auth);
                 const googleUser = result?.user;
 
+                if (result) {
+                    console.log('[Auth][Google] getRedirectResult: success');
+                } else {
+                    console.log('[Auth][Google] getRedirectResult: no pending redirect result');
+                }
+
                 if (!googleUser?.email) {
                     return;
                 }
@@ -3563,7 +3601,7 @@ function App() {
                     setCurrentPage('dashboard');
                 }
             } catch (error) {
-                console.error("Erro ao processar retorno do login com Google:", error);
+                console.error("Erro ao processar retorno do login com Google:", error?.code || error);
                 if (active) {
                     setLoginError('Ocorreu um erro ao entrar com Google.');
                 }
