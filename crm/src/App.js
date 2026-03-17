@@ -5715,6 +5715,24 @@ const effectiveStoreName = useMemo(() => {
         }
     };
 
+    const toggleUserStoreSelection = useCallback((storeId, checked) => {
+        setUserFormData((prev) => {
+            const currentStores = Array.isArray(prev.lojaIds)
+                ? prev.lojaIds
+                : (prev.lojaId ? [prev.lojaId] : []);
+
+            const nextStores = checked
+                ? Array.from(new Set([...currentStores, storeId]))
+                : currentStores.filter((id) => id !== storeId);
+
+            return {
+                ...prev,
+                lojaIds: nextStores,
+                lojaId: nextStores[0] || ''
+            };
+        });
+    }, []);
+
 	const handleUserSubmit = async (e) => {
 	  e.preventDefault();
 	  
@@ -5729,15 +5747,18 @@ const effectiveStoreName = useMemo(() => {
 	  }
           try {
                 const selectedRole = normalizeRole(userFormData.role);
-                const singleStoreId = selectedRole === ROLE_OWNER ? null : (userFormData.lojaId || effectiveStoreId);
-                if (selectedRole !== ROLE_OWNER && !singleStoreId) {
+                const lojasSelecionadas = selectedRole === ROLE_OWNER
+                    ? (userFormData.lojaIds && userFormData.lojaIds.length ? userFormData.lojaIds : [])
+                    : (userFormData.lojaIds && userFormData.lojaIds.length
+                        ? userFormData.lojaIds
+                        : (userFormData.lojaId ? [userFormData.lojaId] : (effectiveStoreId ? [effectiveStoreId] : [])));
+                const singleStoreId = selectedRole === ROLE_OWNER ? null : (lojasSelecionadas[0] || null);
+
+                if (selectedRole !== ROLE_OWNER && !lojasSelecionadas.length) {
                     alert('Selecione uma loja para este usuário.');
                     return;
                 }
 
-                const lojasSelecionadas = selectedRole === ROLE_OWNER
-                    ? (userFormData.lojaIds && userFormData.lojaIds.length ? userFormData.lojaIds : [])
-                    : (singleStoreId ? [singleStoreId] : []);
                 const sanitizedPermissions = sanitizePermissions(userFormData.permissions, selectedRole);
                 const applyCustomProfile = Boolean(userFormData.applyCustomProfile);
                 const permissionsToPersist = applyCustomProfile
@@ -6485,11 +6506,14 @@ const effectiveStoreName = useMemo(() => {
                                     permissions: getDefaultPermissionsForRole(newRole)
                                 });
                             } else {
+                                const roleStores = userFormData.lojaIds && userFormData.lojaIds.length
+                                    ? userFormData.lojaIds
+                                    : (userFormData.lojaId ? [userFormData.lojaId] : (effectiveStoreId ? [effectiveStoreId] : []));
                                 setUserFormData({
                                     ...userFormData,
                                     role: newRole,
-                                    lojaId: userFormData.lojaId || effectiveStoreId || '',
-                                    lojaIds: userFormData.lojaId ? [userFormData.lojaId] : (effectiveStoreId ? [effectiveStoreId] : []),
+                                    lojaId: roleStores[0] || '',
+                                    lojaIds: roleStores,
                                     permissions: getDefaultPermissionsForRole(newRole)
                                 });
                             }
@@ -6521,21 +6545,31 @@ const effectiveStoreName = useMemo(() => {
                             <p className="text-xs text-gray-500">Deixe sem seleção para conceder acesso a todas as lojas.</p>
                         </div>
                     ) : (
-                        <Select
-                            label="Loja"
-                            value={userFormData.lojaId || ''}
-                            onChange={(e) => setUserFormData({ ...userFormData, lojaId: e.target.value })}
-                            required
-                            disabled={!availableStores.length}
-                        >
-                            <option value="">Selecione uma loja</option>
-                            {availableStores.map(storeId => (
-                                <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
-                            ))}
-                        </Select>
-                    )}
-                    {!availableStores.length && normalizeRole(userFormData.role) !== ROLE_OWNER && (
-                        <p className="text-xs text-red-500">Nenhuma loja disponível. Ajuste a seleção no topo da página antes de criar o usuário.</p>
+                        <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Lojas com acesso</label>
+                            <div className="w-full px-4 py-3 border rounded-xl bg-white space-y-2 max-h-44 overflow-auto">
+                                {availableStores.map((storeId) => {
+                                    const selectedStores = userFormData.lojaIds && userFormData.lojaIds.length
+                                        ? userFormData.lojaIds
+                                        : (userFormData.lojaId ? [userFormData.lojaId] : []);
+                                    const isChecked = selectedStores.includes(storeId);
+
+                                    return (
+                                        <label key={storeId} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => toggleUserStoreSelection(storeId, e.target.checked)}
+                                            />
+                                            <span>{storeInfoMap[storeId]?.nome || storeId}</span>
+                                        </label>
+                                    );
+                                })}
+                                {!availableStores.length && (
+                                    <p className="text-xs text-red-500">Nenhuma loja disponível. Ajuste a seleção no topo da página antes de criar o usuário.</p>
+                                )}
+                            </div>
+                        </div>
                     )}
 
                     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
