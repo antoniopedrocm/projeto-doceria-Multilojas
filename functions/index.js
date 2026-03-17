@@ -24,6 +24,7 @@ const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_CLIENT = 'cliente';
 const MENU_PERMISSION_KEYS = [
   'pagina-inicial',
   'dashboard',
@@ -41,9 +42,10 @@ const MENU_PERMISSION_KEYS = [
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_ATTENDANT;
   const value = role.toLowerCase();
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT].includes(value)) {
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT].includes(value)) {
     return value;
   }
+  if (value === 'client') return ROLE_CLIENT;
   if (value === 'admin') return ROLE_OWNER;
   return ROLE_ATTENDANT;
 };
@@ -77,6 +79,14 @@ const getDefaultPermissionsForRole = (role) => {
       'meu-espaco': true,
       financeiro: true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_CLIENT) {
+    return {
+      ...basePermissions,
+      'pagina-inicial': true,
+      'meu-espaco': true,
     };
   }
 
@@ -801,10 +811,12 @@ exports.listAllUsers = onCall(async (request) => {
 
         const combinedUsers = await Promise.all(usersFromAuth.map(async (userRecord) => {
             const firestoreData = usersDataFromFirestore[userRecord.uid] || {};
-            const role = normalizeRole(firestoreData.role);
+            const storedProfile = customProfiles[userRecord.uid];
+            const role = firestoreData.role
+                ? normalizeRole(firestoreData.role)
+                : (storedProfile?.role ? normalizeRole(storedProfile.role) : ROLE_CLIENT);
             const lojaIds = extractStoreIds(firestoreData);
             const lojaId = lojaIds[0] || null;
-            const storedProfile = customProfiles[userRecord.uid];
             const permissions = storedProfile
                 ? sanitizePermissions(storedProfile.permissions, role)
                 : await ensureCustomProfile(userRecord.uid, role);
