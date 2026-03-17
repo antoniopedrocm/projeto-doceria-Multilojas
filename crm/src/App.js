@@ -4871,7 +4871,7 @@ function App() {
   
   const Produtos = () => {
     const [searchTerm, setSearchTerm] = usePersistentState("produtos_searchTerm", ""); 
-    const [selectedCategory, setSelectedCategory] = useState('');
+    const [selectedSubcategory, setSelectedSubcategory] = useState('');
     const [showModal, setShowModal] = useState(false); 
     const [editingProduct, setEditingProduct] = useState(null); 
     const [formData, setFormData] = useState({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" }); 
@@ -5038,17 +5038,17 @@ function App() {
       }
     };
 
-    const categoriasCadastradas = useMemo(() => {
-      const categorias = (data.produtos || [])
-        .map((product) => (product.categoria || '').trim())
+    const subcategoriasCadastradas = useMemo(() => {
+      const subcategorias = (data.produtos || [])
+        .map((product) => (product.subcategoria || '').trim())
         .filter(Boolean);
 
-      return Array.from(new Set(categorias)).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+      return Array.from(new Set(subcategorias)).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
     }, [data.produtos]);
 
     const filteredProducts = (data.produtos || [])
       .filter((p) => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()))
-      .filter((p) => selectedCategory === '' || p.categoria === selectedCategory)
+      .filter((p) => selectedSubcategory === '' || p.subcategoria === selectedSubcategory)
       .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     useEffect(() => {
@@ -5187,29 +5187,29 @@ function App() {
       <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4"><div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Produtos</h1><p className="text-gray-600 mt-1">Gerencie seu cardápio e estoque</p></div><Button onClick={() => setShowModal(true)} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Novo Produto</Button></div>
         <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
-        {categoriasCadastradas.length > 0 && (
+        {subcategoriasCadastradas.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            {categoriasCadastradas.map((categoria) => {
-              const isSelected = selectedCategory === categoria;
+            {subcategoriasCadastradas.map((subcategoria) => {
+              const isSelected = selectedSubcategory === subcategoria;
 
               return (
                 <button
-                  key={categoria}
+                  key={subcategoria}
                   type="button"
-                  onClick={() => setSelectedCategory(categoria)}
+                  onClick={() => setSelectedSubcategory(subcategoria)}
                   className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                     isSelected
                       ? 'bg-pink-100 text-pink-700 border-pink-200'
                       : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                   }`}
                 >
-                  {categoria}
+                  {subcategoria}
                 </button>
               );
             })}
             <button
               type="button"
-              onClick={() => setSelectedCategory('')}
+              onClick={() => setSelectedSubcategory('')}
               className="px-4 py-1.5 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Limpar filtro
