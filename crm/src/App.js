@@ -38,6 +38,7 @@ const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
@@ -208,6 +209,12 @@ const normalizeRole = (role) => {
     'vendedora'
   ]);
 
+  const clientAliases = new Set([
+    ROLE_CLIENT,
+    'client',
+    'cliente'
+  ]);
+
   if (ownerAliases.has(normalizedValue)) {
     return ROLE_OWNER;
   }
@@ -220,7 +227,11 @@ const normalizeRole = (role) => {
     return ROLE_ATTENDANT;
   }
 
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT].includes(value)) {
+  if (clientAliases.has(normalizedValue)) {
+    return ROLE_CLIENT;
+  }
+
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT].includes(value)) {
     return value;
   }
 
@@ -249,6 +260,14 @@ const getDefaultPermissionsForRole = (role) => {
       'meu-espaco': true,
       financeiro: true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_CLIENT) {
+    return {
+      ...base,
+      'pagina-inicial': true,
+      'meu-espaco': true,
     };
   }
 
@@ -3317,7 +3336,7 @@ function App() {
                                         if (userDoc.exists()) {
                                           profile = userDoc.data() || {};
                                         } else {
-                                          let initialRole = ROLE_DEFAULT;
+                                          let initialRole = ROLE_CLIENT;
 
                                           try {
                                             const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));
@@ -3642,7 +3661,7 @@ function App() {
   };
 
   const allMenuItems = [
-    { id: 'pagina-inicial', permission: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, null] },
+    { id: 'pagina-inicial', permission: 'pagina-inicial', label: 'Página Inicial', icon: Home, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT, null] },
     { id: 'dashboard', permission: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'clientes', permission: 'clientes', label: 'Clientes', icon: Users, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'pedidos', permission: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
@@ -3650,7 +3669,7 @@ function App() {
     { id: 'agenda', permission: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'fornecedores', permission: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'relatorios', permission: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
+    { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT] },
     { id: 'financeiro', permission: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'configuracoes', permission: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
   ];
@@ -6438,6 +6457,7 @@ const effectiveStoreName = useMemo(() => {
                         }}
                         required
                     >
+                        <option value={ROLE_CLIENT}>Cliente</option>
                         <option value={ROLE_ATTENDANT}>Atendente</option>
                         <option value={ROLE_MANAGER}>Gerente</option>
                         <option value={ROLE_OWNER}>Dono</option>
