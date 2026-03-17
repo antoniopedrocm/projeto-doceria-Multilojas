@@ -38,6 +38,7 @@ const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_CUSTOMER = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
@@ -208,6 +209,12 @@ const normalizeRole = (role) => {
     'vendedora'
   ]);
 
+  const customerAliases = new Set([
+    ROLE_CUSTOMER,
+    'cliente',
+    'customer'
+  ]);
+
   if (ownerAliases.has(normalizedValue)) {
     return ROLE_OWNER;
   }
@@ -220,7 +227,11 @@ const normalizeRole = (role) => {
     return ROLE_ATTENDANT;
   }
 
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT].includes(value)) {
+  if (customerAliases.has(normalizedValue)) {
+    return ROLE_CUSTOMER;
+  }
+
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CUSTOMER].includes(value)) {
     return value;
   }
 
@@ -249,6 +260,15 @@ const getDefaultPermissionsForRole = (role) => {
       'meu-espaco': true,
       financeiro: true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_CUSTOMER) {
+    return {
+      ...base,
+      'pagina-inicial': true,
+      pedidos: true,
+      'meu-espaco': true,
     };
   }
 
@@ -3317,7 +3337,7 @@ function App() {
                                         if (userDoc.exists()) {
                                           profile = userDoc.data() || {};
                                         } else {
-                                          let initialRole = ROLE_DEFAULT;
+                                          let initialRole = ROLE_CUSTOMER;
 
                                           try {
                                             const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));

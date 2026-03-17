@@ -24,6 +24,7 @@ const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_CUSTOMER = 'cliente';
 const MENU_PERMISSION_KEYS = [
   'pagina-inicial',
   'dashboard',
@@ -41,7 +42,7 @@ const MENU_PERMISSION_KEYS = [
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_ATTENDANT;
   const value = role.toLowerCase();
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT].includes(value)) {
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CUSTOMER].includes(value)) {
     return value;
   }
   if (value === 'admin') return ROLE_OWNER;
@@ -77,6 +78,15 @@ const getDefaultPermissionsForRole = (role) => {
       'meu-espaco': true,
       financeiro: true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_CUSTOMER) {
+    return {
+      ...basePermissions,
+      'pagina-inicial': true,
+      pedidos: true,
+      'meu-espaco': true,
     };
   }
 
