@@ -3202,20 +3202,30 @@ function App() {
 
   const ensureAuthenticatedUserForWrite = useCallback(async () => {
     const currentAuthUser = auth.currentUser;
+    const fallbackAuthUser = user?.auth || null;
+    const resolvedAuthUser = currentAuthUser || fallbackAuthUser;
 
-    if (!currentAuthUser) {
+    console.log('[Sales][Auth] Validando sessão antes da gravação.', {
+      hasCurrentUser: Boolean(currentAuthUser),
+      hasFallbackUser: Boolean(fallbackAuthUser),
+      currentUserUid: currentAuthUser?.uid || null,
+      fallbackUserUid: fallbackAuthUser?.uid || null
+    });
+
+    if (!resolvedAuthUser) {
+      console.error('[Sales][Auth] Nenhum usuário autenticado encontrado para concluir a gravação.');
       throw new Error('Sua sessão expirou. Faça login novamente para salvar a venda.');
     }
 
     try {
-      await getIdToken(currentAuthUser, true);
+      await getIdToken(resolvedAuthUser);
     } catch (tokenError) {
-      console.error('[Sales][Auth] Falha ao revalidar autenticação antes da gravação:', tokenError);
+      console.error('[Sales][Auth] Falha ao validar autenticação antes da gravação:', tokenError);
       throw new Error('Não foi possível validar sua sessão. Faça login novamente para concluir a venda.');
     }
 
-    return currentAuthUser;
-  }, []);
+    return resolvedAuthUser;
+  }, [user]);
 
   const addItem = async (section, item, targetStoreId = null) => {
     try {
@@ -6935,6 +6945,11 @@ const effectiveStoreName = useMemo(() => {
 
 const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('[Sales][Create] Iniciando tentativa de criar pedido pelo modal.', {
+        isEditing: Boolean(editingOrder),
+        authCurrentUserUid: auth.currentUser?.uid || null,
+        authStateUserUid: user?.auth?.uid || null
+    });
     // Garante que clienteNome seja definido mesmo se não for encontrado
     const clienteSelecionado = data.clientes.find(c => c.id === formData.clienteId);
     const orderData = { 
