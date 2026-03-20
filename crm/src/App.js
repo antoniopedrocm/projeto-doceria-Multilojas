@@ -17,9 +17,9 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -3200,22 +3200,59 @@ function App() {
   }, [resolveActiveStoreForWrite]);
 
 
+  const ensureAuthenticatedUserForWrite = useCallback(async () => {
+    const currentAuthUser = auth.currentUser;
+
+    if (!currentAuthUser) {
+      throw new Error('Sua sessão expirou. Faça login novamente para salvar a venda.');
+    }
+
+    try {
+      await getIdToken(currentAuthUser, true);
+    } catch (tokenError) {
+      console.error('[Sales][Auth] Falha ao revalidar autenticação antes da gravação:', tokenError);
+      throw new Error('Não foi possível validar sua sessão. Faça login novamente para concluir a venda.');
+    }
+
+    return currentAuthUser;
+  }, []);
+
   const addItem = async (section, item, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
 
         if (section === 'clientes') {
             await callClientApi('/clientes', { method: 'POST', body: item });
-            return;
+            return null;
+        }
+
+        const currentAuthUser = await ensureAuthenticatedUserForWrite();
+        const isSalesOrder = section === 'pedidos';
+
+        if (isSalesOrder) {
+            console.log('[Sales][Create] Iniciando tentativa de salvar venda.', {
+                storeId,
+                authUid: currentAuthUser.uid,
+                authEmail: currentAuthUser.email || null
+            });
         }
 
         const payload = {
             ...item,
-                        ...(item?.lojaId ? {} : { lojaId: storeId }),
+            ...(item?.lojaId ? {} : { lojaId: storeId }),
             createdAt: new Date()
          };
 
         const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
+        await waitForPendingWrites(db);
+
+        if (isSalesOrder) {
+            console.log('[Sales][Create] Venda persistida com sucesso no Firestore.', {
+                storeId,
+                docId: docRef.id
+            });
+        }
+
         if (user && section !== 'logs') {
             await addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Novo item adicionado em ${section}`,
@@ -3224,11 +3261,17 @@ function App() {
                 timestamp: new Date()
             });
         }
+
+        return docRef;
     } catch (e) {
+        if (section === 'pedidos') {
+            console.error('[Sales][Create] Erro real ao persistir venda:', e);
+        }
         console.error("Erro ao adicionar documento: ", e);
-                if (e && e.message) {
+        if (e && e.message) {
             alert(e.message);
         }
+        throw e;
     }
   };
 
@@ -3270,6 +3313,7 @@ function App() {
 		if (e && e.message) {
             alert(e.message);
         }
+        throw e;
     }
   };
 
@@ -3291,6 +3335,7 @@ function App() {
 		    if (e && e.message) {
             alert(e.message);
         }
+        throw e;
     }
   };
   
@@ -6896,29 +6941,33 @@ const handleSubmit = async (e) => {
         ...formData, 
         clienteNome: clienteSelecionado ? clienteSelecionado.nome : 'Cliente não selecionado' 
     };
-    
-    if (editingOrder) {
-        const { id, ...updateData } = orderData;
-        await updateItem('pedidos', editingOrder.id, updateData);
-        
-        // Atualiza estoque se status mudou para/de Finalizado
-        if (orderData.status === 'Finalizado' && editingOrder.status !== 'Finalizado') {
-            await updateStockForOrder(orderData.itens, 'decrease');
+
+    try {
+        if (editingOrder) {
+            const { id, ...updateData } = orderData;
+            await updateItem('pedidos', editingOrder.id, updateData);
+
+            // Atualiza estoque se status mudou para/de Finalizado
+            if (orderData.status === 'Finalizado' && editingOrder.status !== 'Finalizado') {
+                await updateStockForOrder(orderData.itens, 'decrease');
+            }
+            else if (orderData.status !== 'Finalizado' && editingOrder.status === 'Finalizado') {
+                await updateStockForOrder(editingOrder.itens, 'increase');
+            }
+        } else {
+            await addItem('pedidos', orderData);
+
+            // Atualiza estoque se novo pedido já é Finalizado
+            if (orderData.status === 'Finalizado') {
+                await updateStockForOrder(orderData.itens, 'decrease');
+            }
         }
-        else if (orderData.status !== 'Finalizado' && editingOrder.status === 'Finalizado') {
-            await updateStockForOrder(editingOrder.itens, 'increase');
-        }
-    } else {
-        await addItem('pedidos', orderData);
-        
-        // Atualiza estoque se novo pedido já é Finalizado
-        if (orderData.status === 'Finalizado') {
-            await updateStockForOrder(orderData.itens, 'decrease');
-        }
+
+        setShowModal(false);
+        resetForm();
+    } catch (error) {
+        console.error('[Sales][Create] Fluxo de cadastro abortado por falha na persistência.', error);
     }
-    
-    setShowModal(false);
-    resetForm();
 };
 
 	// Função para atualizar estoque (com verificação de item.id)
