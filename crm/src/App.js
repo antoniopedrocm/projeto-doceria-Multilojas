@@ -47,6 +47,8 @@ const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
 const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
+const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
+const GOOGLE_AUTH_FLOW_POPUP = 'popup';
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -3442,8 +3444,8 @@ function App() {
                                           customPermissions,
                                           hasCustomProfile: Boolean(customProfileData),
                                         };
-                                        setUser(userData)
-			if (sessionStorage.getItem(GOOGLE_AUTH_FLOW_KEY) === 'true') {
+                                        setUser(userData);
+			if (sessionStorage.getItem(GOOGLE_AUTH_FLOW_KEY) === GOOGLE_AUTH_FLOW_REDIRECT) {
 			  setShowLogin(false);
 			  setCurrentPage('dashboard');
 			  sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
@@ -3457,6 +3459,9 @@ function App() {
 
 		  } catch (error) {
 			console.error("Erro ao carregar dados do usuário:", error);
+      setLoginError('Não foi possível carregar seus dados de acesso. Tente sair e entrar novamente.');
+      setShowLogin(true);
+      setCurrentPage('pagina-inicial');
 		  }
                 } else {
                   setUser(null);
@@ -3590,6 +3595,12 @@ function App() {
     const handleLogin = async () => {
         setLoginError('');
         try {
+            try {
+                await setPersistence(auth, browserLocalPersistence);
+            } catch (persistError) {
+                console.warn('[Auth][Email] local persistence failed, falling back to session:', persistError?.code || persistError);
+                await setPersistence(auth, browserSessionPersistence);
+            }
             await signInWithEmailAndPassword(auth, email, password);
             setShowLogin(false);
             setEmail('');
@@ -3623,12 +3634,13 @@ function App() {
 
             if (isSafari) {
                 console.log('[Auth][Google] Method: redirect');
-                sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, 'true');
+                sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_REDIRECT);
                 await signInWithRedirect(auth, provider);
                 return;
             }
 
             console.log('[Auth][Google] Method: popup');
+            sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_POPUP);
             await signInWithPopup(auth, provider);
             sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
             setShowLogin(false);
@@ -3639,7 +3651,7 @@ function App() {
             if (fallbackToRedirect) {
                 try {
                     console.log('[Auth][Google] Method fallback: redirect');
-                    sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, 'true');
+                    sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_REDIRECT);
                     await signInWithRedirect(auth, provider);
                     return;
                 } catch (redirectError) {
