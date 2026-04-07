@@ -10,6 +10,7 @@ import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 import {
   getMessaging,
+  getToken,
   isSupported as messagingIsSupported,
 } from 'firebase/messaging';
 
@@ -26,10 +27,11 @@ const firebaseConfig = {
   authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') ||
     'ana-guimaraes.firebaseapp.com',
   projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
-  // Keep the bucket aligned with the Firebase console for this project.
-  // Uploads from the CRM depend on this exact bucket name.
+  // Use the default Firebase bucket (*.appspot.com) in SDK config.
+  // The firebasestorage.app domain is only for public/download URLs and
+  // breaks Firebase Storage SDK operations when used as storageBucket.
   storageBucket:
-    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.firebasestorage.app',
+    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.appspot.com',
   messagingSenderId:
     envVar('REACT_APP_FIREBASE_MESSAGING_SENDER_ID') || '847824537421',
   appId:
@@ -96,6 +98,15 @@ export const messagingPromise = (async () => {
     const supported = await messagingIsSupported();
     if (!supported) return null;
     const messaging = getMessaging(app);
+    if (!VAPID_KEY) {
+      return messaging;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.warn('🔔 Notification permission not granted');
+      return messaging;
+    }
+    await getToken(messaging, { vapidKey: VAPID_KEY });
     return messaging;
   } catch (err) {
     console.error('Failed to initialise Firebase Messaging:', err);
