@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -6970,23 +6970,117 @@ const handleSubmit = async (e) => {
     };
 
     try {
+        const resolveOrderStoreId = () => (
+            editingOrder?.lojaId ||
+            orderData?.lojaId ||
+            resolveActiveStoreForWrite()
+        );
+
+        const isFinalizedStatus = (status) => status === 'Finalizado';
+
+        const getOrderItemProductId = (item) => item?.produtoId || item?.productId || item?.id || null;
+
+        const getOrderItemQuantity = (item) => {
+            const parsed = Number(item?.quantity ?? item?.quantidade ?? 0);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        };
+
+        const mapOrderItemsByProduct = (items = []) => {
+            const grouped = new Map();
+
+            items.forEach((item) => {
+                const productId = getOrderItemProductId(item);
+                if (!productId) {
+                    console.error('[Stock][Pedidos] Item sem identificador de produto. Item ignorado.', item);
+                    return;
+                }
+
+                const quantity = getOrderItemQuantity(item);
+                if (quantity <= 0) return;
+
+                grouped.set(productId, (grouped.get(productId) || 0) + quantity);
+            });
+
+            return grouped;
+        };
+
+        const calculateOrderStockDelta = (oldItems = [], newItems = []) => {
+            const oldMap = mapOrderItemsByProduct(oldItems);
+            const newMap = mapOrderItemsByProduct(newItems);
+            const productIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+            const delta = {};
+
+            productIds.forEach((productId) => {
+                const oldQty = oldMap.get(productId) || 0;
+                const newQty = newMap.get(productId) || 0;
+                const diff = newQty - oldQty;
+                if (diff !== 0) {
+                    delta[productId] = diff;
+                }
+            });
+
+            return delta;
+        };
+
+        const applyStockDelta = async (deltaByProduct = {}, storeId) => {
+            const entries = Object.entries(deltaByProduct).filter(([, delta]) => delta !== 0);
+            if (entries.length === 0) return;
+
+            await runTransaction(db, async (transaction) => {
+                for (const [productId, delta] of entries) {
+                    if (!productId) {
+                        console.error('[Stock][Pedidos] Produto sem ID ao aplicar delta. Item ignorado.');
+                        continue;
+                    }
+
+                    const productRef = getStoreDocRef(storeId, 'produtos', productId);
+                    const productSnap = await transaction.get(productRef);
+
+                    if (!productSnap.exists()) {
+                        console.error(`[Stock][Pedidos] Produto ${productId} não encontrado em lojas/${storeId}/produtos. Delta ignorado.`);
+                        continue;
+                    }
+
+                    const currentStockRaw = Number(productSnap.data()?.estoque ?? 0);
+                    const currentStock = Number.isFinite(currentStockRaw) ? currentStockRaw : 0;
+                    const nextStock = currentStock - delta;
+
+                    if (nextStock < 0) {
+                        throw new Error(`Estoque insuficiente para o produto ${productSnap.data()?.nome || productId}.`);
+                    }
+
+                    transaction.update(productRef, {
+                        estoque: nextStock,
+                        updatedAt: serverTimestamp()
+                    });
+                }
+            });
+        };
+
         if (editingOrder) {
             const { id, ...updateData } = orderData;
             await updateItem('pedidos', editingOrder.id, updateData);
 
-            // Atualiza estoque se status mudou para/de Finalizado
-            if (orderData.status === 'Finalizado' && editingOrder.status !== 'Finalizado') {
-                await updateStockForOrder(orderData.itens, 'decrease');
+            const storeId = resolveOrderStoreId();
+            const wasFinalized = isFinalizedStatus(editingOrder.status);
+            const isNowFinalized = isFinalizedStatus(orderData.status);
+            let stockDelta = {};
+
+            if (!wasFinalized && isNowFinalized) {
+                stockDelta = calculateOrderStockDelta([], orderData.itens || []);
+            } else if (wasFinalized && !isNowFinalized) {
+                stockDelta = calculateOrderStockDelta(editingOrder.itens || [], []);
+            } else if (wasFinalized && isNowFinalized) {
+                stockDelta = calculateOrderStockDelta(editingOrder.itens || [], orderData.itens || []);
             }
-            else if (orderData.status !== 'Finalizado' && editingOrder.status === 'Finalizado') {
-                await updateStockForOrder(editingOrder.itens, 'increase');
-            }
+
+            await applyStockDelta(stockDelta, storeId);
         } else {
             await addItem('pedidos', orderData);
 
-            // Atualiza estoque se novo pedido já é Finalizado
-            if (orderData.status === 'Finalizado') {
-                await updateStockForOrder(orderData.itens, 'decrease');
+            if (isFinalizedStatus(orderData.status)) {
+                const stockDelta = calculateOrderStockDelta([], orderData.itens || []);
+                await applyStockDelta(stockDelta, resolveOrderStoreId());
             }
         }
 
@@ -6996,62 +7090,6 @@ const handleSubmit = async (e) => {
         console.error('[Sales][Create] Fluxo de cadastro abortado por falha na persistência.', error);
     }
 };
-
-	// Função para atualizar estoque (com verificação de item.id)
-	const updateStockForOrder = async (itens, operation) => {
-		if (!itens || itens.length === 0) return;
-		
-		try {
-			for (const item of itens) {
-                // --- CORREÇÃO: Adiciona verificação para item.id ---
-                if (!item.id) {
-                    console.warn("Item de pedido sem ID, pulando atualização de estoque:", item);
-                    continue; // Pula este item e vai para o próximo
-                }
-				const productRef = doc(db, 'produtos', item.id);
-				const productSnap = await getDoc(productRef);
-				
-				if (productSnap.exists()) {
-					const productData = productSnap.data();
-					// Garante que estoque seja um número, tratando NaN ou undefined
-                    let currentStock = Number(productData.estoque);
-                    if (isNaN(currentStock)) {
-                        console.warn(`Estoque inválido para ${item.nome} (ID: ${item.id}). Definindo como 0.`);
-                        currentStock = 0;
-                    }
-
-                    // ✅✅✅ CORREÇÃO APLICADA AQUI ✅✅✅
-                    // 'const' foi mudado para 'let' para permitir reatribuição no 'if' abaixo
-                    let quantityChange = Number(item.quantity || 1);
-                     if (isNaN(quantityChange)) {
-                        console.warn(`Quantidade inválida para ${item.nome} no pedido. Usando 1.`);
-                        quantityChange = 1;
-                    }
-					
-					let newStock = currentStock;
-					
-					if (operation === 'decrease') {
-						newStock = Math.max(0, currentStock - quantityChange);
-					} else if (operation === 'increase') {
-						newStock = currentStock + quantityChange;
-					}
-					
-                    // Só atualiza se o estoque mudou
-                    if (newStock !== currentStock) {
-                        await updateDoc(productRef, { estoque: newStock });
-                        console.log(`Estoque atualizado: ${item.nome} - ${operation === 'decrease' ? 'Baixa' : 'Restauração'} de ${quantityChange}. Estoque anterior: ${currentStock}, Novo estoque: ${newStock}`);
-                    } else {
-                         console.log(`Estoque de ${item.nome} permaneceu ${currentStock}. Operação: ${operation}, Quantidade: ${quantityChange}`);
-                    }
-				} else {
-                    console.warn(`Produto com ID ${item.id} (${item.nome || 'Nome desconhecido'}) não encontrado no estoque.`);
-                }
-			}
-		} catch (error) {
-			console.error('Erro geral ao atualizar estoque:', error);
-			alert('Erro ao atualizar estoque dos produtos. Verifique o console para mais detalhes.');
-		}
-	};
     
     const handleEdit = (order) => {
         setEditingOrder(order);
