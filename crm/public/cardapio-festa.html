@@ -2156,13 +2156,10 @@
             verifyButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div>';
             
                 try {
-                    const { db, collection, getDocs, query, where, getDoc, doc } = await import('./firebaseClientConfig.js');
+                    const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
 
-                    if (!isGuest && currentClient?.id) {
-                        const clientDoc = await getDoc(doc(db, ...storePath("clientes", currentClient.id)));
-                        if (clientDoc.exists() && clientDoc.data().cuponsUsados?.includes(codigo)) {
-                            throw new Error('Você já utilizou este cupom.');
-                        }
+                    if (!isGuest && currentClient?.cuponsUsados?.includes(codigo)) {
+                        throw new Error('Você já utilizou este cupom.');
                     }
 
                     let cupomPathResolver = storePath;
@@ -2196,7 +2193,14 @@
                 updateAllSummaries();
 
             } catch (error) { 
-                cupomMessage.textContent = error.message; 
+                console.error('Erro ao aplicar cupom:', error);
+                const technicalMessage = String(error?.message || '');
+                const isPermissionError = technicalMessage.includes('Missing or insufficient permissions') || technicalMessage.includes('permission-denied');
+                const friendlyMessage = isPermissionError
+                    ? 'Não foi possível validar o cupom agora. Tente novamente.'
+                    : technicalMessage;
+
+                cupomMessage.textContent = friendlyMessage || 'Cupom inválido ou indisponível.'; 
                 cupomMessage.className = 'text-sm text-red-500'; 
                 appliedCupom = null;
             } finally { 
