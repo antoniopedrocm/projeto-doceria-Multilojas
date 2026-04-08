@@ -1727,14 +1727,11 @@
             const addressText = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
 
             try {
-                const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-                const clientDocRef = doc(db, ...storePath("clientes", currentClient.id));
-                
-                const clientSnap = await getDoc(clientDocRef);
-                if (!clientSnap.exists()) {
-                    throw new Error("Cliente não encontrado para atualizar endereço.");
+                const { db, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
+                if (!currentClient?.id) {
+                    throw new Error("Cliente não identificado para atualizar endereço.");
                 }
-                const existingAddresses = clientSnap.data().enderecos || [];
+                const clientDocRef = doc(db, ...storePath("clientes", currentClient.id));
 
                 const lat = parseFloat(window.currentLatLng.lat);
                 const lng = parseFloat(window.currentLatLng.lng);
@@ -1752,13 +1749,14 @@
                     criadoEm: new Date().toISOString()
                 };
 
-                existingAddresses.push(newAddress);
-
                 await updateDoc(clientDocRef, {
-                    enderecos: existingAddresses
+                    enderecos: arrayUnion(newAddress),
+                    lojaId: STORE_ID
                 });
-                
-                currentClient.enderecos = existingAddresses;
+
+                currentClient.enderecos = Array.isArray(currentClient.enderecos)
+                    ? [...currentClient.enderecos, newAddress]
+                    : [newAddress];
 
                 showToast("✅ Endereço salvo com sucesso!");
                 cancelNewAddress();
@@ -1766,7 +1764,13 @@
 
             } catch (error) {
                 console.error("Erro ao salvar endereço:", error);
-                showToast("❌ Erro ao salvar o endereço: " + error.message, true);
+                const isPermissionDenied = error?.code === 'permission-denied'
+                    || /Missing or insufficient permissions/i.test(error?.message || '');
+                if (isPermissionDenied) {
+                    showToast("Sem permissão para salvar endereço agora. Tente novamente em instantes.", true);
+                    return;
+                }
+                showToast("❌ Erro ao salvar o endereço. Tente novamente.", true);
             }
         }
 
