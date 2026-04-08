@@ -1,96 +1,17 @@
 /* eslint-disable no-undef */
 
-const CACHE_NAME = 'doceria-crm-cache-v1';
-const PRECACHE_URLS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/logo192.png',
-  '/logo512.png',
-  '/audio/mixkit_vintage_warning_alarm_990.mp3'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).catch((error) => {
-      console.error('[service-worker] Falha ao pré-carregar assets:', error);
-    })
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-          return Promise.resolve();
-        })
-      )
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-});
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-
-  if (request.method !== 'GET' || request.url.startsWith('chrome-extension')) {
-    return;
-  }
-
-  const requestUrl = new URL(request.url);
-
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clonedResponse = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clonedResponse));
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match('/index.html');
-        })
-    );
-    return;
-  }
-
-  if (requestUrl.origin !== self.location.origin) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type === 'opaque') {
-            return response;
-          }
-
-          const clonedResponse = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clonedResponse));
-          return response;
-        })
-        .catch((error) => {
-          if (!cachedResponse) {
-            console.warn('[service-worker] Falha na requisição:', error);
-          }
-          return cachedResponse;
-        });
-
-      return cachedResponse || fetchPromise;
-    })
-  );
 });
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
@@ -102,7 +23,6 @@ const firebaseConfig = {
   apiKey: GOOGLE_API_KEY,
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
-  // Match the SDK configuration (appspot.com is the correct host for the bucket)
   storageBucket: 'ana-guimaraes.appspot.com',
   messagingSenderId: '847824537421',
   appId: '1:847824537421:web:75861057fd6f998ee49904',
