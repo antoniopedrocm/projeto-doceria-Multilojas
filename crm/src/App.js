@@ -4939,6 +4939,7 @@ function App() {
   const Produtos = () => {
     const [searchTerm, setSearchTerm] = usePersistentState("produtos_searchTerm", ""); 
     const [selectedSubcategory, setSelectedSubcategory] = useState('');
+    const [filterActiveOnly, setFilterActiveOnly] = useState(false);
     const [showModal, setShowModal] = useState(false); 
     const [editingProduct, setEditingProduct] = useState(null); 
     const [formData, setFormData] = useState({ nome: "", categoria: "Delivery", subcategoria: "", preco: "", custo: "", estoque: "", status: "Ativo", descricao: "", tempoPreparo: "", imageUrl: "" }); 
@@ -5116,7 +5117,18 @@ function App() {
     const filteredProducts = (data.produtos || [])
       .filter((p) => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()))
       .filter((p) => selectedSubcategory === '' || p.subcategoria === selectedSubcategory)
+      .filter((p) => {
+        if (!filterActiveOnly) return true;
+        const effectiveStatus = statusOverrides[p.id] ?? p.status;
+        return effectiveStatus === 'Ativo';
+      })
       .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+
+    const handleClearFilters = () => {
+      setSelectedSubcategory('');
+      setFilterActiveOnly(false);
+      setSearchTerm('');
+    };
 
     useEffect(() => {
       setStatusOverrides(prev => {
@@ -5256,13 +5268,26 @@ function App() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <div className="relative w-full sm:w-auto sm:min-w-[28rem] max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
           {subcategoriasCadastradas.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelectedSubcategory('')}
-              className="px-5 py-2.5 rounded-lg text-base font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              Limpar filtro
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="px-5 py-2.5 rounded-lg text-base font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Limpar filtro
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterActiveOnly((prev) => !prev)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  filterActiveOnly
+                    ? 'bg-pink-100 text-pink-700 border-pink-200'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Ativo
+              </button>
+            </>
           )}
         </div>
         {subcategoriasCadastradas.length > 0 && (
