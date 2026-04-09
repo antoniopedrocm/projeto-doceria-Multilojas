@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-// Importa o service worker
 import * as serviceWorkerRegistration from './serviceWorker';
 
 // Em produção, prepara redirecionamento para o domínio personalizado
@@ -23,5 +22,24 @@ root.render(
   </React.StrictMode>
 );
 
-// Habilita o service worker para notificações, cache offline e PWA
-serviceWorkerRegistration.register();
+const showRefreshPrompt = (registration) => {
+  const accepted = window.confirm(
+    'Uma nova versão do sistema está disponível. Deseja atualizar agora?'
+  );
+
+  if (accepted) {
+    const activationRequested =
+      serviceWorkerRegistration.requestServiceWorkerActivation(registration);
+    if (!activationRequested) {
+      window.location.reload();
+    }
+  }
+};
+
+window.addEventListener(serviceWorkerRegistration.UPDATE_FOUND_EVENT, (event) => {
+  showRefreshPrompt(event.detail.registration);
+});
+
+serviceWorkerRegistration.register({
+  onUpdate: showRefreshPrompt
+});
