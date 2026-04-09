@@ -889,6 +889,9 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [showEstoqueModal, setShowEstoqueModal] = useState(false);
     const [editingEstoque, setEditingEstoque] = useState(null);
     const [estoqueFormData, setEstoqueFormData] = useState({});
+    const [isAddingEstoqueCategoria, setIsAddingEstoqueCategoria] = useState(false);
+    const [newEstoqueCategoria, setNewEstoqueCategoria] = useState('');
+    const [estoqueCategoriaError, setEstoqueCategoriaError] = useState('');
 
     const [showPerdaModal, setShowPerdaModal] = useState(false);
     const [editingPerda, setEditingPerda] = useState(null);
@@ -910,7 +913,12 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
         setPreviousFornecedorCategoria('');
     };
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
-    const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
+    const resetEstoqueForm = () => {
+        setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
+        setIsAddingEstoqueCategoria(false);
+        setNewEstoqueCategoria('');
+        setEstoqueCategoriaError('');
+    };
     const resetPerdaForm = () => setPerdaFormData({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: new Date().toISOString().split('T')[0], motivo: 'Vencimento', outroMotivo: '' });
 
     const openStockMovementModal = (item, type) => {
@@ -1113,9 +1121,74 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const handleRemoveItemFromPedido = (index) => { const newItens = pedidoFormData.itens.filter((_, i) => i !== index); setPedidoFormData(prev => ({...prev, itens: newItens}));};
 
     // Handlers Estoque
+    const closeEstoqueModal = () => {
+        setShowEstoqueModal(false);
+        setIsAddingEstoqueCategoria(false);
+        setNewEstoqueCategoria('');
+        setEstoqueCategoriaError('');
+    };
+
     const handleNewEstoque = () => { setEditingEstoque(null); resetEstoqueForm(); setShowEstoqueModal(true); };
-    const handleEditEstoque = (item) => { setEditingEstoque(item); setEstoqueFormData(item); setShowEstoqueModal(true); };
-    const handleEstoqueSubmit = async (e) => { e.preventDefault(); const dataToSave = { ...estoqueFormData, quantidade: parseFloat(estoqueFormData.quantidade || 0), custoUnitario: parseFloat(estoqueFormData.custoUnitario || 0), nivelMinimo: parseFloat(estoqueFormData.nivelMinimo || 0) }; if (editingEstoque) { await updateItem('estoque', editingEstoque.id, dataToSave); } else { await addItem('estoque', dataToSave); } setShowEstoqueModal(false); };
+    const handleEditEstoque = (item) => {
+        setEditingEstoque(item);
+        setEstoqueFormData(item);
+        setIsAddingEstoqueCategoria(false);
+        setNewEstoqueCategoria('');
+        setEstoqueCategoriaError('');
+        setShowEstoqueModal(true);
+    };
+
+    const handleEstoqueCategoriaChange = (e) => {
+        const value = e.target.value;
+        if (value === '__add_new__') {
+            setIsAddingEstoqueCategoria(true);
+            setNewEstoqueCategoria('');
+            setEstoqueCategoriaError('');
+            setEstoqueFormData(prev => ({ ...prev, categoria: '' }));
+            return;
+        }
+
+        setIsAddingEstoqueCategoria(false);
+        setNewEstoqueCategoria('');
+        setEstoqueCategoriaError('');
+        setEstoqueFormData(prev => ({ ...prev, categoria: value || DEFAULT_FORNECEDOR_CATEGORIES[0] }));
+    };
+
+    const handleEstoqueSubmit = async (e) => {
+        e.preventDefault();
+
+        let categoriaFinal = estoqueFormData.categoria || '';
+        if (isAddingEstoqueCategoria) {
+            const trimmed = newEstoqueCategoria.trim();
+            if (!trimmed) {
+                setEstoqueCategoriaError('Informe o nome da nova categoria.');
+                return;
+            }
+
+            const existing = fornecedorCategories.find(cat => cat.trim().toLowerCase() === trimmed.toLowerCase());
+            categoriaFinal = existing || trimmed;
+
+            if (!existing) {
+                await addItem('categoriasFornecedores', { nome: trimmed });
+            }
+        }
+
+        const dataToSave = {
+            ...estoqueFormData,
+            categoria: categoriaFinal,
+            quantidade: parseFloat(estoqueFormData.quantidade || 0),
+            custoUnitario: parseFloat(estoqueFormData.custoUnitario || 0),
+            nivelMinimo: parseFloat(estoqueFormData.nivelMinimo || 0)
+        };
+
+        if (editingEstoque) {
+            await updateItem('estoque', editingEstoque.id, dataToSave);
+        } else {
+            await addItem('estoque', dataToSave);
+        }
+
+        closeEstoqueModal();
+    };
 
     const handleNewPerda = () => { setEditingPerda(null); resetPerdaForm(); setShowPerdaModal(true); };
     const handleEditPerda = (perda) => { setEditingPerda(perda); setPerdaFormData({ produtoId: perda.produtoId || '', produtoNome: perda.produtoNome || '', custoUnitario: perda.custoUnitario ?? '', quantidade: perda.quantidade ?? '', dataDescarte: perda.dataDescarte?.split('T')[0] || perda.dataDescarte || '', motivo: perda.motivo || 'Vencimento', outroMotivo: perda.outroMotivo || '' }); setShowPerdaModal(true); };
@@ -1303,22 +1376,37 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowPedidoModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Pedido</Button></div>
                 </form>
             </Modal>
-            <Modal isOpen={showEstoqueModal} onClose={() => setShowEstoqueModal(false)} title={editingEstoque ? 'Editar Item de Estoque' : 'Novo Item de Estoque'} size="lg">
+            <Modal isOpen={showEstoqueModal} onClose={closeEstoqueModal} title={editingEstoque ? 'Editar Item de Estoque' : 'Novo Item de Estoque'} size="lg">
                 <form onSubmit={handleEstoqueSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Input label="Nome do Item" value={estoqueFormData.nome || ''} onChange={e => setEstoqueFormData({...estoqueFormData, nome: e.target.value})} required/>
-                        <Select label="Categoria" value={estoqueFormData.categoria || ''} onChange={e => setEstoqueFormData({...estoqueFormData, categoria: e.target.value})}>
+                        <Select label="Categoria" value={isAddingEstoqueCategoria ? '__add_new__' : (estoqueFormData.categoria || '')} onChange={handleEstoqueCategoriaChange}>
                             {fornecedorCategories.map(categoria => (
                                 <option key={categoria} value={categoria}>{categoria}</option>
                             ))}
+                            <option value="__add_new__">+ Nova categoria</option>
                         </Select>
+                        {isAddingEstoqueCategoria && (
+                            <div className="md:col-span-2">
+                                <Input
+                                    label="Nome da nova categoria"
+                                    placeholder="Digite o nome da nova categoria"
+                                    value={newEstoqueCategoria}
+                                    onChange={(e) => {
+                                        setNewEstoqueCategoria(e.target.value);
+                                        if (estoqueCategoriaError) setEstoqueCategoriaError('');
+                                    }}
+                                />
+                                {estoqueCategoriaError && <p className="text-sm text-red-600 mt-1">{estoqueCategoriaError}</p>}
+                            </div>
+                        )}
                         <Select label="Fornecedor Principal" value={estoqueFormData.fornecedorId || ''} onChange={e => setEstoqueFormData({...estoqueFormData, fornecedorId: e.target.value})}><option value="">Nenhum</option>{data.fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</Select>
                         <Input label="Custo por Unidade (R$)" type="number" step="0.01" value={estoqueFormData.custoUnitario || ''} onChange={e => setEstoqueFormData({...estoqueFormData, custoUnitario: e.target.value})} />
                         <Input label="Quantidade Atual" type="number" value={estoqueFormData.quantidade || ''} onChange={e => setEstoqueFormData({...estoqueFormData, quantidade: e.target.value})} required/>
                         <Select label="Unidade de Medida" value={estoqueFormData.unidade || ''} onChange={e => setEstoqueFormData({...estoqueFormData, unidade: e.target.value})}><option>un</option><option>kg</option><option>g</option><option>L</option><option>ml</option></Select>
                         <Input label="Nível Mínimo de Estoque" type="number" value={estoqueFormData.nivelMinimo || ''} onChange={e => setEstoqueFormData({...estoqueFormData, nivelMinimo: e.target.value})} />
                     </div>
-                    <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowEstoqueModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
+                    <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={closeEstoqueModal}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
                 </form>
             </Modal>
             <Modal
