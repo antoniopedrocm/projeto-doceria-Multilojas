@@ -54,6 +54,19 @@ const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
 const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
+const MENU_PERMISSION_KEYS = [
+  'pagina-inicial',
+  'dashboard',
+  'clientes',
+  'pedidos',
+  'produtos',
+  'agenda',
+  'fornecedores',
+  'relatorios',
+  'meu-espaco',
+  'financeiro',
+  'configuracoes'
+];
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
@@ -3591,6 +3604,18 @@ function App() {
 
 			  } catch (error) {
 				console.error("Erro ao carregar dados do usuário:", error);
+        const fallbackRole = ROLE_CLIENT;
+        const fallbackPermissions = getDefaultPermissionsForRole(fallbackRole);
+        setUser({
+          auth: authUser,
+          role: fallbackRole,
+          lojaIds: [],
+          lojaId: null,
+          canAccessAllStores: false,
+          permissions: fallbackPermissions,
+          customPermissions: null,
+          hasCustomProfile: false,
+        });
 	      if (isPermissionDeniedError(error)) {
 	        setLoginError('Sua conta autenticou, mas seus dados de acesso não puderam ser carregados.');
 	      } else {
