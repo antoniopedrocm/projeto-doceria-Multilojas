@@ -1063,25 +1063,48 @@ exports.notifyNewOrder = onDocumentCreated({
     region: "southamerica-east1",
 }, async (event) => {
     const orderData = event.data?.data();
+    const orderId = String(event.params?.pedidoId || "");
 
     if (!orderData) {
-        logger.warn("Novo pedido criado sem dados. Notificação não enviada.");
+        logger.warn("Novo pedido criado sem dados. Notificação não enviada.", {orderId});
+        return;
+    }
+
+    const storeIdFromOrder = orderData.storeId ? String(orderData.storeId).trim() : "";
+    const lojaIdFromOrder = orderData.lojaId ? String(orderData.lojaId).trim() : "";
+    const storeId = storeIdFromOrder || lojaIdFromOrder;
+
+    if (!storeId) {
+        logger.warn("Pedido sem storeId/lojaId. Notificação não enviada.", {
+            orderId,
+            storeId: null,
+        });
         return;
     }
 
     try {
-        const tokensSnapshot = await db.collection("notificationTokens").get();
+        const tokensSnapshot = await db.collection("notificationTokens")
+            .where("storeId", "==", storeId)
+            .get();
 
         if (tokensSnapshot.empty) {
-            logger.info("Nenhum token de notificação cadastrado. Ignorando envio de push.");
+            logger.info("Nenhum token de notificação para a loja. Ignorando envio de push.", {
+                orderId,
+                storeId,
+            });
             return;
         }
 
         const tokens = tokensSnapshot.docs.map((doc) => doc.id);
-        const orderId = String(event.params?.pedidoId || "");
         const status = orderData.status ? String(orderData.status) : "Pendente";
         const customerName = orderData.clienteNome || orderData.nomeCliente || orderData.nome || orderData.cliente?.nome || "";
         const orderCode = orderData.numeroPedido || orderData.codigo || orderData.numero || "";
+
+        logger.info("Enviando notificação de novo pedido.", {
+            orderId,
+            storeId,
+            tokensCount: tokens.length,
+        });
 
         const title = "Novo pedido recebido";
         let body = customerName ? `Pedido de ${customerName}` : "Um novo pedido foi recebido.";
@@ -1097,6 +1120,7 @@ exports.notifyNewOrder = onDocumentCreated({
             },
             data: {
                 orderId,
+                storeId,
                 status,
                 url: "/",
                 source: "new-order",
@@ -1137,6 +1161,7 @@ exports.notifyNewOrder = onDocumentCreated({
                     vibrate: [200, 100, 200],
                     data: {
                         orderId,
+                        storeId,
                         url: "/",
                     },
                 },
@@ -1152,7 +1177,13 @@ exports.notifyNewOrder = onDocumentCreated({
         response.responses.forEach((res, index) => {
             if (!res.success) {
                 const errorCode = res.error?.code;
-                logger.error("Falha ao enviar notificação push:", res.error);
+                logger.error("Falha ao enviar notificação push.", {
+                    orderId,
+                    storeId,
+                    token: tokens[index],
+                    errorCode,
+                    errorMessage: res.error?.message,
+                });
 
                 if (errorCode === "messaging/registration-token-not-registered" || errorCode === "messaging/invalid-registration-token") {
                     tokensToDelete.push(tokens[index]);
@@ -1162,10 +1193,27 @@ exports.notifyNewOrder = onDocumentCreated({
 
         if (tokensToDelete.length > 0) {
             await Promise.all(tokensToDelete.map((token) => db.collection("notificationTokens").doc(token).delete().catch((error) => {
-                logger.error("Erro ao remover token inválido:", error);
+                logger.error("Erro ao remover token inválido.", {
+                    orderId,
+                    storeId,
+                    token,
+                    error: error.message,
+                });
             })));
         }
+
+        logger.info("Envio de notificação de novo pedido finalizado.", {
+            orderId,
+            storeId,
+            successCount: response.successCount,
+            failureCount: response.failureCount,
+            invalidTokensRemoved: tokensToDelete.length,
+        });
     } catch (error) {
-        logger.error("Erro ao enviar notificações de novo pedido:", error);
+        logger.error("Erro ao enviar notificações de novo pedido.", {
+            orderId,
+            storeId,
+            error: error.message,
+        });
     }
 });
