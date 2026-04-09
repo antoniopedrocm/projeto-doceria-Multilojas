@@ -22,6 +22,7 @@ const STORE_INFO_DOC_ID = 'dados';
 const CONFIG_DOC_ID = 'config';
 const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
+const STORE_ID_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
 const ROLE_CLIENT = 'cliente';
@@ -185,13 +186,46 @@ const verifyManagementAccess = async (uid) => {
   throw new HttpsError('permission-denied', 'Você não tem permissão para realizar esta ação.');
 };
 
+const normalizeStoreId = (storeId) => (typeof storeId === 'string' ? storeId.trim() : '');
+
+const assertValidStoreId = (storeId, {allowAll = false, fieldName = 'storeId'} = {}) => {
+  const normalized = normalizeStoreId(storeId);
+  if (!normalized) {
+    throw new HttpsError('invalid-argument', `${fieldName} é obrigatório.`);
+  }
+
+  if (!allowAll && normalized === STORE_ALL_KEY) {
+    throw new HttpsError('invalid-argument', `${fieldName} não pode ser ${STORE_ALL_KEY}.`);
+  }
+
+  if (!STORE_ID_REGEX.test(normalized)) {
+    throw new HttpsError('invalid-argument', `${fieldName} inválido. Use apenas letras minúsculas, números e hífen.`);
+  }
+
+  return normalized;
+};
+
+const sanitizeStoreIds = (storeIdsInput, fieldName = 'lojaIds') => {
+  const source = Array.isArray(storeIdsInput) ? storeIdsInput : [];
+  const cleaned = source
+    .map((storeId) => normalizeStoreId(storeId))
+    .filter(Boolean);
+
+  const unique = Array.from(new Set(cleaned));
+  unique.forEach((storeId, index) => assertValidStoreId(storeId, {fieldName: `${fieldName}[${index}]`}));
+  return unique;
+};
+
 const requireStoreId = (req, res) => {
-  const lojaId = req.params.lojaId || req.query.lojaId || req.body?.lojaId;
-  if (!lojaId) {
-    res.status(400).json({ message: 'Parâmetro lojaId é obrigatório.' });
+  const lojaIdRaw = req.params.lojaId || req.query.lojaId || req.body?.lojaId;
+
+  try {
+    return assertValidStoreId(lojaIdRaw, {fieldName: 'lojaId'});
+  } catch (error) {
+    const message = error instanceof HttpsError ? error.message : 'Parâmetro lojaId inválido.';
+    res.status(400).json({message});
     return null;
   }
-  return lojaId;
 };
 
 const generateStoreId = (value) => {
@@ -206,9 +240,10 @@ const generateStoreId = (value) => {
     .slice(0, 50) || `loja-${Date.now()}`;
 };
 
-const getStoreRef = (storeId) => db.collection('lojas').doc(storeId);
+const getStoreRef = (storeId) => db.collection('lojas').doc(assertValidStoreId(storeId, {fieldName: 'storeId'}));
+const getStoreCollection = (storeId, collectionName) => getStoreRef(storeId).collection(collectionName);
 
-const getStoreConfigDoc = (storeId) => getStoreRef(storeId).collection('configuracoes').doc(CONFIG_DOC_ID);
+const getStoreConfigDoc = (storeId) => getStoreCollection(storeId, 'configuracoes').doc(CONFIG_DOC_ID);
 const getStoreConfigCollection = (storeId, collectionName) => getStoreConfigDoc(storeId).collection(collectionName);
 const getLegacyConfigDoc = (storeId, configId) => getStoreRef(storeId).collection('configuracoes').doc(configId);
 
@@ -366,7 +401,7 @@ app.get("/produtos", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
-    const snapshot = await db.collection("lojas").doc(lojaId).collection("produtos").where("status", "==", "Ativo").get();
+    const snapshot = await getStoreCollection(lojaId, "produtos").where("status", "==", "Ativo").get();
     const products = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
     res.status(200).json(products);
   } catch (error) {
@@ -529,7 +564,7 @@ app.post("/pedidos", async (req, res) => {
       cupomRef = cupomQuery.docs[0].ref;
     }
 
-    const orderRef = db.collection("lojas").doc(lojaId).collection("pedidos").doc();
+    const orderRef = getStoreCollection(lojaId, "pedidos").doc();
     await db.runTransaction(async (transaction) => {
       const normalizedItems = new Map();
       for (const item of itens) {
@@ -544,7 +579,7 @@ app.post("/pedidos", async (req, res) => {
       }
 
       for (const [produtoId, quantidade] of normalizedItems.entries()) {
-        const produtoRef = db.collection("lojas").doc(lojaId).collection("produtos").doc(produtoId);
+        const produtoRef = getStoreCollection(lojaId, "produtos").doc(produtoId);
         const produtoSnap = await transaction.get(produtoRef);
         if (!produtoSnap.exists) {
           const error = new Error("produto não encontrado");
@@ -585,7 +620,7 @@ app.post("/pedidos", async (req, res) => {
       }
 
       if (clienteId && cupomCodigo) {
-        const clienteRef = db.collection("lojas").doc(lojaId).collection("clientes").doc(clienteId);
+        const clienteRef = getStoreCollection(lojaId, "clientes").doc(clienteId);
         transaction.set(clienteRef, {
           cuponsUsados: admin.firestore.FieldValue.arrayUnion(cupomCodigo),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -802,11 +837,9 @@ exports.createStore = onCall(async (request) => {
 
     const normalizedId = generateStoreId(rawId || rawName);
 
-    if (!normalizedId || normalizedId === STORE_ALL_KEY) {
-        throw new HttpsError('invalid-argument', 'Identificador inválido para a loja.');
-    }
+    const validatedStoreId = assertValidStoreId(normalizedId, {fieldName: 'storeId'});
 
-    const storeDocRef = db.collection('lojas').doc(normalizedId);
+    const storeDocRef = getStoreRef(validatedStoreId);
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
@@ -869,14 +902,14 @@ exports.createStore = onCall(async (request) => {
 
     if (!requester.allStores) {
         const existingIds = extractStoreIds(profile);
-        const updatedStoreIds = Array.from(new Set([...existingIds, normalizedId]));
+        const updatedStoreIds = Array.from(new Set([...existingIds, validatedStoreId]));
         const userUpdate = {
             lojaIds: updatedStoreIds,
         };
 
         if (!profile.lojaId) {
-            userUpdate.lojaId = normalizedId;
-            primaryStoreId = normalizedId;
+            userUpdate.lojaId = validatedStoreId;
+            primaryStoreId = validatedStoreId;
         }
 
         await db.collection('users').doc(uid).set(userUpdate, {merge: true});
@@ -888,7 +921,7 @@ exports.createStore = onCall(async (request) => {
     }
 
     return {
-        storeId: normalizedId,
+        storeId: validatedStoreId,
         storeData: {
             nome: rawName,
         },
@@ -983,18 +1016,18 @@ exports.createUser = onCall(async (request) => {
 
         let targetStores = [];
         if (normalizedRole === ROLE_OWNER) {
-            targetStores = Array.isArray(lojaIds) ? lojaIds : [];
+            targetStores = sanitizeStoreIds(lojaIds, 'lojaIds');
             if (requester.role === ROLE_OWNER && !requester.allStores && requester.stores.length) {
                 if (!userHasAccessToStores(requester.stores, targetStores)) {
                     throw new HttpsError("permission-denied", "Você não pode atribuir lojas fora do seu escopo.");
                 }
             }
         } else {
-            const primaryStore = lojaId || (Array.isArray(lojaIds) && lojaIds.length ? lojaIds[0] : null);
+            const primaryStore = normalizeStoreId(lojaId) || (Array.isArray(lojaIds) && lojaIds.length ? normalizeStoreId(lojaIds[0]) : null);
             if (!primaryStore) {
                 throw new HttpsError("invalid-argument", "lojaId é obrigatório para este tipo de usuário.");
             }
-            targetStores = Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore];
+            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore], 'lojaIds');
             const requesterStores = requester.role === ROLE_OWNER && requester.allStores ? targetStores : requester.stores;
             if (!userHasAccessToStores(requesterStores, targetStores)) {
                 throw new HttpsError("permission-denied", "Você não pode criar usuários para outras lojas.");
@@ -1045,13 +1078,13 @@ exports.updateUser = onCall(async (request) => {
 
         let targetStores = [];
         if (normalizedRole === ROLE_OWNER) {
-            targetStores = Array.isArray(lojaIds) ? lojaIds : existingStores;
+            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) ? lojaIds : existingStores, 'lojaIds');
         } else {
-            const primaryStore = lojaId || (Array.isArray(lojaIds) && lojaIds.length ? lojaIds[0] : existingStores[0]);
+            const primaryStore = normalizeStoreId(lojaId) || (Array.isArray(lojaIds) && lojaIds.length ? normalizeStoreId(lojaIds[0]) : existingStores[0]);
             if (!primaryStore) {
                 throw new HttpsError("invalid-argument", "lojaId é obrigatório para este tipo de usuário.");
             }
-            targetStores = Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore];
+            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore], 'lojaIds');
         }
 
         const requesterStores = requester.role === ROLE_OWNER && requester.allStores ? targetStores : requester.stores;
@@ -1181,7 +1214,19 @@ exports.notifyNewOrder = onDocumentCreated({
 
     const storeIdFromOrder = orderData.storeId ? String(orderData.storeId).trim() : "";
     const lojaIdFromOrder = orderData.lojaId ? String(orderData.lojaId).trim() : "";
-    const storeId = storeIdFromOrder || lojaIdFromOrder;
+    const rawStoreId = storeIdFromOrder || lojaIdFromOrder;
+    let storeId = "";
+
+    try {
+        storeId = assertValidStoreId(rawStoreId, { fieldName: "storeId" });
+    } catch (validationError) {
+        logger.warn("Pedido com storeId/lojaId inválido. Notificação não enviada.", {
+            orderId: event.params.orderId,
+            storeId: rawStoreId || null,
+            error: validationError.message,
+        });
+        return;
+    }
 
     if (!storeId) {
         logger.warn("Pedido sem storeId/lojaId. Notificação não enviada.", {

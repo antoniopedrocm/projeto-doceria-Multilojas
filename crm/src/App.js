@@ -30,6 +30,16 @@ import * as XLSX from 'xlsx';
 import { audioManager } from './utils/AudioManager.js';
 import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
 import { updateStock as updateStockService } from './services/stockService.js';
+import {
+  STORE_ALL_KEY,
+  buildStoreCollectionPath,
+  getStoreCollectionRef as getStoreCollectionRefFromHelper,
+  getStoreDocRef as getStoreDocRefFromHelper,
+  getStoreConfigDocRef as getStoreConfigDocRefFromHelper,
+  getStoreRootDocRef,
+  getStoreScopedCollectionRef,
+  getStoreScopedDocRef
+} from './utils/storeFirestoreRefs.js';
 
 // --- importação para Android
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -44,9 +54,7 @@ const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
 const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
-const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
-const CONFIG_DOC_ID = 'config';
 const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
 const MAX_ALARM_PAUSE_MINUTES = 120;
@@ -67,33 +75,16 @@ const isSafariBrowser = () => {
   return hasSafariToken && isAppleVendor && !excludedBrowsersRegex.test(userAgent);
 };
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
-const MENU_PERMISSION_KEYS = [
-  'pagina-inicial',
-  'dashboard',
-  'clientes',
-  'pedidos',
-  'produtos',
-  'agenda',
-  'fornecedores',
-  'relatorios',
-  'meu-espaco',
-  'financeiro',
-  'configuracoes'
-];
-
-const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false) => {
-  const shouldUseConfigPath = CONFIG_COLLECTIONS.has(collectionName) && !useLegacyPath;
-  return shouldUseConfigPath
-    ? ['lojas', storeId, 'configuracoes', CONFIG_DOC_ID, collectionName]
-    : ['lojas', storeId, collectionName];
-};
 
 const getStoreCollectionRef = (storeId, collectionName, useLegacyPath = false) => {
   if (collectionName === 'clientes') {
     return collection(db, 'clientes');
   }
 
-  return collection(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath));
+  return getStoreCollectionRefFromHelper(db, storeId, collectionName, {
+    useLegacyPath,
+    configCollections: CONFIG_COLLECTIONS
+  });
 };
 
 const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) => {
@@ -101,10 +92,13 @@ const getStoreDocRef = (storeId, collectionName, docId, useLegacyPath = false) =
     return doc(db, 'clientes', docId);
   }
 
-  return doc(db, ...buildStoreCollectionPath(storeId, collectionName, useLegacyPath), docId);
+  return getStoreDocRefFromHelper(db, storeId, collectionName, docId, {
+    useLegacyPath,
+    configCollections: CONFIG_COLLECTIONS
+  });
 };
 
-const getStoreConfigDocRef = (storeId) => doc(db, 'lojas', storeId, 'configuracoes', CONFIG_DOC_ID);
+const getStoreConfigDocRef = (storeId) => getStoreConfigDocRefFromHelper(db, storeId);
 
 const sanitizeAlarmPauseMinutes = (value) => {
   const parsedValue = Number(value);
@@ -1005,7 +999,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
         if (!produtoId || !effectiveStoreId) return;
 
         try {
-            const produtoDoc = await getDoc(doc(db, 'lojas', effectiveStoreId, 'produtos', produtoId));
+            const produtoDoc = await getDoc(getStoreDocRef(effectiveStoreId, 'produtos', produtoId));
             if (!produtoDoc.exists()) return;
 
             const produtoData = produtoDoc.data() || {};
@@ -3623,18 +3617,18 @@ function App() {
             try {
                 const entries = await Promise.all(availableStores.map(async (storeId) => {
                     try {
-                        const empresaDocRef = doc(db, 'lojas', storeId, 'meuEspaco', 'empresa');
+                        const empresaDocRef = getStoreScopedDocRef(db, storeId, 'meuEspaco', 'empresa');
                         const empresaDocSnap = await getDoc(empresaDocRef);
                         if (empresaDocSnap.exists()) {
                             return [storeId, empresaDocSnap.data()];
                         }
 
-                        const pontoDocSnap = await getDoc(doc(db, 'lojas', storeId, 'meuEspaco', 'ponto'));
+                        const pontoDocSnap = await getDoc(getStoreScopedDocRef(db, storeId, 'meuEspaco', 'ponto'));
                         if (pontoDocSnap.exists()) {
                             return [storeId, pontoDocSnap.data()];
                         }
 
-                        const fallbackDocSnap = await getDoc(doc(db, 'lojas', storeId));
+                        const fallbackDocSnap = await getDoc(getStoreRootDocRef(db, storeId));
                         if (fallbackDocSnap.exists()) {
                             return [storeId, fallbackDocSnap.data()];
                         }
@@ -3987,7 +3981,7 @@ function App() {
       }
 
       setCompanyLoading(true);
-      const companyDoc = doc(db, 'lojas', currentStoreIdForDisplay, 'meuEspaco', 'empresa');
+      const companyDoc = getStoreScopedDocRef(db, currentStoreIdForDisplay, 'meuEspaco', 'empresa');
       const unsubscribe = onSnapshot(companyDoc, (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
@@ -4042,7 +4036,7 @@ function App() {
       }
 
       setRecordsLoading(true);
-      const pontosRef = collection(db, 'lojas', currentStoreIdForDisplay, 'pontos');
+      const pontosRef = getStoreScopedCollectionRef(db, currentStoreIdForDisplay, 'pontos');
       const pontosQuery = query(pontosRef, where('competencia', '==', selectedMonth));
       const unsubscribe = onSnapshot(pontosQuery, (snapshot) => {
         const data = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
@@ -4065,7 +4059,7 @@ function App() {
       const today = new Date();
       const dayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const competenciaKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-      const pontosRef = collection(db, 'lojas', currentStoreIdForDisplay, 'pontos');
+      const pontosRef = getStoreScopedCollectionRef(db, currentStoreIdForDisplay, 'pontos');
       const todayQuery = query(
         pontosRef,
         where('funcionarioId', '==', userId),
@@ -4251,7 +4245,7 @@ function App() {
         };
         const capturedAddress = await getAddressFromCoordinates(coords);
         const storeId = resolveActiveStoreForWrite();
-        const pontosRef = collection(db, 'lojas', storeId, 'pontos');
+        const pontosRef = getStoreScopedCollectionRef(db, storeId, 'pontos');
         const currentDate = new Date();
         const dayKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
         const competenciaKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -4358,7 +4352,7 @@ function App() {
       try {
         setCompanySaving(true);
         const storeId = resolveActiveStoreForWrite();
-        const companyDoc = doc(db, 'lojas', storeId, 'meuEspaco', 'empresa');
+        const companyDoc = getStoreScopedDocRef(db, storeId, 'meuEspaco', 'empresa');
         await setDoc(companyDoc, {
           nome: companyInfo.nome || '',
           endereco: companyInfo.endereco || '',
@@ -4398,7 +4392,7 @@ function App() {
       try {
         setSavingEdit(true);
         const storeId = resolveActiveStoreForWrite();
-        const recordRef = doc(db, 'lojas', storeId, 'pontos', editingRecord.id);
+        const recordRef = getStoreScopedDocRef(db, storeId, 'pontos', editingRecord.id);
         const nowDate = new Date();
         const summary = calculateWorkSummary({ ...editingRecord, ...editForm });
         await updateDoc(recordRef, {
@@ -5710,7 +5704,7 @@ const effectiveStoreName = useMemo(() => {
                     }
                 }
 
-                const legacyFreteRef = doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete');
+                const legacyFreteRef = getStoreScopedDocRef(db, effectiveStoreId, 'configuracoes', 'frete');
                 const legacyFreteSnap = await getDoc(legacyFreteRef);
                 if (legacyFreteSnap.exists()) {
                     const freteData = legacyFreteSnap.data();
@@ -5719,7 +5713,7 @@ const effectiveStoreName = useMemo(() => {
                     return;
                 }
 
-                const legacyInfoSnap = await getDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'));
+                const legacyInfoSnap = await getDoc(getStoreScopedDocRef(db, effectiveStoreId, 'info', 'dados'));
                 if (legacyInfoSnap.exists()) {
                     const infoData = legacyInfoSnap.data();
                     const freteData = infoData?.frete || {};
@@ -6111,7 +6105,7 @@ const effectiveStoreName = useMemo(() => {
                     updatedBy: user?.auth?.email || 'Sistema'
                 }
             }, { merge: true });
-            await setDoc(doc(db, 'lojas', effectiveStoreId, 'info', 'dados'), {
+            await setDoc(getStoreScopedDocRef(db, effectiveStoreId, 'info', 'dados'), {
                 frete: {
                     ...freteConfig,
                     valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
@@ -6119,7 +6113,7 @@ const effectiveStoreName = useMemo(() => {
                     updatedBy: user?.auth?.email || 'Sistema'
                 }
             }, { merge: true });
-            await setDoc(doc(db, 'lojas', effectiveStoreId, 'configuracoes', 'frete'), {
+            await setDoc(getStoreScopedDocRef(db, effectiveStoreId, 'configuracoes', 'frete'), {
                 ...freteConfig,
                 valorPorKm: parseFloat(freteConfig.valorPorKm || 0),
                 updatedAt: new Date(),
