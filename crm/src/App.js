@@ -871,6 +871,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     
     // States
     const [searchTerm, setSearchTerm] = usePersistentState('fornecedores_searchTerm', '');
+    const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
     
     const [showFornecedorModal, setShowFornecedorModal] = useState(false);
     const [editingFornecedor, setEditingFornecedor] = useState(null);
@@ -1019,6 +1020,17 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const filteredFornecedores = useMemo(() => (data.fornecedores || []).filter(f => (f.nome && f.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (f.categoria && f.categoria.toLowerCase().includes(searchTerm.toLowerCase()))), [data.fornecedores, searchTerm]);
     const pedidosComNomes = useMemo(() => (data.pedidosCompra || []).map(pedido => ({ ...pedido, fornecedorNome: data.fornecedores.find(f => f.id === pedido.fornecedorId)?.nome || 'N/A' })), [data.pedidosCompra, data.fornecedores]);
     const estoqueComNomes = useMemo(() => (data.estoque || []).map(item => ({ ...item, fornecedorNome: data.fornecedores.find(f => f.id === item.fornecedorId)?.nome || 'N/A' })), [data.estoque, data.fornecedores]);
+    const filteredEstoque = useMemo(() => {
+        const normalizedSearchTerm = (estoqueSearchTerm || '').trim().toLowerCase();
+        if (!normalizedSearchTerm) return estoqueComNomes;
+
+        return estoqueComNomes.filter(item => {
+            const nome = (item.nome || '').toLowerCase();
+            const categoria = (item.categoria || '').toLowerCase();
+            const fornecedor = (item.fornecedorNome || '').toLowerCase();
+            return nome.includes(normalizedSearchTerm) || categoria.includes(normalizedSearchTerm) || fornecedor.includes(normalizedSearchTerm);
+        });
+    }, [estoqueComNomes, estoqueSearchTerm]);
     const perdasOrdenadas = useMemo(() => {
         const perdas = data.perdasDescarte || [];
         const mapped = perdas.map(perda => {
@@ -1234,40 +1246,58 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
             )}
              {activeTab === 'estoque' && (
                  <div>
-                    <div className="flex justify-end mb-6"><Button onClick={handleNewEstoque}><PackagePlus className="w-4 h-4" /> Novo Item de Estoque</Button></div>
-                    <Table
-                        columns={[
-                            { header: 'Item', key: 'nome' },
-                            { header: 'Fornecedor', key: 'fornecedorNome' },
-                            { header: 'Estoque Atual', render: (row) => `${row.quantidade || 0} ${row.unidade}` },
-                            {
-                                header: 'Movimentação Rápida',
-                                render: (row) => (
-                                    <div className="flex gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            className="!px-3 !py-2 text-xs"
-                                            onClick={() => openStockMovementModal(row, 'entrada')}
-                                        >
-                                            + Entrada
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="secondary"
-                                            className="!px-3 !py-2 text-xs text-red-600 border-red-200 hover:border-red-300 hover:text-red-700"
-                                            onClick={() => openStockMovementModal(row, 'saida')}
-                                        >
-                                            - Saída
-                                        </Button>
-                                    </div>
-                                )
-                            },
-                            { header: 'Custo Unitário', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` }
-                        ]}
-                        data={estoqueComNomes}
-                        actions={[ { icon: Edit, label: "Editar", onClick: handleEditEstoque }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('estoque', row.id) }) } ]}
-                    />
+                    <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+                        <div className="relative max-w-md w-full">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Buscar item de estoque..."
+                                value={estoqueSearchTerm}
+                                onChange={(e) => setEstoqueSearchTerm(e.target.value)}
+                                className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500"
+                            />
+                        </div>
+                        <Button onClick={handleNewEstoque}><PackagePlus className="w-4 h-4" /> Novo Item de Estoque</Button>
+                    </div>
+                    {filteredEstoque.length > 0 ? (
+                        <Table
+                            columns={[
+                                { header: 'Item', key: 'nome' },
+                                { header: 'Fornecedor', key: 'fornecedorNome' },
+                                { header: 'Estoque Atual', render: (row) => `${row.quantidade || 0} ${row.unidade}` },
+                                {
+                                    header: 'Movimentação Rápida',
+                                    render: (row) => (
+                                        <div className="flex gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                className="!px-3 !py-2 text-xs"
+                                                onClick={() => openStockMovementModal(row, 'entrada')}
+                                            >
+                                                + Entrada
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                className="!px-3 !py-2 text-xs text-red-600 border-red-200 hover:border-red-300 hover:text-red-700"
+                                                onClick={() => openStockMovementModal(row, 'saida')}
+                                            >
+                                                - Saída
+                                            </Button>
+                                        </div>
+                                    )
+                                },
+                                { header: 'Custo Unitário', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` }
+                            ]}
+                            data={filteredEstoque}
+                            actions={[ { icon: Edit, label: "Editar", onClick: handleEditEstoque }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('estoque', row.id) }) } ]}
+                        />
+                    ) : (
+                        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center text-gray-600">
+                            Nenhum item de estoque encontrado para essa busca.
+                        </div>
+                    )}
                 </div>
             )}
 
