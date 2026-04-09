@@ -21,6 +21,10 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProv
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { Chart } from 'chart.js/auto';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
 import { audioManager } from './utils/AudioManager.js';
@@ -1391,7 +1395,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
     const categoryChartRef = useRef(null);
     
 	useEffect(() => {
-		if (activeTab !== 'dashboard' || !monthlyChartRef.current || !categoryChartRef.current || typeof window.Chart === 'undefined') {
+		if (activeTab !== 'dashboard' || !monthlyChartRef.current || !categoryChartRef.current) {
 			return;
 		}
 
@@ -1429,7 +1433,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 			}
 		});
 		
-		const monthlyChart = new window.Chart(monthlyCtx, { 
+		const monthlyChart = new Chart(monthlyCtx, { 
 			type: 'bar', 
 			data: monthlyData, 
 			options: { 
@@ -1448,7 +1452,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 				return acc;
 			}, {});
 			
-		const pieChart = new window.Chart(categoryCtx, { 
+		const pieChart = new Chart(categoryCtx, { 
 			type: 'pie', 
 			data: { 
 				labels: Object.keys(categoryData), 
@@ -2136,11 +2140,9 @@ const Relatorios = ({ data }) => {
   };
 
   const exportPDF = () => {
-    if (typeof window.jspdf === 'undefined') return;
-    const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     doc.text(document.getElementById('report-select').selectedOptions[0].text, 14, 15);
-    doc.autoTable({
+    autoTable(doc, {
         head: [reportColumns.map(c => c.header)],
         body: reportData.map(row => reportColumns.map(col => row[col.key])),
     });
@@ -2148,11 +2150,10 @@ const Relatorios = ({ data }) => {
   };
 
   const exportExcel = () => {
-    if (typeof window.XLSX === 'undefined') return;
-    const ws = window.XLSX.utils.json_to_sheet(reportData);
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
-    window.XLSX.writeFile(wb, "relatorio.xlsx");
+    const ws = XLSX.utils.json_to_sheet(reportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
+    XLSX.writeFile(wb, "relatorio.xlsx");
   };
 
   return (
@@ -3351,25 +3352,6 @@ function App() {
     }
   };
   
-  useEffect(() => {
-    const scripts = [
-        { id: 'jspdf', src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js' },
-        { id: 'jspdf-autotable', src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js' },
-        { id: 'xlsx', src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js' },
-        { id: 'chartjs', src: 'https://cdn.jsdelivr.net/npm/chart.js' }
-    ];
-
-    scripts.forEach(scriptInfo => {
-        if (!document.getElementById(scriptInfo.id)) {
-            const script = document.createElement('script');
-            script.id = scriptInfo.id;
-            script.src = scriptInfo.src;
-            script.async = true;
-            document.body.appendChild(script);
-        }
-    });
-  }, []);
-
   useEffect(() => {
     const handleResize = () => {
         const desktop = window.innerWidth >= 768;
