@@ -2299,7 +2299,7 @@
             const desconto = cupomData?.valorDesconto || 0;
             const total = subtotal - desconto + window.valorFrete;
             
-            const { db, doc, updateDoc, arrayUnion, getDoc, serverTimestamp } = await import('./firebaseClientConfig.js');
+            const { serverTimestamp } = await import('./firebaseClientConfig.js');
             
             const orderData = {
                 clienteId: clientId,
@@ -2328,47 +2328,19 @@
                         showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
                         throw new Error('STORE_CLOSED');
                     }
+                    if (responseData?.code === 'CUPOM_ESGOTADO') {
+                        showToast('Cupom esgotado. Tente outro cupom.', true);
+                        throw new Error('CUPOM_ESGOTADO');
+                    }
+                    if (responseData?.code === 'ESTOQUE_INSUFICIENTE') {
+                        showToast('Estoque insuficiente para um ou mais itens do carrinho.', true);
+                        throw new Error('ESTOQUE_INSUFICIENTE');
+                    }
                     throw new Error(responseData?.message || 'Erro ao criar pedido.');
                 }
 
                 const docRef = { id: responseData.id || 'sem-id' };
 
-                // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE ESTOQUE ---
-                for (const item of cart) {
-                    try {
-                        const productRef = doc(db, ...storePath("produtos", item.id));
-                        const productSnap = await getDoc(productRef);
-
-                        if (productSnap.exists()) {
-                            const productData = productSnap.data();
-                            // Verifica se o controle de estoque está ativo para este produto
-                            if (typeof productData.estoque === 'number') {
-                                const newStock = productData.estoque - item.quantity;
-                                await updateDoc(productRef, { estoque: newStock });
-                                console.log(`Estoque do produto ${item.nome} atualizado para ${newStock}.`);
-                            }
-                        }
-                    } catch (stockError) {
-                        console.error(`Falha ao atualizar o estoque para o produto ${item.id}:`, stockError);
-                        // Apenas registra o erro no console, mas não impede a finalização do pedido.
-                    }
-                }
-                // --- FIM DA LÓGICA DE ATUALIZAÇÃO DE ESTOQUE ---
-
-                if (clientId && appliedCupom) {
-                    try {
-                        const clientDocRef = doc(db, ...storePath("clientes", clientId));
-                        await updateDoc(clientDocRef, { cuponsUsados: arrayUnion(appliedCupom.codigo) });
-                        const cupomDocRef = doc(db, ...((appliedCupom._pathResolver || storePath)("cupons", appliedCupom.id)));
-                        const cupomDoc = await getDoc(cupomDocRef);
-                        if (cupomDoc.exists()) {
-                            await updateDoc(cupomDocRef, { usos: (cupomDoc.data().usos || 0) + 1 });
-                        }
-                    } catch (updateError) {
-                        console.error("Erro ao registrar o uso do cupom:", updateError);
-                    }
-                }
-                
                 if (!isPlatform) {
                     let message = `*Novo Pedido* 🎂 (Nº ${docRef.id.substring(0, 5)})\n\n*Itens:*\n${cart.map(item => `• ${item.quantity}x ${item.nome}`).join('\n')}\n\n*Resumo:*\nSubtotal: R$ ${subtotal.toFixed(2)}\n`;
                     if (cupomData) message += `Desconto (${cupomData.codigo}): -R$ ${desconto.toFixed(2)}\n`;
