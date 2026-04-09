@@ -63,6 +63,11 @@ const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
 const GOOGLE_AUTH_FLOW_POPUP = 'popup';
 const LOGIN_RETURN_PAGE_KEY = 'login-return-page';
 
+const isPermissionDeniedError = (error) => {
+  const code = error?.code || '';
+  return code === 'permission-denied' || code === 'firestore/permission-denied';
+};
+
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
 
@@ -3491,11 +3496,12 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   
-	useEffect(() => {
-	  const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+		useEffect(() => {
+		  const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
                         if (authUser) {
                           try {
                                         const userDocRef = doc(db, "users", authUser.uid);
+                                        console.info(`[Auth][Profile] Lendo users/${authUser.uid}`);
                                         const userDoc = await getDoc(userDocRef);
 
                                         let profile;
@@ -3506,13 +3512,13 @@ function App() {
                                           let initialRole = ROLE_CLIENT;
 
                                           try {
+                                            console.info('[Auth][Profile] users/{uid} não existe. Verificando se há usuários cadastrados.');
                                             const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));
                                             if (anyUserSnap.empty) {
                                               initialRole = ROLE_OWNER;
                                             }
                                           } catch (roleCheckError) {
-                                            console.error("Erro ao verificar usuários existentes:", roleCheckError);
-                                            initialRole = ROLE_OWNER;
+                                            console.warn('[Auth][Profile] Não foi possível verificar usuários existentes. Mantendo papel padrão seguro.', roleCheckError);
                                           }
 
                                           profile = {
@@ -3523,6 +3529,7 @@ function App() {
                                             lojaIds: [],
                                           };
 
+                                          console.info(`[Auth][Profile] Gravando users/${authUser.uid}`);
                                           await setDoc(userDocRef, profile, { merge: true });
                                         }
 
@@ -3530,20 +3537,34 @@ function App() {
                                         const lojaIds = extractStoreIdsFromProfile(profile);
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
-                                        const customProfileSnap = await getDoc(customProfileRef);
-                                        const customProfileData = customProfileSnap.exists() ? customProfileSnap.data() : null;
+                                        let customProfileData = null;
+
+                                        try {
+                                          console.info(`[Auth][Profile] Lendo customProfiles/${authUser.uid}`);
+                                          const customProfileSnap = await getDoc(customProfileRef);
+                                          customProfileData = customProfileSnap.exists() ? customProfileSnap.data() : null;
+
+                                          if (!customProfileSnap.exists()) {
+                                            console.info(`[Auth][Profile] Gravando customProfiles/${authUser.uid}`);
+                                            await setDoc(customProfileRef, {
+                                              uid: authUser.uid,
+                                              role,
+                                              permissions: permissionsDefaults,
+                                            }, { merge: true });
+                                          }
+                                        } catch (customProfileError) {
+                                          if (isPermissionDeniedError(customProfileError)) {
+                                            console.error(`[Auth][Profile] Permissão negada em customProfiles/${authUser.uid}:`, customProfileError);
+                                            setLoginError('Sua conta autenticou, mas seus dados de acesso não puderam ser carregados.');
+                                          } else {
+                                            throw customProfileError;
+                                          }
+                                        }
+
                                         const customPermissions = customProfileData?.permissions
                                           ? sanitizePermissions(customProfileData.permissions, role)
                                           : null;
                                         const permissions = customPermissions || permissionsDefaults;
-
-                                        if (!customProfileSnap.exists()) {
-                                          await setDoc(customProfileRef, {
-                                            uid: authUser.uid,
-                                            role,
-                                            permissions: permissionsDefaults,
-                                          }, { merge: true });
-                                        }
                                         const userData = {
                                           auth: authUser,
                                           role,
@@ -3568,11 +3589,15 @@ function App() {
 			  });
 			}
 
-		  } catch (error) {
-			console.error("Erro ao carregar dados do usuário:", error);
-      setLoginError('Não foi possível carregar seus dados de acesso. Tente sair e entrar novamente.');
-      setCurrentPage('pagina-inicial');
-		  }
+			  } catch (error) {
+				console.error("Erro ao carregar dados do usuário:", error);
+	      if (isPermissionDeniedError(error)) {
+	        setLoginError('Sua conta autenticou, mas seus dados de acesso não puderam ser carregados.');
+	      } else {
+	        setLoginError('Não foi possível carregar seus dados de acesso. Tente sair e entrar novamente.');
+	      }
+	      setCurrentPage('pagina-inicial');
+			  }
                 } else {
                   setUser(null);
                   storeCollectionsDataRef.current = {};

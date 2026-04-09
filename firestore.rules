@@ -44,6 +44,18 @@ service cloud.firestore {
       );
     }
 
+    // --- PERFIL DE AUTENTICAÇÃO ---
+    // Usuário autenticado pode ler/escrever apenas o próprio perfil.
+    match /users/{userId} {
+      allow get, create, update: if isSignedIn() && request.auth.uid == userId;
+      allow list, delete: if hasRole(['admin', 'gestor', 'manager']);
+    }
+
+    match /customProfiles/{userId} {
+      allow get, create, update: if isSignedIn() && request.auth.uid == userId;
+      allow list, delete: if hasRole(['admin', 'gestor', 'manager']);
+    }
+
     // --- COLEÇÕES GLOBAIS ---
     // Leitura pública para cardápio/loja virtual; escrita somente para CRM autenticado da própria loja.
     match /produtos/{produtoId} {
