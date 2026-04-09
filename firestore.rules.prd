@@ -2,74 +2,129 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- REGRAS PARA COLEÇÕES PÚBLICAS (Leitura permitida para todos) ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
 
-    // PERMITE que qualquer visitante leia a lista de produtos.
-    // APENAS usuários autenticados (funcionários no CRM) podem criar, alterar ou deletar produtos.
+    function hasRole(roles) {
+      return isSignedIn()
+        && request.auth.token.role is string
+        && roles.hasAny([request.auth.token.role]);
+    }
+
+    function isCrmUser() {
+      return hasRole(['admin', 'gestor', 'manager', 'atendente', 'crm']);
+    }
+
+    function isStoreMember(storeId) {
+      return isSignedIn() && (
+        (request.auth.token.lojaId is string && request.auth.token.lojaId == storeId)
+        ||
+        (request.auth.token.storeId is string && request.auth.token.storeId == storeId)
+      );
+    }
+
+    function hasStoreField(data) {
+      return (data.lojaId is string) || (data.storeId is string);
+    }
+
+    function matchesStoreField(data, storeId) {
+      return (
+        (data.lojaId is string && data.lojaId == storeId)
+        ||
+        (data.storeId is string && data.storeId == storeId)
+      );
+    }
+
+    function sameStoreDocument(data) {
+      return isSignedIn() && (
+        (data.lojaId is string && isStoreMember(data.lojaId))
+        ||
+        (data.storeId is string && isStoreMember(data.storeId))
+      );
+    }
+
+    // --- COLEÇÕES GLOBAIS ---
+    // Leitura pública para cardápio/loja virtual; escrita somente para CRM autenticado da própria loja.
     match /produtos/{produtoId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if true;
+      allow create, update: if isCrmUser() && hasStoreField(request.resource.data) && sameStoreDocument(request.resource.data);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && sameStoreDocument(resource.data);
     }
 
-    // PERMITE que qualquer visitante leia as configurações da loja (como valor de frete).
-    // APENAS usuários autenticados podem alterar as configurações.
     match /configuracoes/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if true;
+      allow create, update: if isCrmUser() && hasStoreField(request.resource.data) && sameStoreDocument(request.resource.data);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && sameStoreDocument(resource.data);
     }
 
-    // PERMITE que qualquer visitante leia as informações de um cupom para validação.
-    // APENAS usuários autenticados podem criar ou alterar cupons.
     match /cupons/{cupomId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow get, list: if true;
+      allow create, update: if isCrmUser() && hasStoreField(request.resource.data) && sameStoreDocument(request.resource.data);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && sameStoreDocument(resource.data);
     }
 
-    // --- REGRAS PARA COLEÇÕES COM ACESSO RESTRITO ---
-
-    // PERMITE que a página do cardápio CRIE um novo cliente, mas não leia a lista toda.
-    // PERMITE a leitura apenas se for uma busca por telefone OU se o usuário estiver logado no CRM.
+    // --- FLUXO PÚBLICO MÍNIMO (sem listagem ampla) ---
     match /clientes/{clienteId} {
-      allow create: if true;
-      allow read: if request.auth != null || resource.data.keys().hasOnly(['telefone']);
-      allow update: if true; // ✅ permite que a página do cardápio atualize endereços
-      allow delete: if request.auth != null;
+      // Formulário público pode criar/atualizar cadastro vinculado a uma loja.
+      allow create, update: if hasStoreField(request.resource.data);
+
+      // CRM da loja pode consultar clientes; visitantes não podem listar base de clientes.
+      allow get, list: if isCrmUser() && sameStoreDocument(resource.data);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && sameStoreDocument(resource.data);
     }
 
-    // PERMITE que a página do cardápio CRIE um novo pedido.
-    // APENAS usuários autenticados podem ler, alterar ou deletar pedidos existentes.
     match /pedidos/{pedidoId} {
-      allow create: if true;
-      allow read, update, delete: if request.auth != null;
+      // Checkout público pode criar pedido vinculado a uma loja.
+      allow create: if hasStoreField(request.resource.data);
+
+      // CRM da loja opera ciclo do pedido; visitantes não podem listar pedidos.
+      allow get, list, update: if isCrmUser() && sameStoreDocument(resource.data);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && sameStoreDocument(resource.data);
     }
 
-    // --- REGRAS PARA LOJAS (MULTILOJAS) ---
+    // --- LOJAS / MULTILOJA ---
     match /lojas/{lojaId} {
+      allow get: if true;
+      allow list: if isCrmUser();
+      allow create, update: if isCrmUser() && isStoreMember(lojaId);
+      allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
+
       match /produtos/{produtoId} {
-        allow read: if true;
-        allow write: if request.auth != null;
+        allow get, list: if true;
+        allow create, update: if isCrmUser() && isStoreMember(lojaId) && matchesStoreField(request.resource.data, lojaId);
+        allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
       }
 
       match /configuracoes/{docId} {
-        allow read: if true;
-        allow write: if request.auth != null;
+        allow get, list: if true;
+        allow create, update: if isCrmUser() && isStoreMember(lojaId) && matchesStoreField(request.resource.data, lojaId);
+        allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
 
         match /{subcollection}/{configDocId} {
-          allow read: if true;
-          allow write: if request.auth != null;
+          allow get, list: if true;
+          allow create, update: if isCrmUser() && isStoreMember(lojaId) && matchesStoreField(request.resource.data, lojaId);
+          allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
         }
       }
 
       match /cupons/{cupomId} {
-        allow read: if true;
-        allow write: if request.auth != null;
+        allow get, list: if true;
+        allow create, update: if isCrmUser() && isStoreMember(lojaId) && matchesStoreField(request.resource.data, lojaId);
+        allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
+      }
+
+      match /clientes/{clienteId} {
+        allow create, update: if matchesStoreField(request.resource.data, lojaId);
+        allow get, list: if isCrmUser() && isStoreMember(lojaId);
+        allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
+      }
+
+      match /pedidos/{pedidoId} {
+        allow create: if matchesStoreField(request.resource.data, lojaId);
+        allow get, list, update: if isCrmUser() && isStoreMember(lojaId);
+        allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
       }
     }
-
-    // --- REGRAS PARA OUTRAS COLEÇÕES (Acesso somente para usuários autenticados no CRM) ---
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
-
   }
 }
