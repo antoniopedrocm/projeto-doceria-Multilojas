@@ -499,15 +499,124 @@ app.post("/pedidos", async (req, res) => {
       });
     }
 
-    const newOrder = {
-      ...req.body,
-      lojaId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    const docRef = await db.collection("lojas").doc(lojaId).collection("pedidos").add(newOrder);
-    res.status(201).json({id: docRef.id});
+    const orderPayload = req.body || {};
+    const itens = Array.isArray(orderPayload.itens) ? orderPayload.itens : [];
+    const cupomData = orderPayload.cupom && typeof orderPayload.cupom === "object" ? orderPayload.cupom : null;
+    const clienteId = typeof orderPayload.clienteId === "string" ? orderPayload.clienteId.trim() : "";
+
+    if (!itens.length) {
+      return res.status(400).json({
+        code: "ITENS_INVALIDOS",
+        message: "O pedido precisa conter pelo menos um item válido.",
+      });
+    }
+
+    const cupomCodigo = typeof cupomData?.codigo === "string" ? cupomData.codigo.trim().toUpperCase() : "";
+    let cupomRef = null;
+    if (cupomCodigo) {
+      const cupomQuery = await getStoreConfigCollection(lojaId, "cupons")
+          .where("codigo", "==", cupomCodigo)
+          .limit(1)
+          .get();
+
+      if (cupomQuery.empty) {
+        return res.status(400).json({
+          code: "CUPOM_INVALIDO",
+          message: "cupom inválido",
+        });
+      }
+
+      cupomRef = cupomQuery.docs[0].ref;
+    }
+
+    const orderRef = db.collection("lojas").doc(lojaId).collection("pedidos").doc();
+    await db.runTransaction(async (transaction) => {
+      const normalizedItems = new Map();
+      for (const item of itens) {
+        const produtoId = typeof item?.produtoId === "string" ? item.produtoId.trim() : "";
+        const quantidade = Number(item?.quantity);
+        if (!produtoId || !Number.isFinite(quantidade) || quantidade <= 0) {
+          const error = new Error("item inválido");
+          error.code = "ITEM_INVALIDO";
+          throw error;
+        }
+        normalizedItems.set(produtoId, (normalizedItems.get(produtoId) || 0) + quantidade);
+      }
+
+      for (const [produtoId, quantidade] of normalizedItems.entries()) {
+        const produtoRef = db.collection("lojas").doc(lojaId).collection("produtos").doc(produtoId);
+        const produtoSnap = await transaction.get(produtoRef);
+        if (!produtoSnap.exists) {
+          const error = new Error("produto não encontrado");
+          error.code = "PRODUTO_NAO_ENCONTRADO";
+          throw error;
+        }
+        const produto = produtoSnap.data() || {};
+        if (typeof produto.estoque === "number") {
+          if (produto.estoque < quantidade) {
+            const error = new Error("estoque insuficiente");
+            error.code = "ESTOQUE_INSUFICIENTE";
+            throw error;
+          }
+          transaction.update(produtoRef, {estoque: produto.estoque - quantidade});
+        }
+      }
+
+      if (cupomRef) {
+        const cupomSnap = await transaction.get(cupomRef);
+        if (!cupomSnap.exists) {
+          const error = new Error("cupom inválido");
+          error.code = "CUPOM_INVALIDO";
+          throw error;
+        }
+        const cupom = cupomSnap.data() || {};
+        const usosAtuais = typeof cupom.usos === "number" ? cupom.usos : 0;
+        if (cupom.status !== "Ativo") {
+          const error = new Error("cupom inválido");
+          error.code = "CUPOM_INVALIDO";
+          throw error;
+        }
+        if (cupom.limiteUso && usosAtuais >= cupom.limiteUso) {
+          const error = new Error("cupom esgotado");
+          error.code = "CUPOM_ESGOTADO";
+          throw error;
+        }
+        transaction.update(cupomRef, {usos: usosAtuais + 1});
+      }
+
+      if (clienteId && cupomCodigo) {
+        const clienteRef = db.collection("lojas").doc(lojaId).collection("clientes").doc(clienteId);
+        transaction.set(clienteRef, {
+          cuponsUsados: admin.firestore.FieldValue.arrayUnion(cupomCodigo),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+      }
+
+      transaction.set(orderRef, {
+        ...orderPayload,
+        lojaId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    res.status(201).json({id: orderRef.id});
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
+    if (error?.code === "CUPOM_ESGOTADO") {
+      return res.status(409).json({code: "CUPOM_ESGOTADO", message: "cupom esgotado"});
+    }
+    if (error?.code === "ESTOQUE_INSUFICIENTE") {
+      return res.status(409).json({code: "ESTOQUE_INSUFICIENTE", message: "estoque insuficiente"});
+    }
+    if (error?.code === "ITEM_INVALIDO") {
+      return res.status(400).json({code: "ITEM_INVALIDO", message: "Item de pedido inválido."});
+    }
+    if (error?.code === "PRODUTO_NAO_ENCONTRADO") {
+      return res.status(404).json({code: "PRODUTO_NAO_ENCONTRADO", message: "Produto não encontrado."});
+    }
+    if (error?.code === "CUPOM_INVALIDO") {
+      return res.status(400).json({code: "CUPOM_INVALIDO", message: "cupom inválido"});
+    }
     res.status(500).send("Erro ao criar pedido.");
   }
 });
