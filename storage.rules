@@ -1,13 +1,41 @@
 rules_version = '2';
 
-// Regras para o Cloud Storage
 service firebase.storage {
   match /b/{bucket}/o {
-    // Permite leitura e escrita de qualquer arquivo por qualquer usuário.
-    // ATENÇÃO: Use isso APENAS para o ambiente de desenvolvimento local (emuladores).
-    // Para produção, você DEVE restringir o acesso.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasStoreClaim(storeId) {
+      return isSignedIn() && (
+        (request.auth.token.lojaId is string && request.auth.token.lojaId == storeId) ||
+        (request.auth.token.storeId is string && request.auth.token.storeId == storeId)
+      );
+    }
+
+    // Imagens públicas do cardápio por loja (somente leitura pública).
+    match /stores/{storeId}/menu/{allPaths=**} {
+      allow read: if true;
+      allow write: if hasStoreClaim(storeId);
+    }
+
+    // Imagens de produtos por loja.
+    // Leitura pública para vitrine/cardápio; upload/update/delete apenas autenticado da loja.
+    match /stores/{storeId}/products/{allPaths=**} {
+      allow read: if true;
+      allow write: if hasStoreClaim(storeId);
+    }
+
+    // Compatibilidade temporária com uploads legados já existentes no app.
+    // Mantém funcionamento do módulo de produtos até migração completa para /stores/{storeId}/products.
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Demais caminhos não utilizados: negar por padrão para reduzir superfície de ataque.
     match /{allPaths=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
