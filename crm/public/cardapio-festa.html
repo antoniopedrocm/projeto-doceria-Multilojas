@@ -412,13 +412,13 @@
     <!-- SCRIPTS -->
         <script type="module">
           import { db, doc, getDoc } from "./firebaseClientConfig.js";
+          import { assertValidStoreId, buildStoreConfigDocPath, buildLegacyConfigPath, buildLegacyStorePath, buildStorePath } from "./storeFirestoreRefs.js";
 
           const DEFAULT_STORE_ID = 'ana-guimaraes-matriz';
-          const STORE_ID = new URLSearchParams(window.location.search).get('store') || DEFAULT_STORE_ID;
+          const STORE_ID = assertValidStoreId(new URLSearchParams(window.location.search).get('store') || DEFAULT_STORE_ID, 'store');
           window.STORE_ID = STORE_ID;
-          const CONFIG_DOC_ID = 'config';
-          const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
-          const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
+          const storeConfigDocPath = (...segments) => buildStoreConfigDocPath(STORE_ID, ...segments);
+          const legacyConfigPath = (...segments) => buildLegacyConfigPath(STORE_ID, ...segments);
 
           // Variável global para armazenar os dados de frete
           window.dadosFrete = null;
@@ -440,13 +440,7 @@
                         return;
                   }
 
-                  const fallbackSnap = await getDoc(doc(db, 'configuracoes', 'frete'));
-                  if (fallbackSnap.exists()) {
-                        window.dadosFrete = fallbackSnap.data();
-                        console.warn("⚠️ Usando fallback padrão de frete:", window.dadosFrete);
-                  } else {
-                        console.error("❌ Documento 'frete' não encontrado");
-                  }
+                  console.error("❌ Configuração de frete não encontrada para a loja", STORE_ID);
                 } catch (error) {
                   console.error("Erro ao carregar frete:", error);
                 }
@@ -694,31 +688,17 @@
         import {
             app
         } from "./firebaseClientConfig.js";
+        import { assertValidStoreId, buildStoreConfigDocPath, buildLegacyConfigPath, buildLegacyStorePath, buildStorePath } from "./storeFirestoreRefs.js";
 
         // --- VARIÁVEIS GLOBAIS ---
         const WHATSAPP_NUMBER = '5562991056075';
         const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
         const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
-        const STORE_ID = window.STORE_ID || 'ana-guimaraes-matriz';
-        const CONFIG_DOC_ID = 'config';
-        const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
-        const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
-        const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
-        const legacyStorePath = (...segments) => ['lojas', STORE_ID, ...segments];
-        const storePath = (...segments) => {
-            if (!segments.length) return ['lojas', STORE_ID];
-
-            const [first, ...rest] = segments;
-            if (CONFIG_COLLECTIONS.has(first)) {
-                return storeConfigDocPath(first, ...rest);
-            }
-
-            if (first === 'clientes') {
-                return ['clientes', ...rest];
-            }
-
-            return ["lojas", STORE_ID, first, ...rest];
-        };
+        const STORE_ID = assertValidStoreId(window.STORE_ID || 'ana-guimaraes-matriz', 'store');
+        const storeConfigDocPath = (...segments) => buildStoreConfigDocPath(STORE_ID, ...segments);
+        const legacyConfigPath = (...segments) => buildLegacyConfigPath(STORE_ID, ...segments);
+        const legacyStorePath = (...segments) => buildLegacyStorePath(STORE_ID, ...segments);
+        const storePath = (...segments) => buildStorePath(STORE_ID, ...segments);
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
@@ -879,12 +859,7 @@
                     return;
                 }
 
-                const fallbackConfig = await getDoc(doc(db, "configuracoes", "frete"));
-                if (fallbackConfig.exists()) {
-                    storeConfig = fallbackConfig.data();
-                    console.log("⚠️ Configurações específicas não encontradas. Usando fallback padrão:", storeConfig);
-                    syncStoreAvailabilityStatus();
-                }
+                console.warn("⚠️ Configurações de frete não encontradas para a loja", STORE_ID);
             } catch (error) {
                 console.error("Erro ao carregar configurações:", error);
             }

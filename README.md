@@ -1,6 +1,10 @@
 # projeto-doceria-Multilojas
 
 ## 🚀 Deploy do Projeto
+
+## 🧭 Convenções de dados multi-loja
+- Consulte `docs/modelagem-firestore-lojas.md` para regras de modelagem global vs por loja, validação de `storeId` e uso de helpers compartilhados.
+
 Siga os passos abaixo para instalar as dependências e realizar o deploy da aplicação no Firebase.
 
 ---
