@@ -61,6 +61,7 @@ const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
 const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
 const GOOGLE_AUTH_FLOW_POPUP = 'popup';
+const LOGIN_RETURN_PAGE_KEY = 'login-return-page';
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -2381,6 +2382,7 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showLogin, setShowLogin] = useState(false);
+  const [loginReturnPage, setLoginReturnPage] = useState('pagina-inicial');
   const [loginError, setLoginError] = useState("");
   const [passwordResetEmail, setPasswordResetEmail] = useState("");
   const [passwordResetMessage, setPasswordResetMessage] = useState("");
@@ -2428,6 +2430,20 @@ function App() {
   const [selectedStoreId, setSelectedStoreId] = usePersistentState('selectedStoreId', null);
   const [showStoreManager, setShowStoreManager] = useState(false);
   const [isCreatingStore, setIsCreatingStore] = useState(false);
+
+  const resolveLoginReturnPage = useCallback(() => {
+    if (typeof window === 'undefined') return loginReturnPage;
+    return sessionStorage.getItem(LOGIN_RETURN_PAGE_KEY) || loginReturnPage;
+  }, [loginReturnPage]);
+
+  const openLoginModal = useCallback(() => {
+    setLoginReturnPage(currentPage);
+    sessionStorage.setItem(LOGIN_RETURN_PAGE_KEY, currentPage);
+    setShowPasswordReset(false);
+    setPasswordResetMessage({ text: '', type: '' });
+    setLoginError('');
+    setShowLogin(true);
+  }, [currentPage]);
 
   useEffect(() => {
     if (!isiOS || soundUnlocked) return undefined;
@@ -3541,8 +3557,9 @@ function App() {
                                         setUser(userData);
 			if (sessionStorage.getItem(GOOGLE_AUTH_FLOW_KEY) === GOOGLE_AUTH_FLOW_REDIRECT) {
 			  setShowLogin(false);
-			  setCurrentPage('dashboard');
+			  setCurrentPage(resolveLoginReturnPage());
 			  sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+        sessionStorage.removeItem(LOGIN_RETURN_PAGE_KEY);
 			}
 			// Tenta inicializar/resumir o AudioManager APÓS o login
 			if (localStorage.getItem("audioUnlocked") === "true") {
@@ -3554,7 +3571,6 @@ function App() {
 		  } catch (error) {
 			console.error("Erro ao carregar dados do usuário:", error);
       setLoginError('Não foi possível carregar seus dados de acesso. Tente sair e entrar novamente.');
-      setShowLogin(true);
       setCurrentPage('pagina-inicial');
 		  }
                 } else {
@@ -3574,7 +3590,7 @@ function App() {
           });
 
 	  return () => unsubscribe();
-        }, [stopAlarm, setCurrentPage]);
+        }, [stopAlarm, setCurrentPage, resolveLoginReturnPage]);
 
     useEffect(() => {
         let isMounted = true;
@@ -3699,7 +3715,8 @@ function App() {
             setShowLogin(false);
             setEmail('');
             setPassword('');
-            setCurrentPage('dashboard');
+            setCurrentPage(resolveLoginReturnPage());
+            sessionStorage.removeItem(LOGIN_RETURN_PAGE_KEY);
              // O onAuthStateChanged cuidará de inicializar o AudioManager se necessário
         } catch (error) {
             if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
@@ -3735,25 +3752,31 @@ function App() {
 
             console.log('[Auth][Google] Method: popup');
             sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_POPUP);
-            await signInWithPopup(auth, provider);
-            sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
-            setShowLogin(false);
-            setCurrentPage('dashboard');
-        } catch (error) {
-            const fallbackToRedirect = error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request';
+            await signInWithPopup(auth, provider).catch(async (error) => {
+                const fallbackToRedirect = error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request';
 
-            if (fallbackToRedirect) {
-                try {
+                if (fallbackToRedirect) {
                     console.log('[Auth][Google] Method fallback: redirect');
                     sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_REDIRECT);
                     await signInWithRedirect(auth, provider);
                     return;
-                } catch (redirectError) {
-                    console.error('Erro no fallback de redirect do Google:', redirectError?.code || redirectError);
                 }
+
+                throw error;
+            });
+            sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+            setShowLogin(false);
+            setCurrentPage(resolveLoginReturnPage());
+            sessionStorage.removeItem(LOGIN_RETURN_PAGE_KEY);
+        } catch (error) {
+            if (error?.code === 'auth/unauthorized-domain') {
+                setLoginError('Domínio não autorizado no Firebase. Solicite a liberação de www.anaguimaraesdoceria.com.br em Authentication > Settings > Authorized domains.');
+            } else if (error?.code === 'auth/popup-closed-by-user') {
+                setLoginError('A janela de login foi fechada antes da autenticação.');
+            } else {
+                setLoginError('Ocorreu um erro ao entrar com Google.');
             }
             console.error("Erro no login com Google:", error?.code || error);
-            setLoginError('Ocorreu um erro ao entrar com Google.');
         }
     };
 
@@ -3778,12 +3801,17 @@ function App() {
 
                 if (active) {
                     setShowLogin(false);
-                    setCurrentPage('dashboard');
+                    setCurrentPage(resolveLoginReturnPage());
+                    sessionStorage.removeItem(LOGIN_RETURN_PAGE_KEY);
                 }
             } catch (error) {
                 console.error("Erro ao processar retorno do login com Google:", error?.code || error);
                 if (active) {
-                    setLoginError('Ocorreu um erro ao entrar com Google.');
+                    if (error?.code === 'auth/unauthorized-domain') {
+                        setLoginError('Domínio não autorizado no Firebase. Solicite a liberação de www.anaguimaraesdoceria.com.br em Authentication > Settings > Authorized domains.');
+                    } else {
+                        setLoginError('Ocorreu um erro ao entrar com Google.');
+                    }
                 }
             }
         };
@@ -3793,7 +3821,7 @@ function App() {
         return () => {
             active = false;
         };
-    }, []);
+    }, [resolveLoginReturnPage]);
     
     const handlePasswordReset = async () => {
         if (!passwordResetEmail) {
@@ -8055,9 +8083,7 @@ const handleSubmit = async (e) => {
 				<div className="relative">
 					<button onClick={() => {
 						if (!user) {
-							setShowLogin(true);
-							setShowPasswordReset(false);
-							setPasswordResetMessage({ text: '', type: '' });
+							openLoginModal();
 						} else {
 							setShowUserMenu(!showUserMenu);
 						}
@@ -8093,7 +8119,7 @@ const handleSubmit = async (e) => {
         isCreatingStore={isCreatingStore}
       />
 
-      <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' });}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm">
+      <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' }); setLoginReturnPage(currentPage);}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm">
         {showPasswordReset ? (
             <div className="space-y-4">
                 <p className="text-sm text-gray-600">Insira seu e-mail para enviarmos um link de recuperação.</p>
