@@ -334,6 +334,20 @@ const extractStoreIdsFromClaims = (claims) => {
   return [...new Set(claimStoreIds.map((value) => String(value || '').trim()).filter(Boolean))];
 };
 
+const extractRoleFromClaims = (claims) => {
+  if (!claims || typeof claims !== 'object') return ROLE_DEFAULT;
+  return normalizeRole(claims.role);
+};
+
+const extractCanAccessAllStoresFromClaims = (claims) => {
+  if (!claims || typeof claims !== 'object') return false;
+  if (typeof claims.allStores === 'boolean') return claims.allStores;
+
+  const claimRole = extractRoleFromClaims(claims);
+  const claimStoreIds = extractStoreIdsFromClaims(claims);
+  return claimRole === ROLE_OWNER && claimStoreIds.length === 0;
+};
+
 const formatPhoneForWhatsApp = (phone) => {
   if (!phone) return '';
   const digits = String(phone).replace(/\D/g, '');
@@ -3560,7 +3574,9 @@ function App() {
                                         const role = normalizeRole(profile.role);
                                         const lojaIds = extractStoreIdsFromProfile(profile);
                                         const tokenResult = await authUser.getIdTokenResult();
-                                        const lojaIdsFromClaims = extractStoreIdsFromClaims(tokenResult?.claims);
+                                        const tokenClaims = tokenResult?.claims || {};
+                                        const lojaIdsFromClaims = extractStoreIdsFromClaims(tokenClaims);
+                                        const canAccessAllStoresFromClaims = extractCanAccessAllStoresFromClaims(tokenClaims);
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
                                         let customProfileData = null;
@@ -3597,7 +3613,7 @@ function App() {
                                           lojaIds,
                                           lojaIdsFromClaims,
                                           lojaId: lojaIds[0] || null,
-                                          canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
+                                          canAccessAllStores: role === ROLE_OWNER && canAccessAllStoresFromClaims,
                                           permissions,
                                           customPermissions,
                                           hasCustomProfile: Boolean(customProfileData),
