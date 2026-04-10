@@ -1,18 +1,11 @@
 /* eslint-disable no-undef */
 
 self.addEventListener('install', () => {
-  // Aguarda confirmação do cliente para ativar uma nova versão.
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    self.clients.claim().then(() =>
-      notifyClients({
-        type: 'SERVICE_WORKER_ACTIVATED',
-        payload: { activatedAt: Date.now() }
-      })
-    )
-  );
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener('message', (event) => {

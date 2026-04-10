@@ -1,0 +1,219 @@
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
+
+// Inicializa o SDK do Firebase Admin para poder interagir com os serviços do Firebase.
+admin.initializeApp();
+
+/**
+ * Função auxiliar para verificar se o usuário que está chamando a função é um administrador.
+ * @param {object} context O contexto da função, contendo informações de autenticação.
+ * @returns {Promise<boolean>} Retorna true se o usuário for um administrador.
+ * @throws {functions.https.HttpsError} Lança um erro se o usuário não estiver autenticado ou não for admin.
+ */
+const isCallerAdmin = async (context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+        "unauthenticated",
+        "A requisição deve ser autenticada.",
+    );
+  }
+  const uid = context.auth.uid;
+  const userDoc = await admin.firestore().collection("users").doc(uid).get();
+  if (!userDoc.exists || userDoc.data().role !== "admin") {
+    throw new functions.https.HttpsError(
+        "permission-denied",
+        "Permissão negada. Apenas administradores podem executar esta ação.",
+    );
+  }
+  return true;
+};
+
+
+/**
+ * Cloud Function para criar um novo usuário.
+ */
+exports.createUser = functions.https.onCall(async (data, context) => {
+  await isCallerAdmin(context); // Validação de administrador
+
+  // --- CORREÇÃO: A chave vindo do frontend é 'senha' e não 'password' ---
+  const {
+    email,
+    senha, // Alterado de 'password' para 'senha'
+    role,
+    nome,
+  } = data;
+
+  // --- CORREÇÃO: Melhorando a mensagem de erro ---
+  if (!email || !senha || !role || !nome) {
+    throw new functions.https.HttpsError(
+        "invalid-argument",
+        // Mensagem mais clara
+        `Os campos email, senha, nome e permissão (role) são obrigatórios. Dados recebidos: ${JSON.stringify(data)}`,
+    );
+  }
+
+  try {
+    // 1. Cria o usuário no Firebase Authentication.
+    const userRecord = await admin.auth().createUser({
+      email: email,
+      password: senha, // Usa a variável 'senha' aqui
+      displayName: nome,
+    });
+
+    // 2. Cria o documento correspondente no Firestore com nome e permissão (role).
+    await admin.firestore().collection("users").doc(userRecord.uid).set({
+      email: email,
+      role: role,
+      nome: nome,
+    });
+
+    return {
+      uid: userRecord.uid,
+      message: `Usuário ${nome} (${email}) criado com sucesso.`,
+    };
+  } catch (error) {
+    console.error("Erro detalhado ao criar usuário:", error);
+    // Transforma erros do Auth em erros mais amigáveis para o cliente.
+    if (error.code === "auth/email-already-exists") {
+      throw new functions.https.HttpsError("already-exists", "O email fornecido já está em uso.");
+    }
+    throw new functions.https.HttpsError("internal", "Ocorreu um erro interno ao criar o usuário.");
+  }
+});
+
+/**
+ * Cloud Function para atualizar os dados de um usuário.
+ */
+exports.updateUser = functions.https.onCall(async (data, context) => {
+  await isCallerAdmin(context); // Validação de administrador
+
+  // --- CORREÇÃO: Garantindo que os dados esperados existem ---
+  const { uid, email, role, nome } = data;
+  if (!uid) {
+    throw new functions.https.HttpsError("invalid-argument", "O UID do usuário é obrigatório.");
+  }
+
+  try {
+    // Objeto para conter as atualizações do Auth
+    const authUpdates = {};
+    if (email) authUpdates.email = email;
+    if (nome) authUpdates.displayName = nome; // Auth usa 'displayName'
+
+    // 1. Atualiza o usuário no Firebase Authentication, se houver dados para atualizar.
+    if (Object.keys(authUpdates).length > 0) {
+      await admin.auth().updateUser(uid, authUpdates);
+    }
+
+    // Objeto para conter as atualizações do Firestore
+    const firestoreUpdates = {};
+    if (email) firestoreUpdates.email = email;
+    if (role) firestoreUpdates.role = role;
+    if (nome) firestoreUpdates.nome = nome;
+
+    // 2. Atualiza o documento no Firestore, se houver dados para atualizar.
+    if (Object.keys(firestoreUpdates).length > 0) {
+      await admin.firestore().collection("users").doc(uid).update(firestoreUpdates);
+    }
+
+    return {
+      message: "Usuário atualizado com sucesso.",
+    };
+  } catch (error) {
+    console.error(`Erro ao atualizar usuário ${uid}:`, error);
+    if (error.code === "auth/user-not-found") {
+      throw new functions.https.HttpsError("not-found", "Usuário não encontrado no Firebase Authentication.");
+    }
+    throw new functions.https.HttpsError("internal", "Ocorreu um erro interno ao atualizar o usuário.");
+  }
+});
+
+
+/**
+ * Cloud Function para deletar um usuário.
+ */
+exports.deleteUser = functions.https.onCall(async (data, context) => {
+  await isCallerAdmin(context); // Validação de administrador
+
+  const { uid } = data;
+  if (!uid) {
+    throw new functions.https.HttpsError("invalid-argument", "O UID do usuário é obrigatório.");
+  }
+
+  try {
+    // 1. Deleta o usuário do Firebase Authentication.
+    await admin.auth().deleteUser(uid);
+    // 2. Deleta o documento do usuário no Firestore.
+    await admin.firestore().collection("users").doc(uid).delete();
+
+    return {
+      message: `Usuário com UID ${uid} foi deletado com sucesso.`,
+    };
+  } catch (error) {
+    console.error(`Erro ao deletar usuário ${uid}:`, error);
+    throw new functions.https.HttpsError("internal", "Não foi possível deletar o usuário.");
+  }
+});
+
+
+/**
+ * Cloud Function para alterar a senha de um usuário.
+ */
+exports.updateUserPassword = functions.https.onCall(async (data, context) => {
+    await isCallerAdmin(context); // Validação de administrador
+
+    const { uid, newPassword } = data;
+    if (!uid || !newPassword) {
+        throw new functions.https.HttpsError("invalid-argument", "UID e nova senha são obrigatórios.");
+    }
+    if (newPassword.length < 6) {
+        throw new functions.https.HttpsError("invalid-argument", "A senha deve ter no mínimo 6 caracteres.");
+    }
+
+    try {
+        await admin.auth().updateUser(uid, { password: newPassword });
+        return { message: "Senha alterada com sucesso." };
+    } catch (error) {
+        console.error("Erro ao alterar senha:", error);
+        throw new functions.https.HttpsError("internal", "Não foi possível alterar a senha.");
+    }
+});
+
+
+/**
+ * Cloud Function para listar todos os usuários.
+ */
+exports.listAllUsers = functions.https.onCall(async (data, context) => {
+  await isCallerAdmin(context); // Validação de administrador
+
+  try {
+    // 1. Lista todos os usuários do Firebase Authentication.
+    const listUsersResult = await admin.auth().listUsers(1000); // Limite de 1000 por página
+    const authUsers = listUsersResult.users;
+
+    // 2. Busca os dados complementares (nome, permissão) do Firestore.
+    const firestoreUsersSnap = await admin.firestore().collection("users").get();
+    const firestoreUsersMap = new Map();
+    firestoreUsersSnap.forEach((doc) => {
+      firestoreUsersMap.set(doc.id, doc.data());
+    });
+
+    // 3. Combina os dados do Authentication com os do Firestore.
+    const combinedUsers = authUsers.map((userRecord) => {
+      const firestoreData = firestoreUsersMap.get(userRecord.uid) || {};
+      return {
+        id: userRecord.uid, // Necessário para a 'key' no React
+        uid: userRecord.uid,
+        email: userRecord.email,
+        nome: firestoreData.nome || userRecord.displayName || userRecord.email,
+        role: firestoreData.role || "user", // Define uma permissão padrão
+      };
+    });
+
+    return {
+      users: combinedUsers,
+    };
+  } catch (error) {
+    console.error("Erro ao listar usuários:", error);
+    throw new functions.https.HttpsError("internal", "Não foi possível listar os usuários.");
+  }
+});

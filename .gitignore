@@ -67,8 +67,3 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
-
-# Arquivos de backup/legado
-*.bak
-*.bkp
-*Copia*

@@ -22,7 +22,6 @@ const STORE_INFO_DOC_ID = 'dados';
 const CONFIG_DOC_ID = 'config';
 const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
-const STORE_ID_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
 const ROLE_CLIENT = 'cliente';
@@ -186,46 +185,13 @@ const verifyManagementAccess = async (uid) => {
   throw new HttpsError('permission-denied', 'Você não tem permissão para realizar esta ação.');
 };
 
-const normalizeStoreId = (storeId) => (typeof storeId === 'string' ? storeId.trim() : '');
-
-const assertValidStoreId = (storeId, {allowAll = false, fieldName = 'storeId'} = {}) => {
-  const normalized = normalizeStoreId(storeId);
-  if (!normalized) {
-    throw new HttpsError('invalid-argument', `${fieldName} é obrigatório.`);
-  }
-
-  if (!allowAll && normalized === STORE_ALL_KEY) {
-    throw new HttpsError('invalid-argument', `${fieldName} não pode ser ${STORE_ALL_KEY}.`);
-  }
-
-  if (!STORE_ID_REGEX.test(normalized)) {
-    throw new HttpsError('invalid-argument', `${fieldName} inválido. Use apenas letras minúsculas, números e hífen.`);
-  }
-
-  return normalized;
-};
-
-const sanitizeStoreIds = (storeIdsInput, fieldName = 'lojaIds') => {
-  const source = Array.isArray(storeIdsInput) ? storeIdsInput : [];
-  const cleaned = source
-    .map((storeId) => normalizeStoreId(storeId))
-    .filter(Boolean);
-
-  const unique = Array.from(new Set(cleaned));
-  unique.forEach((storeId, index) => assertValidStoreId(storeId, {fieldName: `${fieldName}[${index}]`}));
-  return unique;
-};
-
 const requireStoreId = (req, res) => {
-  const lojaIdRaw = req.params.lojaId || req.query.lojaId || req.body?.lojaId;
-
-  try {
-    return assertValidStoreId(lojaIdRaw, {fieldName: 'lojaId'});
-  } catch (error) {
-    const message = error instanceof HttpsError ? error.message : 'Parâmetro lojaId inválido.';
-    res.status(400).json({message});
+  const lojaId = req.params.lojaId || req.query.lojaId || req.body?.lojaId;
+  if (!lojaId) {
+    res.status(400).json({ message: 'Parâmetro lojaId é obrigatório.' });
     return null;
   }
+  return lojaId;
 };
 
 const generateStoreId = (value) => {
@@ -240,10 +206,9 @@ const generateStoreId = (value) => {
     .slice(0, 50) || `loja-${Date.now()}`;
 };
 
-const getStoreRef = (storeId) => db.collection('lojas').doc(assertValidStoreId(storeId, {fieldName: 'storeId'}));
-const getStoreCollection = (storeId, collectionName) => getStoreRef(storeId).collection(collectionName);
+const getStoreRef = (storeId) => db.collection('lojas').doc(storeId);
 
-const getStoreConfigDoc = (storeId) => getStoreCollection(storeId, 'configuracoes').doc(CONFIG_DOC_ID);
+const getStoreConfigDoc = (storeId) => getStoreRef(storeId).collection('configuracoes').doc(CONFIG_DOC_ID);
 const getStoreConfigCollection = (storeId, collectionName) => getStoreConfigDoc(storeId).collection(collectionName);
 const getLegacyConfigDoc = (storeId, configId) => getStoreRef(storeId).collection('configuracoes').doc(configId);
 
@@ -401,7 +366,7 @@ app.get("/produtos", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
-    const snapshot = await getStoreCollection(lojaId, "produtos").where("status", "==", "Ativo").get();
+    const snapshot = await db.collection("lojas").doc(lojaId).collection("produtos").where("status", "==", "Ativo").get();
     const products = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
     res.status(200).json(products);
   } catch (error) {
@@ -534,124 +499,15 @@ app.post("/pedidos", async (req, res) => {
       });
     }
 
-    const orderPayload = req.body || {};
-    const itens = Array.isArray(orderPayload.itens) ? orderPayload.itens : [];
-    const cupomData = orderPayload.cupom && typeof orderPayload.cupom === "object" ? orderPayload.cupom : null;
-    const clienteId = typeof orderPayload.clienteId === "string" ? orderPayload.clienteId.trim() : "";
-
-    if (!itens.length) {
-      return res.status(400).json({
-        code: "ITENS_INVALIDOS",
-        message: "O pedido precisa conter pelo menos um item válido.",
-      });
-    }
-
-    const cupomCodigo = typeof cupomData?.codigo === "string" ? cupomData.codigo.trim().toUpperCase() : "";
-    let cupomRef = null;
-    if (cupomCodigo) {
-      const cupomQuery = await getStoreConfigCollection(lojaId, "cupons")
-          .where("codigo", "==", cupomCodigo)
-          .limit(1)
-          .get();
-
-      if (cupomQuery.empty) {
-        return res.status(400).json({
-          code: "CUPOM_INVALIDO",
-          message: "cupom inválido",
-        });
-      }
-
-      cupomRef = cupomQuery.docs[0].ref;
-    }
-
-    const orderRef = getStoreCollection(lojaId, "pedidos").doc();
-    await db.runTransaction(async (transaction) => {
-      const normalizedItems = new Map();
-      for (const item of itens) {
-        const produtoId = typeof item?.produtoId === "string" ? item.produtoId.trim() : "";
-        const quantidade = Number(item?.quantity);
-        if (!produtoId || !Number.isFinite(quantidade) || quantidade <= 0) {
-          const error = new Error("item inválido");
-          error.code = "ITEM_INVALIDO";
-          throw error;
-        }
-        normalizedItems.set(produtoId, (normalizedItems.get(produtoId) || 0) + quantidade);
-      }
-
-      for (const [produtoId, quantidade] of normalizedItems.entries()) {
-        const produtoRef = getStoreCollection(lojaId, "produtos").doc(produtoId);
-        const produtoSnap = await transaction.get(produtoRef);
-        if (!produtoSnap.exists) {
-          const error = new Error("produto não encontrado");
-          error.code = "PRODUTO_NAO_ENCONTRADO";
-          throw error;
-        }
-        const produto = produtoSnap.data() || {};
-        if (typeof produto.estoque === "number") {
-          if (produto.estoque < quantidade) {
-            const error = new Error("estoque insuficiente");
-            error.code = "ESTOQUE_INSUFICIENTE";
-            throw error;
-          }
-          transaction.update(produtoRef, {estoque: produto.estoque - quantidade});
-        }
-      }
-
-      if (cupomRef) {
-        const cupomSnap = await transaction.get(cupomRef);
-        if (!cupomSnap.exists) {
-          const error = new Error("cupom inválido");
-          error.code = "CUPOM_INVALIDO";
-          throw error;
-        }
-        const cupom = cupomSnap.data() || {};
-        const usosAtuais = typeof cupom.usos === "number" ? cupom.usos : 0;
-        if (cupom.status !== "Ativo") {
-          const error = new Error("cupom inválido");
-          error.code = "CUPOM_INVALIDO";
-          throw error;
-        }
-        if (cupom.limiteUso && usosAtuais >= cupom.limiteUso) {
-          const error = new Error("cupom esgotado");
-          error.code = "CUPOM_ESGOTADO";
-          throw error;
-        }
-        transaction.update(cupomRef, {usos: usosAtuais + 1});
-      }
-
-      if (clienteId && cupomCodigo) {
-        const clienteRef = getStoreCollection(lojaId, "clientes").doc(clienteId);
-        transaction.set(clienteRef, {
-          cuponsUsados: admin.firestore.FieldValue.arrayUnion(cupomCodigo),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, {merge: true});
-      }
-
-      transaction.set(orderRef, {
-        ...orderPayload,
-        lojaId,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    });
-
-    res.status(201).json({id: orderRef.id});
+    const newOrder = {
+      ...req.body,
+      lojaId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const docRef = await db.collection("lojas").doc(lojaId).collection("pedidos").add(newOrder);
+    res.status(201).json({id: docRef.id});
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
-    if (error?.code === "CUPOM_ESGOTADO") {
-      return res.status(409).json({code: "CUPOM_ESGOTADO", message: "cupom esgotado"});
-    }
-    if (error?.code === "ESTOQUE_INSUFICIENTE") {
-      return res.status(409).json({code: "ESTOQUE_INSUFICIENTE", message: "estoque insuficiente"});
-    }
-    if (error?.code === "ITEM_INVALIDO") {
-      return res.status(400).json({code: "ITEM_INVALIDO", message: "Item de pedido inválido."});
-    }
-    if (error?.code === "PRODUTO_NAO_ENCONTRADO") {
-      return res.status(404).json({code: "PRODUTO_NAO_ENCONTRADO", message: "Produto não encontrado."});
-    }
-    if (error?.code === "CUPOM_INVALIDO") {
-      return res.status(400).json({code: "CUPOM_INVALIDO", message: "cupom inválido"});
-    }
     res.status(500).send("Erro ao criar pedido.");
   }
 });
@@ -837,9 +693,11 @@ exports.createStore = onCall(async (request) => {
 
     const normalizedId = generateStoreId(rawId || rawName);
 
-    const validatedStoreId = assertValidStoreId(normalizedId, {fieldName: 'storeId'});
+    if (!normalizedId || normalizedId === STORE_ALL_KEY) {
+        throw new HttpsError('invalid-argument', 'Identificador inválido para a loja.');
+    }
 
-    const storeDocRef = getStoreRef(validatedStoreId);
+    const storeDocRef = db.collection('lojas').doc(normalizedId);
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
@@ -902,14 +760,14 @@ exports.createStore = onCall(async (request) => {
 
     if (!requester.allStores) {
         const existingIds = extractStoreIds(profile);
-        const updatedStoreIds = Array.from(new Set([...existingIds, validatedStoreId]));
+        const updatedStoreIds = Array.from(new Set([...existingIds, normalizedId]));
         const userUpdate = {
             lojaIds: updatedStoreIds,
         };
 
         if (!profile.lojaId) {
-            userUpdate.lojaId = validatedStoreId;
-            primaryStoreId = validatedStoreId;
+            userUpdate.lojaId = normalizedId;
+            primaryStoreId = normalizedId;
         }
 
         await db.collection('users').doc(uid).set(userUpdate, {merge: true});
@@ -921,7 +779,7 @@ exports.createStore = onCall(async (request) => {
     }
 
     return {
-        storeId: validatedStoreId,
+        storeId: normalizedId,
         storeData: {
             nome: rawName,
         },
@@ -1016,18 +874,18 @@ exports.createUser = onCall(async (request) => {
 
         let targetStores = [];
         if (normalizedRole === ROLE_OWNER) {
-            targetStores = sanitizeStoreIds(lojaIds, 'lojaIds');
+            targetStores = Array.isArray(lojaIds) ? lojaIds : [];
             if (requester.role === ROLE_OWNER && !requester.allStores && requester.stores.length) {
                 if (!userHasAccessToStores(requester.stores, targetStores)) {
                     throw new HttpsError("permission-denied", "Você não pode atribuir lojas fora do seu escopo.");
                 }
             }
         } else {
-            const primaryStore = normalizeStoreId(lojaId) || (Array.isArray(lojaIds) && lojaIds.length ? normalizeStoreId(lojaIds[0]) : null);
+            const primaryStore = lojaId || (Array.isArray(lojaIds) && lojaIds.length ? lojaIds[0] : null);
             if (!primaryStore) {
                 throw new HttpsError("invalid-argument", "lojaId é obrigatório para este tipo de usuário.");
             }
-            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore], 'lojaIds');
+            targetStores = Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore];
             const requesterStores = requester.role === ROLE_OWNER && requester.allStores ? targetStores : requester.stores;
             if (!userHasAccessToStores(requesterStores, targetStores)) {
                 throw new HttpsError("permission-denied", "Você não pode criar usuários para outras lojas.");
@@ -1078,13 +936,13 @@ exports.updateUser = onCall(async (request) => {
 
         let targetStores = [];
         if (normalizedRole === ROLE_OWNER) {
-            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) ? lojaIds : existingStores, 'lojaIds');
+            targetStores = Array.isArray(lojaIds) ? lojaIds : existingStores;
         } else {
-            const primaryStore = normalizeStoreId(lojaId) || (Array.isArray(lojaIds) && lojaIds.length ? normalizeStoreId(lojaIds[0]) : existingStores[0]);
+            const primaryStore = lojaId || (Array.isArray(lojaIds) && lojaIds.length ? lojaIds[0] : existingStores[0]);
             if (!primaryStore) {
                 throw new HttpsError("invalid-argument", "lojaId é obrigatório para este tipo de usuário.");
             }
-            targetStores = sanitizeStoreIds(Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore], 'lojaIds');
+            targetStores = Array.isArray(lojaIds) && lojaIds.length ? lojaIds : [primaryStore];
         }
 
         const requesterStores = requester.role === ROLE_OWNER && requester.allStores ? targetStores : requester.stores;
@@ -1205,60 +1063,25 @@ exports.notifyNewOrder = onDocumentCreated({
     region: "southamerica-east1",
 }, async (event) => {
     const orderData = event.data?.data();
-    const orderId = String(event.params?.pedidoId || "");
 
     if (!orderData) {
-        logger.warn("Novo pedido criado sem dados. Notificação não enviada.", {orderId});
-        return;
-    }
-
-    const storeIdFromOrder = orderData.storeId ? String(orderData.storeId).trim() : "";
-    const lojaIdFromOrder = orderData.lojaId ? String(orderData.lojaId).trim() : "";
-    const rawStoreId = storeIdFromOrder || lojaIdFromOrder;
-    let storeId = "";
-
-    try {
-        storeId = assertValidStoreId(rawStoreId, { fieldName: "storeId" });
-    } catch (validationError) {
-        logger.warn("Pedido com storeId/lojaId inválido. Notificação não enviada.", {
-            orderId: event.params.orderId,
-            storeId: rawStoreId || null,
-            error: validationError.message,
-        });
-        return;
-    }
-
-    if (!storeId) {
-        logger.warn("Pedido sem storeId/lojaId. Notificação não enviada.", {
-            orderId,
-            storeId: null,
-        });
+        logger.warn("Novo pedido criado sem dados. Notificação não enviada.");
         return;
     }
 
     try {
-        const tokensSnapshot = await db.collection("notificationTokens")
-            .where("storeId", "==", storeId)
-            .get();
+        const tokensSnapshot = await db.collection("notificationTokens").get();
 
         if (tokensSnapshot.empty) {
-            logger.info("Nenhum token de notificação para a loja. Ignorando envio de push.", {
-                orderId,
-                storeId,
-            });
+            logger.info("Nenhum token de notificação cadastrado. Ignorando envio de push.");
             return;
         }
 
         const tokens = tokensSnapshot.docs.map((doc) => doc.id);
+        const orderId = String(event.params?.pedidoId || "");
         const status = orderData.status ? String(orderData.status) : "Pendente";
         const customerName = orderData.clienteNome || orderData.nomeCliente || orderData.nome || orderData.cliente?.nome || "";
         const orderCode = orderData.numeroPedido || orderData.codigo || orderData.numero || "";
-
-        logger.info("Enviando notificação de novo pedido.", {
-            orderId,
-            storeId,
-            tokensCount: tokens.length,
-        });
 
         const title = "Novo pedido recebido";
         let body = customerName ? `Pedido de ${customerName}` : "Um novo pedido foi recebido.";
@@ -1274,7 +1097,6 @@ exports.notifyNewOrder = onDocumentCreated({
             },
             data: {
                 orderId,
-                storeId,
                 status,
                 url: "/",
                 source: "new-order",
@@ -1315,7 +1137,6 @@ exports.notifyNewOrder = onDocumentCreated({
                     vibrate: [200, 100, 200],
                     data: {
                         orderId,
-                        storeId,
                         url: "/",
                     },
                 },
@@ -1331,13 +1152,7 @@ exports.notifyNewOrder = onDocumentCreated({
         response.responses.forEach((res, index) => {
             if (!res.success) {
                 const errorCode = res.error?.code;
-                logger.error("Falha ao enviar notificação push.", {
-                    orderId,
-                    storeId,
-                    token: tokens[index],
-                    errorCode,
-                    errorMessage: res.error?.message,
-                });
+                logger.error("Falha ao enviar notificação push:", res.error);
 
                 if (errorCode === "messaging/registration-token-not-registered" || errorCode === "messaging/invalid-registration-token") {
                     tokensToDelete.push(tokens[index]);
@@ -1347,27 +1162,10 @@ exports.notifyNewOrder = onDocumentCreated({
 
         if (tokensToDelete.length > 0) {
             await Promise.all(tokensToDelete.map((token) => db.collection("notificationTokens").doc(token).delete().catch((error) => {
-                logger.error("Erro ao remover token inválido.", {
-                    orderId,
-                    storeId,
-                    token,
-                    error: error.message,
-                });
+                logger.error("Erro ao remover token inválido:", error);
             })));
         }
-
-        logger.info("Envio de notificação de novo pedido finalizado.", {
-            orderId,
-            storeId,
-            successCount: response.successCount,
-            failureCount: response.failureCount,
-            invalidTokensRemoved: tokensToDelete.length,
-        });
     } catch (error) {
-        logger.error("Erro ao enviar notificações de novo pedido.", {
-            orderId,
-            storeId,
-            error: error.message,
-        });
+        logger.error("Erro ao enviar notificações de novo pedido:", error);
     }
 });
