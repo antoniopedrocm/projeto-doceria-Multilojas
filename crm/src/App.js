@@ -3697,8 +3697,9 @@ function App() {
             const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
             const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
             const allStoresClaim = user?.allStoresClaim === true;
-            const canAccessAllStores = user?.canAccessAllStores === true;
-            const shouldLoadAllStores = canAccessAllStores && allStoresClaim;
+            const isOwnerByProfile = normalizeRole(user?.role) === ROLE_OWNER;
+            const canAccessAllStores = user?.canAccessAllStores === true || isOwnerByProfile;
+            const shouldLoadAllStores = canAccessAllStores;
             const attemptedRead = shouldLoadAllStores ? 'getDocs(collection(db, "lojas"))' : 'perfil.lojaId/lojaIds';
 
             try {
