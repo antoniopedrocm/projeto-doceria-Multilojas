@@ -341,11 +341,8 @@ const extractRoleFromClaims = (claims) => {
 
 const extractCanAccessAllStoresFromClaims = (claims) => {
   if (!claims || typeof claims !== 'object') return false;
-  if (typeof claims.allStores === 'boolean') return claims.allStores;
-
   const claimRole = extractRoleFromClaims(claims);
-  const claimStoreIds = extractStoreIdsFromClaims(claims);
-  return claimRole === ROLE_OWNER && claimStoreIds.length === 0;
+  return claims.allStores === true || claimRole === ROLE_OWNER || claimRole === 'admin';
 };
 
 const formatPhoneForWhatsApp = (phone) => {
@@ -3576,6 +3573,8 @@ function App() {
                                         const tokenResult = await authUser.getIdTokenResult();
                                         const tokenClaims = tokenResult?.claims || {};
                                         const lojaIdsFromClaims = extractStoreIdsFromClaims(tokenClaims);
+                                        const allStoresClaim = tokenClaims.allStores === true;
+                                        const roleFromClaims = extractRoleFromClaims(tokenClaims);
                                         const canAccessAllStoresFromClaims = extractCanAccessAllStoresFromClaims(tokenClaims);
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
@@ -3613,7 +3612,9 @@ function App() {
                                           lojaIds,
                                           lojaIdsFromClaims,
                                           lojaId: lojaIds[0] || null,
-                                          canAccessAllStores: role === ROLE_OWNER && canAccessAllStoresFromClaims,
+                                          canAccessAllStores: canAccessAllStoresFromClaims,
+                                          allStoresClaim,
+                                          roleFromClaims,
                                           permissions,
                                           customPermissions,
                                           hasCustomProfile: Boolean(customProfileData),
@@ -3640,8 +3641,11 @@ function App() {
           auth: authUser,
           role: fallbackRole,
           lojaIds: [],
+          lojaIdsFromClaims: [],
           lojaId: null,
           canAccessAllStores: false,
+          allStoresClaim: false,
+          roleFromClaims: ROLE_DEFAULT,
           permissions: fallbackPermissions,
           customPermissions: null,
           hasCustomProfile: false,
@@ -3692,6 +3696,10 @@ function App() {
                 : (user.lojaId ? [user.lojaId] : []);
             const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
             const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
+            const allStoresClaim = user?.allStoresClaim === true;
+            const canAccessAllStores = user?.canAccessAllStores === true;
+            const shouldLoadAllStores = canAccessAllStores && allStoresClaim;
+            const attemptedRead = shouldLoadAllStores ? 'getDocs(collection(db, "lojas"))' : 'perfil.lojaId/lojaIds';
 
             try {
                 let storeIds = [];
@@ -3699,17 +3707,19 @@ function App() {
                 console.info('[Stores][Load] Iniciando carregamento de lojas para usuário autenticado.', {
                     uid: user?.auth?.uid || null,
                     role: user?.role || null,
-                    canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    roleFromClaims: user?.roleFromClaims || null,
+                    canAccessAllStores,
+                    allStoresClaim,
                     lojaIdsFromProfile: profileStoreIds,
                     lojaIdsFromClaims: fallbackClaimStoreIds,
                 });
 
-                if (user.role === ROLE_OWNER && user.canAccessAllStores) {
-                    console.info('[Stores][Load] Lendo coleção completa: lojas (owner com acesso total).');
+                if (shouldLoadAllStores) {
+                    console.info('[Stores][Load] Caminho de carregamento: all stores.');
                     const snapshot = await getDocs(collection(db, 'lojas'));
                     storeIds = snapshot.docs.map((docSnap) => docSnap.id);
                 } else {
-                    console.info('[Stores][Load] Usando somente lojas vinculadas ao perfil do usuário.');
+                    console.info('[Stores][Load] Caminho de carregamento: fallback por IDs.');
                     storeIds = storeIdsFromAccess;
                 }
 
@@ -3717,6 +3727,9 @@ function App() {
 
                 setAvailableStores(storeIds);
                 setStoreLoadError('');
+                if (!storeIds.length) {
+                    setStoreLoadError('Nenhuma loja associada ao seu perfil.');
+                }
 
                 setSelectedStoreId((prevSelected) => {
                     if (user.role === ROLE_OWNER) {
@@ -3737,22 +3750,23 @@ function App() {
                     uid: user?.auth?.uid || null,
                     role: user?.role || null,
                     canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    allStoresClaim: Boolean(user?.allStoresClaim),
                     lojaIdsFromProfile: Array.isArray(user?.lojaIds) ? user.lojaIds : [],
                     lojaIdsFromClaims: Array.isArray(user?.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [],
-                    attemptedRead: user?.role === ROLE_OWNER && user?.canAccessAllStores ? 'getDocs(collection(db, \"lojas\"))' : 'perfil.lojaId/lojaIds',
+                    attemptedRead,
                     errorCode: error?.code || null,
                     errorMessage: error?.message || String(error),
                 });
                 if (isMounted) {
                     if (storeIdsFromAccess.length > 0) {
-                        console.warn('[Stores][Load] Fallback para lojas vindas de perfil/claims após falha na listagem.');
+                        console.warn('[Stores][Load] Permissão negada no caminho all stores. Aplicando fallback por IDs.');
                         setAvailableStores(storeIdsFromAccess);
                         setStoreInfoMap({});
                         setStoreLoadError('');
                     } else {
                         setAvailableStores([]);
                         setStoreInfoMap({});
-                        setStoreLoadError('Sua conta autenticou, mas não foi possível carregar as lojas vinculadas ao seu acesso.');
+                        setStoreLoadError('Nenhuma loja associada ao seu perfil.');
                     }
                 }
             }
@@ -8110,6 +8124,9 @@ const handleSubmit = async (e) => {
                                         ))}
                                     </select>
                                 </>
+                            )}
+                            {availableStores.length === 0 && (
+                                <span className="text-sm text-gray-500 hidden sm:block">Nenhuma loja associada ao seu perfil</span>
                             )}
                             <Button
                                 variant="secondary"

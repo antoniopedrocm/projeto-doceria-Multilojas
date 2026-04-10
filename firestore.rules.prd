@@ -16,6 +16,10 @@ service cloud.firestore {
       return hasRole(['admin', 'gestor', 'manager', 'atendente', 'crm']);
     }
 
+    function hasAllStoresClaim() {
+      return isSignedIn() && request.auth.token.allStores == true;
+    }
+
     function isStoreMember(storeId) {
       return isSignedIn() && (
         (request.auth.token.lojaId is string && request.auth.token.lojaId == storeId)
@@ -41,6 +45,14 @@ service cloud.firestore {
         (data.lojaId is string && isStoreMember(data.lojaId))
         ||
         (data.storeId is string && isStoreMember(data.storeId))
+      );
+    }
+
+    function canReadStore(storeId) {
+      return isSignedIn() && (
+        hasAllStoresClaim()
+        || hasRole(['dono', 'owner', 'admin'])
+        || isStoreMember(storeId)
       );
     }
 
@@ -97,10 +109,15 @@ service cloud.firestore {
 
     // --- LOJAS / MULTILOJA ---
     match /lojas/{lojaId} {
-      allow get: if true;
-      allow list: if isCrmUser() || hasRole(['dono', 'owner']);
+      allow get: if canReadStore(lojaId);
+      allow list: if hasAllStoresClaim() || hasRole(['dono', 'owner', 'admin']);
       allow create, update: if isCrmUser() && isStoreMember(lojaId);
       allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
+
+      match /meuEspaco/{docId} {
+        allow get, list: if canReadStore(lojaId);
+        allow create, update, delete: if isCrmUser() && isStoreMember(lojaId);
+      }
 
       match /produtos/{produtoId} {
         allow get, list: if true;

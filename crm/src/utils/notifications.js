@@ -7,6 +7,9 @@ const runtimeEnv =
   import.meta.env?.MODE ||
   "";
 const isDev = runtimeEnv !== "production";
+const vapidKeyFromProcess =
+  (typeof process !== "undefined" && process.env && (process.env.VAPID_KEY || process.env.REACT_APP_VAPID_KEY || process.env.REACT_APP_FIREBASE_VAPID_KEY)) ||
+  "";
 
 async function ensureServiceWorkerRegistration() {
   if (!isBrowser || !('serviceWorker' in navigator)) {
@@ -61,11 +64,11 @@ export async function registerDeviceForPush(uid) {
   }
 
   if (!VAPID_KEY) {
-    if (isDev) {
-      console.warn(
-        "A variável de ambiente da chave VAPID não está configurada; notificações push permanecerão desativadas."
-      );
-    }
+    const warningMessage = vapidKeyFromProcess
+      ? "A chave VAPID não pôde ser lida pelo build atual; notificações push permanecerão desativadas."
+      : "A chave VAPID não está configurada (process.env.VAPID_KEY / REACT_APP_*); notificações push permanecerão desativadas.";
+    if (isDev) console.warn(warningMessage);
+    else console.info(warningMessage);
     return null;
   }
 
