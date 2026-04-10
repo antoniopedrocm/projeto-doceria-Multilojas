@@ -2445,6 +2445,7 @@ function App() {
   
   const [availableStores, setAvailableStores] = useState([]);
   const [storeInfoMap, setStoreInfoMap] = useState({});
+  const [storeLoadError, setStoreLoadError] = useState('');
   const [selectedStoreId, setSelectedStoreId] = usePersistentState('selectedStoreId', null);
   const [showStoreManager, setShowStoreManager] = useState(false);
   const [isCreatingStore, setIsCreatingStore] = useState(false);
@@ -3650,6 +3651,7 @@ function App() {
                 if (isMounted) {
                     setAvailableStores([]);
                     setStoreInfoMap({});
+                    setStoreLoadError('');
                     storeCollectionsDataRef.current = {};
                     setSelectedStoreId(null);
                 }
@@ -3658,17 +3660,30 @@ function App() {
 
             try {
                 let storeIds = [];
+                const profileStoreIds = Array.isArray(user.lojaIds) && user.lojaIds.length
+                    ? user.lojaIds
+                    : (user.lojaId ? [user.lojaId] : []);
+
+                console.info('[Stores][Load] Iniciando carregamento de lojas para usuário autenticado.', {
+                    uid: user?.auth?.uid || null,
+                    role: user?.role || null,
+                    canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    lojaIdsFromProfile: profileStoreIds,
+                });
 
                 if (user.role === ROLE_OWNER && user.canAccessAllStores) {
+                    console.info('[Stores][Load] Lendo coleção completa: lojas (owner com acesso total).');
                     const snapshot = await getDocs(collection(db, 'lojas'));
                     storeIds = snapshot.docs.map((docSnap) => docSnap.id);
                 } else {
-                    storeIds = user.lojaIds && user.lojaIds.length ? user.lojaIds : (user.lojaId ? [user.lojaId] : []);
+                    console.info('[Stores][Load] Usando somente lojas vinculadas ao perfil do usuário.');
+                    storeIds = profileStoreIds;
                 }
 
                 if (!isMounted) return;
 
                 setAvailableStores(storeIds);
+                setStoreLoadError('');
 
                 setSelectedStoreId((prevSelected) => {
                     if (user.role === ROLE_OWNER) {
@@ -3685,9 +3700,19 @@ function App() {
                     return preferredStoreId;
                 });
             } catch (error) {
-                console.error('Erro ao carregar lojas do usuário:', error);
+                console.error('[Stores][Load] Erro ao carregar lojas do usuário.', {
+                    uid: user?.auth?.uid || null,
+                    role: user?.role || null,
+                    canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    lojaIdsFromProfile: Array.isArray(user?.lojaIds) ? user.lojaIds : [],
+                    attemptedRead: user?.role === ROLE_OWNER && user?.canAccessAllStores ? 'getDocs(collection(db, \"lojas\"))' : 'perfil.lojaId/lojaIds',
+                    errorCode: error?.code || null,
+                    errorMessage: error?.message || String(error),
+                });
                 if (isMounted) {
                     setAvailableStores([]);
+                    setStoreInfoMap({});
+                    setStoreLoadError('Sua conta autenticou, mas não foi possível carregar as lojas vinculadas ao seu acesso.');
                 }
             }
         };
@@ -3713,17 +3738,20 @@ function App() {
             try {
                 const entries = await Promise.all(availableStores.map(async (storeId) => {
                     try {
+                        console.info('[Stores][Info] Lendo path lojas/{lojaId}/meuEspaco/empresa', { storeId });
                         const empresaDocRef = getStoreScopedDocRef(db, storeId, 'meuEspaco', 'empresa');
                         const empresaDocSnap = await getDoc(empresaDocRef);
                         if (empresaDocSnap.exists()) {
                             return [storeId, empresaDocSnap.data()];
                         }
 
+                        console.info('[Stores][Info] Lendo path lojas/{lojaId}/meuEspaco/ponto', { storeId });
                         const pontoDocSnap = await getDoc(getStoreScopedDocRef(db, storeId, 'meuEspaco', 'ponto'));
                         if (pontoDocSnap.exists()) {
                             return [storeId, pontoDocSnap.data()];
                         }
 
+                        console.info('[Stores][Info] Fallback path lojas/{lojaId}', { storeId });
                         const fallbackDocSnap = await getDoc(getStoreRootDocRef(db, storeId));
                         if (fallbackDocSnap.exists()) {
                             return [storeId, fallbackDocSnap.data()];
@@ -8152,6 +8180,11 @@ const handleSubmit = async (e) => {
 			</div>
         </div>
         <main className="flex-1 overflow-y-auto">
+            {storeLoadError && (
+                <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {storeLoadError}
+                </div>
+            )}
             {renderCurrentPage()}
         </main>
       </div>
