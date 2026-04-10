@@ -3671,13 +3671,14 @@ function App() {
                 return;
             }
 
+            const profileStoreIds = Array.isArray(user.lojaIds) && user.lojaIds.length
+                ? user.lojaIds
+                : (user.lojaId ? [user.lojaId] : []);
+            const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
+            const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
+
             try {
                 let storeIds = [];
-                const profileStoreIds = Array.isArray(user.lojaIds) && user.lojaIds.length
-                    ? user.lojaIds
-                    : (user.lojaId ? [user.lojaId] : []);
-                const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
-                const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
 
                 console.info('[Stores][Load] Iniciando carregamento de lojas para usuário autenticado.', {
                     uid: user?.auth?.uid || null,
