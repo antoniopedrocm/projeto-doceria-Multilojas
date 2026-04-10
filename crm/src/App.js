@@ -324,6 +324,16 @@ const extractStoreIdsFromProfile = (profile) => {
   return [];
 };
 
+const extractStoreIdsFromClaims = (claims) => {
+  if (!claims || typeof claims !== 'object') return [];
+  const claimStoreIds = [];
+  if (Array.isArray(claims.lojaIds)) claimStoreIds.push(...claims.lojaIds);
+  if (Array.isArray(claims.lojas)) claimStoreIds.push(...claims.lojas);
+  if (typeof claims.lojaId === 'string') claimStoreIds.push(claims.lojaId);
+  if (typeof claims.storeId === 'string') claimStoreIds.push(claims.storeId);
+  return [...new Set(claimStoreIds.map((value) => String(value || '').trim()).filter(Boolean))];
+};
+
 const formatPhoneForWhatsApp = (phone) => {
   if (!phone) return '';
   const digits = String(phone).replace(/\D/g, '');
@@ -3549,6 +3559,8 @@ function App() {
 
                                         const role = normalizeRole(profile.role);
                                         const lojaIds = extractStoreIdsFromProfile(profile);
+                                        const tokenResult = await authUser.getIdTokenResult();
+                                        const lojaIdsFromClaims = extractStoreIdsFromClaims(tokenResult?.claims);
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
                                         let customProfileData = null;
@@ -3583,6 +3595,7 @@ function App() {
                                           auth: authUser,
                                           role,
                                           lojaIds,
+                                          lojaIdsFromClaims,
                                           lojaId: lojaIds[0] || null,
                                           canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
                                           permissions,
@@ -3663,12 +3676,15 @@ function App() {
                 const profileStoreIds = Array.isArray(user.lojaIds) && user.lojaIds.length
                     ? user.lojaIds
                     : (user.lojaId ? [user.lojaId] : []);
+                const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
+                const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
 
                 console.info('[Stores][Load] Iniciando carregamento de lojas para usuário autenticado.', {
                     uid: user?.auth?.uid || null,
                     role: user?.role || null,
                     canAccessAllStores: Boolean(user?.canAccessAllStores),
                     lojaIdsFromProfile: profileStoreIds,
+                    lojaIdsFromClaims: fallbackClaimStoreIds,
                 });
 
                 if (user.role === ROLE_OWNER && user.canAccessAllStores) {
@@ -3677,7 +3693,7 @@ function App() {
                     storeIds = snapshot.docs.map((docSnap) => docSnap.id);
                 } else {
                     console.info('[Stores][Load] Usando somente lojas vinculadas ao perfil do usuário.');
-                    storeIds = profileStoreIds;
+                    storeIds = storeIdsFromAccess;
                 }
 
                 if (!isMounted) return;
@@ -3705,14 +3721,22 @@ function App() {
                     role: user?.role || null,
                     canAccessAllStores: Boolean(user?.canAccessAllStores),
                     lojaIdsFromProfile: Array.isArray(user?.lojaIds) ? user.lojaIds : [],
+                    lojaIdsFromClaims: Array.isArray(user?.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [],
                     attemptedRead: user?.role === ROLE_OWNER && user?.canAccessAllStores ? 'getDocs(collection(db, \"lojas\"))' : 'perfil.lojaId/lojaIds',
                     errorCode: error?.code || null,
                     errorMessage: error?.message || String(error),
                 });
                 if (isMounted) {
-                    setAvailableStores([]);
-                    setStoreInfoMap({});
-                    setStoreLoadError('Sua conta autenticou, mas não foi possível carregar as lojas vinculadas ao seu acesso.');
+                    if (storeIdsFromAccess.length > 0) {
+                        console.warn('[Stores][Load] Fallback para lojas vindas de perfil/claims após falha na listagem.');
+                        setAvailableStores(storeIdsFromAccess);
+                        setStoreInfoMap({});
+                        setStoreLoadError('');
+                    } else {
+                        setAvailableStores([]);
+                        setStoreInfoMap({});
+                        setStoreLoadError('Sua conta autenticou, mas não foi possível carregar as lojas vinculadas ao seu acesso.');
+                    }
                 }
             }
         };
