@@ -885,6 +885,8 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [showEstoqueModal, setShowEstoqueModal] = useState(false);
     const [editingEstoque, setEditingEstoque] = useState(null);
     const [estoqueFormData, setEstoqueFormData] = useState({});
+    const [estoqueSearchTerm, setEstoqueSearchTerm] = useState('');
+    const [selectedEstoqueFornecedor, setSelectedEstoqueFornecedor] = useState('');
 
     const [showPerdaModal, setShowPerdaModal] = useState(false);
     const [editingPerda, setEditingPerda] = useState(null);
@@ -1013,6 +1015,26 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const filteredFornecedores = useMemo(() => (data.fornecedores || []).filter(f => (f.nome && f.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (f.categoria && f.categoria.toLowerCase().includes(searchTerm.toLowerCase()))), [data.fornecedores, searchTerm]);
     const pedidosComNomes = useMemo(() => (data.pedidosCompra || []).map(pedido => ({ ...pedido, fornecedorNome: data.fornecedores.find(f => f.id === pedido.fornecedorId)?.nome || 'N/A' })), [data.pedidosCompra, data.fornecedores]);
     const estoqueComNomes = useMemo(() => (data.estoque || []).map(item => ({ ...item, fornecedorNome: data.fornecedores.find(f => f.id === item.fornecedorId)?.nome || 'N/A' })), [data.estoque, data.fornecedores]);
+    const estoqueFornecedores = useMemo(() => {
+        const fornecedores = new Set();
+        (estoqueComNomes || []).forEach(item => {
+            if (item.fornecedorNome) {
+                fornecedores.add(item.fornecedorNome);
+            }
+        });
+        return Array.from(fornecedores).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    }, [estoqueComNomes]);
+    const filteredEstoque = useMemo(() => {
+        const normalizedSearch = estoqueSearchTerm.trim().toLowerCase();
+        const normalizedFornecedor = selectedEstoqueFornecedor.trim().toLowerCase();
+        return (estoqueComNomes || []).filter((item) => {
+            const itemNome = (item.nome || '').toLowerCase();
+            const itemFornecedor = (item.fornecedorNome || '').toLowerCase();
+            const matchesName = itemNome.includes(normalizedSearch);
+            const matchesFornecedor = normalizedFornecedor ? itemFornecedor === normalizedFornecedor : true;
+            return matchesName && matchesFornecedor;
+        });
+    }, [estoqueComNomes, estoqueSearchTerm, selectedEstoqueFornecedor]);
     const perdasOrdenadas = useMemo(() => {
         const perdas = data.perdasDescarte || [];
         const mapped = perdas.map(perda => {
@@ -1163,7 +1185,31 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
             )}
              {activeTab === 'estoque' && (
                  <div>
-                    <div className="flex justify-end mb-6"><Button onClick={handleNewEstoque}><PackagePlus className="w-4 h-4" /> Novo Item de Estoque</Button></div>
+                    <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+                        <div className="flex flex-col sm:flex-row gap-3 w-full md:max-w-2xl">
+                            <div className="relative w-full">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar item..."
+                                    value={estoqueSearchTerm}
+                                    onChange={(e) => setEstoqueSearchTerm(e.target.value)}
+                                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500"
+                                />
+                            </div>
+                            <select
+                                value={selectedEstoqueFornecedor}
+                                onChange={(e) => setSelectedEstoqueFornecedor(e.target.value)}
+                                className="w-full sm:w-64 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500 bg-white"
+                            >
+                                <option value="">Todos os fornecedores</option>
+                                {estoqueFornecedores.map((fornecedorNome) => (
+                                    <option key={fornecedorNome} value={fornecedorNome}>{fornecedorNome}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <Button onClick={handleNewEstoque} className="w-full md:w-auto"><PackagePlus className="w-4 h-4" /> Novo Item de Estoque</Button>
+                    </div>
                     <Table
                         columns={[
                             { header: 'Item', key: 'nome' },
@@ -1194,9 +1240,12 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                             },
                             { header: 'Custo Unitário', render: (row) => `R$ ${(row.custoUnitario || 0).toFixed(2)}` }
                         ]}
-                        data={estoqueComNomes}
+                        data={filteredEstoque}
                         actions={[ { icon: Edit, label: "Editar", onClick: handleEditEstoque }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('estoque', row.id) }) } ]}
                     />
+                    {filteredEstoque.length === 0 && (
+                        <div className="px-4 py-6 text-center text-gray-500">Nenhum item encontrado</div>
+                    )}
                 </div>
             )}
 
