@@ -324,6 +324,16 @@ const extractStoreIdsFromProfile = (profile) => {
   return [];
 };
 
+const extractStoreIdsFromClaims = (claims) => {
+  if (!claims || typeof claims !== 'object') return [];
+  const claimStoreIds = [];
+  if (Array.isArray(claims.lojaIds)) claimStoreIds.push(...claims.lojaIds);
+  if (Array.isArray(claims.lojas)) claimStoreIds.push(...claims.lojas);
+  if (typeof claims.lojaId === 'string') claimStoreIds.push(claims.lojaId);
+  if (typeof claims.storeId === 'string') claimStoreIds.push(claims.storeId);
+  return [...new Set(claimStoreIds.map((value) => String(value || '').trim()).filter(Boolean))];
+};
+
 const formatPhoneForWhatsApp = (phone) => {
   if (!phone) return '';
   const digits = String(phone).replace(/\D/g, '');
@@ -2445,6 +2455,7 @@ function App() {
   
   const [availableStores, setAvailableStores] = useState([]);
   const [storeInfoMap, setStoreInfoMap] = useState({});
+  const [storeLoadError, setStoreLoadError] = useState('');
   const [selectedStoreId, setSelectedStoreId] = usePersistentState('selectedStoreId', null);
   const [showStoreManager, setShowStoreManager] = useState(false);
   const [isCreatingStore, setIsCreatingStore] = useState(false);
@@ -3548,6 +3559,8 @@ function App() {
 
                                         const role = normalizeRole(profile.role);
                                         const lojaIds = extractStoreIdsFromProfile(profile);
+                                        const tokenResult = await authUser.getIdTokenResult();
+                                        const lojaIdsFromClaims = extractStoreIdsFromClaims(tokenResult?.claims);
                                         const permissionsDefaults = getDefaultPermissionsForRole(role);
                                         const customProfileRef = doc(db, "customProfiles", authUser.uid);
                                         let customProfileData = null;
@@ -3582,6 +3595,7 @@ function App() {
                                           auth: authUser,
                                           role,
                                           lojaIds,
+                                          lojaIdsFromClaims,
                                           lojaId: lojaIds[0] || null,
                                           canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
                                           permissions,
@@ -3650,6 +3664,7 @@ function App() {
                 if (isMounted) {
                     setAvailableStores([]);
                     setStoreInfoMap({});
+                    setStoreLoadError('');
                     storeCollectionsDataRef.current = {};
                     setSelectedStoreId(null);
                 }
@@ -3658,17 +3673,33 @@ function App() {
 
             try {
                 let storeIds = [];
+                const profileStoreIds = Array.isArray(user.lojaIds) && user.lojaIds.length
+                    ? user.lojaIds
+                    : (user.lojaId ? [user.lojaId] : []);
+                const fallbackClaimStoreIds = Array.isArray(user.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [];
+                const storeIdsFromAccess = [...new Set([...profileStoreIds, ...fallbackClaimStoreIds])];
+
+                console.info('[Stores][Load] Iniciando carregamento de lojas para usuário autenticado.', {
+                    uid: user?.auth?.uid || null,
+                    role: user?.role || null,
+                    canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    lojaIdsFromProfile: profileStoreIds,
+                    lojaIdsFromClaims: fallbackClaimStoreIds,
+                });
 
                 if (user.role === ROLE_OWNER && user.canAccessAllStores) {
+                    console.info('[Stores][Load] Lendo coleção completa: lojas (owner com acesso total).');
                     const snapshot = await getDocs(collection(db, 'lojas'));
                     storeIds = snapshot.docs.map((docSnap) => docSnap.id);
                 } else {
-                    storeIds = user.lojaIds && user.lojaIds.length ? user.lojaIds : (user.lojaId ? [user.lojaId] : []);
+                    console.info('[Stores][Load] Usando somente lojas vinculadas ao perfil do usuário.');
+                    storeIds = storeIdsFromAccess;
                 }
 
                 if (!isMounted) return;
 
                 setAvailableStores(storeIds);
+                setStoreLoadError('');
 
                 setSelectedStoreId((prevSelected) => {
                     if (user.role === ROLE_OWNER) {
@@ -3685,9 +3716,27 @@ function App() {
                     return preferredStoreId;
                 });
             } catch (error) {
-                console.error('Erro ao carregar lojas do usuário:', error);
+                console.error('[Stores][Load] Erro ao carregar lojas do usuário.', {
+                    uid: user?.auth?.uid || null,
+                    role: user?.role || null,
+                    canAccessAllStores: Boolean(user?.canAccessAllStores),
+                    lojaIdsFromProfile: Array.isArray(user?.lojaIds) ? user.lojaIds : [],
+                    lojaIdsFromClaims: Array.isArray(user?.lojaIdsFromClaims) ? user.lojaIdsFromClaims : [],
+                    attemptedRead: user?.role === ROLE_OWNER && user?.canAccessAllStores ? 'getDocs(collection(db, \"lojas\"))' : 'perfil.lojaId/lojaIds',
+                    errorCode: error?.code || null,
+                    errorMessage: error?.message || String(error),
+                });
                 if (isMounted) {
-                    setAvailableStores([]);
+                    if (storeIdsFromAccess.length > 0) {
+                        console.warn('[Stores][Load] Fallback para lojas vindas de perfil/claims após falha na listagem.');
+                        setAvailableStores(storeIdsFromAccess);
+                        setStoreInfoMap({});
+                        setStoreLoadError('');
+                    } else {
+                        setAvailableStores([]);
+                        setStoreInfoMap({});
+                        setStoreLoadError('Sua conta autenticou, mas não foi possível carregar as lojas vinculadas ao seu acesso.');
+                    }
                 }
             }
         };
@@ -3713,17 +3762,20 @@ function App() {
             try {
                 const entries = await Promise.all(availableStores.map(async (storeId) => {
                     try {
+                        console.info('[Stores][Info] Lendo path lojas/{lojaId}/meuEspaco/empresa', { storeId });
                         const empresaDocRef = getStoreScopedDocRef(db, storeId, 'meuEspaco', 'empresa');
                         const empresaDocSnap = await getDoc(empresaDocRef);
                         if (empresaDocSnap.exists()) {
                             return [storeId, empresaDocSnap.data()];
                         }
 
+                        console.info('[Stores][Info] Lendo path lojas/{lojaId}/meuEspaco/ponto', { storeId });
                         const pontoDocSnap = await getDoc(getStoreScopedDocRef(db, storeId, 'meuEspaco', 'ponto'));
                         if (pontoDocSnap.exists()) {
                             return [storeId, pontoDocSnap.data()];
                         }
 
+                        console.info('[Stores][Info] Fallback path lojas/{lojaId}', { storeId });
                         const fallbackDocSnap = await getDoc(getStoreRootDocRef(db, storeId));
                         if (fallbackDocSnap.exists()) {
                             return [storeId, fallbackDocSnap.data()];
@@ -8152,6 +8204,11 @@ const handleSubmit = async (e) => {
 			</div>
         </div>
         <main className="flex-1 overflow-y-auto">
+            {storeLoadError && (
+                <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {storeLoadError}
+                </div>
+            )}
             {renderCurrentPage()}
         </main>
       </div>

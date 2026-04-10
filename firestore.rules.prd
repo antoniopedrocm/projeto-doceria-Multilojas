@@ -98,7 +98,7 @@ service cloud.firestore {
     // --- LOJAS / MULTILOJA ---
     match /lojas/{lojaId} {
       allow get: if true;
-      allow list: if isCrmUser();
+      allow list: if isCrmUser() || hasRole(['dono', 'owner']);
       allow create, update: if isCrmUser() && isStoreMember(lojaId);
       allow delete: if isCrmUser() && hasRole(['admin', 'gestor', 'manager']) && isStoreMember(lojaId);
 
