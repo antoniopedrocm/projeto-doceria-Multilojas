@@ -476,7 +476,7 @@
                         <div id="manual-address-map-warning" class="hidden rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800" role="alert" aria-live="assertive">
                             <div class="flex items-start gap-3">
                                 <i class="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600"></i>
-                                <p class="text-sm font-medium" data-message>É preciso mover o marcador no mapa para o local da entrega.</p>
+                                <p class="text-sm font-medium" data-message>É preciso mover o mapa para ajustar o pino no local da entrega.</p>
                             </div>
                         </div>
 						<div class="flex gap-3 pt-2">
@@ -741,7 +741,7 @@
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
-	let map, marker, geocoder, placeAutocomplete;
+	let map, marker, geocoder, placeAutocomplete, mapIdleListener;
     window.currentLatLng = null;
     window.pendingAddressLatLng = null;
     window.manualAddressLocationConfirmed = false;
@@ -770,7 +770,7 @@
         if (!manualAddressMapWarning) return;
         manualAddressMapWarning.classList.remove('hidden');
         if (manualAddressMapWarningMessage) {
-            manualAddressMapWarningMessage.textContent = 'É preciso mover o marcador no mapa para o local da entrega.';
+            manualAddressMapWarningMessage.textContent = 'É preciso mover o mapa para ajustar o pino no local da entrega.';
         }
         manualAddressMapWarning.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
@@ -879,6 +879,7 @@
       window.manualAddressLocationConfirmed = false;
       map = null;
       marker = null;
+      mapIdleListener = null;
       const addressMapContainer = document.getElementById('address-map-container');
       if (addressMapContainer) {
         addressMapContainer.innerHTML = '';
@@ -1067,8 +1068,18 @@
 
             if (!map || !marker) {
                 map = new Map(mapDiv, { center: initialCoords, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
-                marker = new AdvancedMarkerElement({ map: map, position: initialCoords, gmpDraggable: true });
-                marker.addListener('dragend', () => reverseGeocode(marker.position));
+                marker = new AdvancedMarkerElement({ map: map, position: initialCoords, gmpDraggable: false });
+
+                if (mapIdleListener) {
+                    google.maps.event.removeListener(mapIdleListener);
+                }
+                mapIdleListener = map.addListener('idle', () => {
+                    const center = map.getCenter();
+                    if (!center) return;
+                    const centerCoords = { lat: center.lat(), lng: center.lng() };
+                    marker.position = centerCoords;
+                    reverseGeocode(centerCoords);
+                });
             } else {
                 map.setCenter(initialCoords);
                 map.setZoom(17);
