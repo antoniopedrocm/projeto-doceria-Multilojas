@@ -450,7 +450,7 @@
 				</div>
 
 				<!-- Botão para Adicionar Novo Endereço -->
-				<div class="border-t pt-6">
+				<div id="show-new-address-wrapper" class="border-t pt-6">
 					<button id="show-new-address-btn" class="w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
 						<i class="fa-solid fa-plus-circle"></i>
 						Adicionar Novo Endereço
@@ -1931,6 +1931,8 @@
 
         async function showNewAddressSection() {
             document.getElementById('new-address-section').classList.remove('hidden');
+            document.getElementById('address-list').classList.add('hidden');
+            document.getElementById('show-new-address-wrapper').classList.add('hidden');
             document.getElementById('show-new-address-btn').classList.add('hidden');
             applyManualAddressFormData(addressFlowState.formData);
             window.currentLatLng = addressFlowState.currentLatLng ? { ...addressFlowState.currentLatLng } : null;
@@ -1952,6 +1954,8 @@
                 syncAddressFlowState();
             }
             document.getElementById('new-address-section').classList.add('hidden');
+            document.getElementById('address-list').classList.remove('hidden');
+            document.getElementById('show-new-address-wrapper').classList.remove('hidden');
             document.getElementById('show-new-address-btn').classList.remove('hidden');
             window.clearManualAddressMapWarning?.();
         }
@@ -2080,6 +2084,8 @@
             window.clearManualAddressMapWarning?.();
 
 			document.getElementById('new-address-section').classList.add('hidden');
+			document.getElementById('address-list').classList.remove('hidden');
+			document.getElementById('show-new-address-wrapper').classList.remove('hidden');
 			document.getElementById('show-new-address-btn').classList.remove('hidden');
 
             /* === INÍCIO DA MODIFICAÇÃO === */
