@@ -934,6 +934,68 @@
     window.showAddressStep = showAddressStep;
     window.resetAddressFlowState = resetAddressFlowState;
 
+    function fillManualAddressFields(place) {
+        const rawComponents = place?.addressComponents || place?.address_components || [];
+        const normalizeComponent = (component) => {
+            if (!component) return null;
+            const name = component.long_name || component.longName || component.name || component.short_name || component.shortName;
+            return {
+                value: name || '',
+                types: component.types || [],
+            };
+        };
+
+        const components = rawComponents.map(normalizeComponent).filter(Boolean);
+        const get = (type) => components.find((c) => c.types.includes(type))?.value?.trim() || '';
+
+        const formattedAddress = place?.formattedAddress || place?.formatted_address || '';
+        const streetFromPlace = get('route') || formattedAddress.split(',')[0]?.trim();
+        const neighborhoodFromPlace = get('sublocality_level_1') || get('neighborhood') || get('political');
+        const cityFromPlace = get('administrative_area_level_2');
+        const zipFromPlace = get('postal_code');
+
+        const streetInput = document.getElementById('manual-address-street');
+        const neighborhoodInput = document.getElementById('manual-address-neighborhood');
+        const cityInput = document.getElementById('manual-address-city');
+        const zipInput = document.getElementById('manual-address-zip');
+
+        if (streetFromPlace && streetInput) streetInput.value = streetFromPlace;
+        if (neighborhoodFromPlace && neighborhoodInput) neighborhoodInput.value = neighborhoodFromPlace;
+        if (cityInput) {
+            cityInput.value = cityFromPlace || cityInput.value || 'Goiânia';
+        }
+        if (zipFromPlace && zipInput) zipInput.value = zipFromPlace;
+
+        validateAddressForm();
+    }
+
+    function reverseGeocode(latlng) {
+        const normalizedLatLng = {
+            lat: Number(latlng?.lat ?? latlng?.lat()),
+            lng: Number(latlng?.lng ?? latlng?.lng())
+        };
+
+        if (!isValidLatLng(normalizedLatLng)) {
+            showToast('Erro ao obter coordenadas do endereço. Tente novamente.', true);
+            return;
+        }
+
+        geocoder = geocoder || new google.maps.Geocoder();
+        geocoder.geocode({ location: normalizedLatLng }, (results, status) => {
+            if (status === 'OK' && results[0]) {
+                fillManualAddressFields(results[0]);
+                window.currentLatLng = normalizedLatLng;
+                window.pendingAddressLatLng = normalizedLatLng;
+                window.manualAddressLocationConfirmed = false;
+                syncAddressFlowState();
+                return;
+            }
+
+            console.warn('Não foi possível obter dados do endereço no mapa:', status);
+            showToast('Não foi possível identificar o endereço neste ponto do mapa.', true);
+        });
+    }
+
     async function initAddressStep1Search() {
         const searchContainer = document.getElementById('address-search-container');
         const locationBtn = document.getElementById('address-step1-location-btn');
@@ -955,6 +1017,7 @@
                             window.pendingAddressLatLng = coords;
                             window.currentLatLng = coords;
                             window.manualAddressLocationConfirmed = false;
+                            fillManualAddressFields(place);
                             addressFlowState.autocompleteSelection = place.formattedAddress || '';
                             syncAddressFlowState({ currentStep: 2 });
                             showAddressStep(2);
