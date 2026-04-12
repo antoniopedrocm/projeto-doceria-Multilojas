@@ -815,14 +815,18 @@
 	}
 
     function showAddressStep(step) {
+        addressStep = Number.isInteger(step) ? step : 1;
         const step1 = document.getElementById('new-address-step1');
         const step2 = document.getElementById('new-address-step2');
         const step3 = document.getElementById('new-address-step3');
         [step1, step2, step3].forEach((el, idx) => {
             if (!el) return;
-            el.classList.toggle('hidden', idx !== step - 1);
+            el.classList.toggle('hidden', idx !== addressStep - 1);
         });
+        window.addressStep = addressStep;
+        window.persistCheckoutState?.();
     }
+    window.showAddressStep = showAddressStep;
 
     async function initAddressStep1Search() {
         const searchContainer = document.getElementById('address-search-container');
@@ -987,6 +991,8 @@
             return ["lojas", STORE_ID, first, ...rest];
         };
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
+        const CHECKOUT_STORAGE_KEY = 'checkoutState_v1';
+        let addressStep = 1;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
@@ -1112,6 +1118,58 @@
                 await startAppFlow('falha na autenticação');
             }
         }
+
+        function persistCheckoutState() {
+            try {
+                const checkoutState = {
+                    cart,
+                    pendingOrderDetails,
+                    guestCurrentLatLng: window.guestCurrentLatLng || null,
+                    valorFrete: Number.isFinite(window.valorFrete) ? window.valorFrete : 0,
+                    addressStep: Number.isInteger(addressStep) ? addressStep : 1
+                };
+                sessionStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify(checkoutState));
+            } catch (error) {
+                console.warn('Não foi possível persistir o checkout:', error);
+            }
+        }
+
+        function restoreCheckoutState() {
+            try {
+                const rawState = sessionStorage.getItem(CHECKOUT_STORAGE_KEY);
+                if (!rawState) return;
+
+                const savedState = JSON.parse(rawState);
+                cart = Array.isArray(savedState?.cart) ? savedState.cart : [];
+                pendingOrderDetails = (savedState?.pendingOrderDetails && typeof savedState.pendingOrderDetails === 'object')
+                    ? savedState.pendingOrderDetails
+                    : {};
+                window.guestCurrentLatLng = savedState?.guestCurrentLatLng || null;
+                window.valorFrete = Number.isFinite(savedState?.valorFrete) ? savedState.valorFrete : 0;
+                addressStep = Number.isInteger(savedState?.addressStep) ? savedState.addressStep : 1;
+
+                if (selectedAddressText && pendingOrderDetails?.clienteEndereco) {
+                    selectedAddressText.textContent = pendingOrderDetails.clienteEndereco;
+                }
+
+                renderCart();
+                updateAllSummaries();
+                if (typeof window.showAddressStep === 'function') {
+                    window.showAddressStep(addressStep);
+                }
+            } catch (error) {
+                console.warn('Não foi possível restaurar o checkout salvo:', error);
+                clearCheckoutState();
+            }
+        }
+
+        function clearCheckoutState() {
+            sessionStorage.removeItem(CHECKOUT_STORAGE_KEY);
+        }
+
+        window.persistCheckoutState = persistCheckoutState;
+        window.restoreCheckoutState = restoreCheckoutState;
+        window.clearCheckoutState = clearCheckoutState;
 
         // --- FUNÇÕES PRINCIPAIS ---
 
@@ -1316,12 +1374,14 @@
             }
 
             renderCart();
+            persistCheckoutState();
             showToast(`${product.nome} adicionado ao carrinho!`);
         };
 
         window.removeFromCart = (productId) => {
             cart = cart.filter(item => item.id !== productId);
             renderCart();
+            persistCheckoutState();
             showToast('Item removido do carrinho', true);
         };
 
@@ -1342,6 +1402,7 @@
                 removeFromCart(productId);
             } else {
                 renderCart();
+                persistCheckoutState();
             }
         };
 
@@ -1555,6 +1616,7 @@
                 guestCheckoutModal.classList.remove('hidden');
                 window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
+                persistCheckoutState();
                 updateGuestSummary();
                 setTimeout(window.initGuestAddressMap, 300);
             });
@@ -1562,6 +1624,7 @@
             closeGuestCheckoutModal.addEventListener('click', () => {
                 guestCheckoutModal.classList.add('hidden');
                 window.guestCurrentLatLng = null;
+                persistCheckoutState();
             });
 
             searchPhoneButton.addEventListener('click', handlePhoneSearch);
@@ -1650,6 +1713,7 @@
                                         const latlng = { lat: location.lat(), lng: location.lng() };
                                         fillGuestAddressFields(results[0]);
                                         window.guestCurrentLatLng = latlng;
+                                        persistCheckoutState();
                                         window.updateGuestShippingAndSummary(latlng);
                                     } else {
                                         console.warn('Não foi possível geocodificar o endereço digitado:', status);
@@ -1662,6 +1726,7 @@
                         } else {
                             window.guestCurrentLatLng = null;
                             window.valorFrete = 0;
+                            persistCheckoutState();
                             updateGuestSummary();
                         }
                     });
@@ -1890,6 +1955,7 @@
 			addressManagementModal.classList.add('hidden');
 
 			updateAllSummaries(); // Atualiza todos os resumos (carrinho, pagamento)
+			persistCheckoutState();
 			paymentModal.classList.remove('hidden');
 		}
         /* === FIM DA MODIFICAÇÃO === */
@@ -1919,6 +1985,7 @@
 				window.valorFrete = 0;
 			}
             updateAllSummaries();
+			persistCheckoutState();
 			paymentModal.classList.remove('hidden');
 		}
 
@@ -2205,6 +2272,7 @@
                 verifyButton.classList.replace('bg-gray-600', 'bg-red-600');
                 showToast('Cupom aplicado!');
                 updateAllSummaries();
+                persistCheckoutState();
 
             } catch (error) {
                 console.error('Erro ao aplicar cupom:', error);
@@ -2229,6 +2297,7 @@
             [paymentVerifyCupomButton].filter(Boolean).forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
             [paymentCupomMessage].filter(Boolean).forEach(msg => { msg.textContent = ''; });
             updateAllSummaries();
+            persistCheckoutState();
         }
 
 		async function handleGuestOrder() {
@@ -2403,6 +2472,7 @@
                 currentClient = null;
                 pendingOrderDetails = {};
                 removeCupom();
+                clearCheckoutState();
                 renderCart();
 
             } catch (error) {
@@ -2410,7 +2480,10 @@
                 showToast('Erro ao confirmar o pedido.', true);
             }
         }
-        document.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', () => {
+            restoreCheckoutState();
+            initApp();
+        });
     </script>
 
 	<script type="module">
@@ -2448,11 +2521,13 @@
             console.warn('Coordenadas inválidas para cálculo de frete do visitante:', latlng);
             window.guestCurrentLatLng = null;
             window.valorFrete = 0;
+            window.persistCheckoutState?.();
             window.updateGuestSummary();
             return;
         }
 
         window.guestCurrentLatLng = normalizedLatLng;
+        window.persistCheckoutState?.();
         document.getElementById('guest-shipping').textContent = 'Calculando...';
         window.valorFrete = 0;
         window.updateGuestSummary();
@@ -2462,11 +2537,13 @@
             const resultado = await window.calcularFreteParaEndereco(normalizedLatLng);
             const valorCalculado = parseFloat(resultado.valorFrete);
             window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
+            window.persistCheckoutState?.();
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
         } catch (error) {
             console.error('Falha ao calcular frete para visitante:', error);
             window.showToast('Não foi possível calcular o frete.', true);
             window.valorFrete = 0;
+            window.persistCheckoutState?.();
         } finally {
             window.updateGuestSummary();
         }
