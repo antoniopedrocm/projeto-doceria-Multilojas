@@ -743,6 +743,7 @@
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
 	let map, marker, geocoder, placeAutocomplete;
     window.currentLatLng = null;
+    window.pendingAddressLatLng = null;
 
     const saveAddressBtn = document.getElementById('save-manual-address-button');
     const manualAddressMapWarning = document.getElementById('manual-address-map-warning');
@@ -805,43 +806,53 @@
         });
     }
 
-    async function initAddressStepOne() {
+    async function initAddressStep1Search() {
         const searchContainer = document.getElementById('address-search-container');
-        if (!searchContainer || placeAutocomplete) return;
+        const locationBtn = document.getElementById('address-step1-location-btn');
+        if (!searchContainer) return;
 
-        try {
-            await google.maps.importLibrary("places");
-            placeAutocomplete = new google.maps.places.PlaceAutocompleteElement();
-            placeAutocomplete.className = 'w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500';
-            placeAutocomplete.setAttribute('placeholder', 'Digite o endereço...');
+        if (!placeAutocomplete) {
+            try {
+                await google.maps.importLibrary("places");
+                placeAutocomplete = new google.maps.places.PlaceAutocompleteElement();
+                placeAutocomplete.className = 'w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500';
+                placeAutocomplete.setAttribute('placeholder', 'Digite o endereço...');
 
-            placeAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
-                try {
-                    const place = placePrediction.toPlace();
-                    await place.fetchFields({ fields: ['location', 'formattedAddress', 'addressComponents'] });
-                    if (place.location) {
-                        const newPosition = { lat: place.location.lat(), lng: place.location.lng() };
-                        await initAddressMap(newPosition);
-                        reverseGeocode(newPosition);
-                        showAddressStep(2);
+                placeAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
+                    try {
+                        const place = placePrediction.toPlace();
+                        await place.fetchFields({ fields: ['location', 'formattedAddress', 'addressComponents'] });
+                        if (place.location) {
+                            const coords = { lat: place.location.lat(), lng: place.location.lng() };
+                            window.pendingAddressLatLng = coords;
+                            window.currentLatLng = coords;
+                            showAddressStep(2);
+                            await initAddressMap(coords);
+                        }
+                    } catch (error) {
+                        console.error('Erro ao buscar detalhes do local:', error);
                     }
-                } catch (error) {
-                    console.error('Erro ao buscar detalhes do local:', error);
-                }
-            });
+                });
+            } catch (error) {
+                console.error('Erro ao inicializar autocomplete de endereço:', error);
+            }
+        }
 
+        if (placeAutocomplete && !searchContainer.contains(placeAutocomplete)) {
             searchContainer.append(placeAutocomplete);
-        } catch (error) {
-            console.error('Erro ao inicializar autocomplete de endereço:', error);
+        }
+
+        if (locationBtn && !locationBtn.dataset.boundStep1Location) {
+            locationBtn.dataset.boundStep1Location = 'true';
+            locationBtn.addEventListener('click', useCurrentLocationForAddress);
         }
     }
 
-    async function initAddressMap(initialCenter) {
+    async function initAddressMap(initialCoords) {
         const addressMapContainer = document.getElementById('address-map-container');
-        if (!addressMapContainer) return;
+        if (!addressMapContainer || !initialCoords) return;
 
         try {
-            const defaultCenter = initialCenter || marker?.position || { lat: -16.644661430463806, lng: -49.324890665224544 };
             geocoder = geocoder || new google.maps.Geocoder();
             const { Map } = await google.maps.importLibrary("maps");
             const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
@@ -857,15 +868,16 @@
             }
 
             if (!map || !marker) {
-                map = new Map(mapDiv, { center: defaultCenter, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
-                marker = new AdvancedMarkerElement({ map: map, position: defaultCenter, gmpDraggable: true });
+                map = new Map(mapDiv, { center: initialCoords, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
+                marker = new AdvancedMarkerElement({ map: map, position: initialCoords, gmpDraggable: true });
                 marker.addListener('dragend', () => reverseGeocode(marker.position));
             } else {
-                map.setCenter(defaultCenter);
+                map.setCenter(initialCoords);
                 map.setZoom(17);
-                marker.position = defaultCenter;
+                marker.position = initialCoords;
             }
 
+            reverseGeocode(initialCoords);
             validateAddressForm();
         } catch (error) {
             console.error("Erro ao inicializar o mapa:", error);
@@ -875,17 +887,18 @@
 
     async function useCurrentLocationForAddress() {
         if (!navigator.geolocation) {
-            alert('Geolocalização não suportada.');
+            showToast('Geolocalização não suportada.', true);
             return;
         }
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
                 const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                await initAddressMap(coords);
-                reverseGeocode(coords);
+                window.pendingAddressLatLng = coords;
+                window.currentLatLng = coords;
                 showAddressStep(2);
+                await initAddressMap(coords);
             },
-            (err) => alert('Não foi possível obter localização: ' + err.message)
+            (err) => showToast('Não foi possível obter localização: ' + err.message, true)
         );
     }
 
@@ -1539,9 +1552,9 @@
 
             document.getElementById('show-new-address-btn').addEventListener('click', showNewAddressSection);
             document.getElementById('address-step1-back-btn').addEventListener('click', cancelNewAddress);
-            document.getElementById('address-step1-location-btn').addEventListener('click', useCurrentLocationForAddress);
             document.getElementById('address-step2-confirm-btn').addEventListener('click', () => {
                 if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
+                    showToast('Confirme uma localização válida no mapa antes de continuar.', true);
                     window.showManualAddressMapWarning?.();
                     return;
                 }
@@ -1632,7 +1645,7 @@
             document.getElementById('new-address-section').classList.remove('hidden');
             document.getElementById('show-new-address-btn').classList.add('hidden');
             showAddressStep(1);
-            await initAddressStepOne();
+            await initAddressStep1Search();
             window.clearManualAddressMapWarning?.();
         }
 
