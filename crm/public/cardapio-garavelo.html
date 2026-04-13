@@ -1945,9 +1945,21 @@
             window.currentLatLng = addressFlowState.currentLatLng ? { ...addressFlowState.currentLatLng } : null;
             window.pendingAddressLatLng = addressFlowState.pendingAddressLatLng ? { ...addressFlowState.pendingAddressLatLng } : null;
             window.manualAddressLocationConfirmed = !!addressFlowState.locationConfirmed;
+
+            const hasRestorableCoords = isValidLatLng(window.currentLatLng);
+            const hasRestorableStep = Number.isInteger(addressFlowState.currentStep) && addressFlowState.currentStep >= 1 && addressFlowState.currentStep <= 3;
+            const targetStep = hasRestorableCoords
+                ? (hasRestorableStep ? addressFlowState.currentStep : 1)
+                : 1;
+
+            if (!hasRestorableCoords) {
+                addressFlowState.currentStep = 1;
+                window.manualAddressLocationConfirmed = false;
+            }
+
             await initAddressStep1Search();
-            showAddressStep(addressFlowState.currentStep || 1);
-            if (addressFlowState.currentStep >= 2 && isValidLatLng(window.currentLatLng)) {
+            showAddressStep(targetStep);
+            if (targetStep >= 2 && hasRestorableCoords) {
                 await initAddressMap(window.currentLatLng);
             }
             window.clearManualAddressMapWarning?.();
