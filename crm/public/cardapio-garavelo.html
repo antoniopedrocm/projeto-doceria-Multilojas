@@ -2481,33 +2481,33 @@
             verifyButton.disabled = true;
             verifyButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div>';
 
-                try {
-                    const { db, collection, getDocs, query, where } = await import('./firebaseClientConfig.js');
+            try {
+                if (!isGuest && currentClient?.cuponsUsados?.includes(codigo)) {
+                    throw new Error('Você já utilizou este cupom.');
+                }
 
-                    if (!isGuest && currentClient?.cuponsUsados?.includes(codigo)) {
-                        throw new Error('Você já utilizou este cupom.');
-                    }
+                const response = await fetch(`${API_BASE_URL}/cupons/verificar?lojaId=${encodeURIComponent(STORE_ID)}`, {
+                    method: 'POST',
+                    cache: 'no-store',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    },
+                    body: JSON.stringify({ codigo, totalCarrinho: subtotal })
+                });
 
-                    let cupomPathResolver = storePath;
-                    const q = query(collection(db, ...storePath("cupons")), where("codigo", "==", codigo));
-                    let cupomSnapshot = await getDocs(q);
+                const responseData = await response.json().catch(() => ({}));
+                if (!response.ok || !responseData?.valido || !responseData?.cupom) {
+                    throw new Error(responseData?.mensagem || 'Cupom inválido ou indisponível.');
+                }
 
-                    if (cupomSnapshot.empty) {
-                        const legacyQuery = query(collection(db, ...legacyStorePath('cupons')), where('codigo', '==', codigo));
-                        cupomSnapshot = await getDocs(legacyQuery);
-                        cupomPathResolver = legacyStorePath;
-                    }
+                const cupom = { ...responseData.cupom, codigo: (responseData.cupom?.codigo || codigo).toUpperCase() };
 
-                    if (cupomSnapshot.empty) throw new Error('Cupom inválido.');
-
-                    const cupom = { id: cupomSnapshot.docs[0].id, ...cupomSnapshot.docs[0].data(), _pathResolver: cupomPathResolver };
-
-                if (cupom.status !== 'Ativo') throw new Error('Cupom inativo.');
-                if (cupom.limiteUso > 0 && (cupom.usos || 0) >= cupom.limiteUso) throw new Error('Cupom esgotado.');
-                if (subtotal < (cupom.valorMinimo || 0)) throw new Error(`Pedido mínimo de R$ ${cupom.valorMinimo.toFixed(2)}.`);
+                if (typeof cupom.valorDesconto !== 'number') {
+                    cupom.valorDesconto = cupom.tipoDesconto === 'percentual' ? (subtotal * cupom.valor) / 100 : cupom.valor;
+                }
 
                 appliedCupom = cupom;
-                appliedCupom.valorDesconto = cupom.tipoDesconto === 'percentual' ? (subtotal * cupom.valor) / 100 : cupom.valor;
 
                 cupomMessage.textContent = `Cupom "${appliedCupom.codigo}" aplicado!`;
                 cupomMessage.className = 'text-sm text-green-600';
