@@ -741,7 +741,7 @@
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
-	let map, marker, geocoder, placeAutocomplete, mapIdleListener;
+	let map, geocoder, placeAutocomplete, mapIdleListener;
     window.currentLatLng = null;
     window.pendingAddressLatLng = null;
     window.manualAddressLocationConfirmed = false;
@@ -878,7 +878,6 @@
       window.pendingAddressLatLng = null;
       window.manualAddressLocationConfirmed = false;
       map = null;
-      marker = null;
       mapIdleListener = null;
       const addressMapContainer = document.getElementById('address-map-container');
       if (addressMapContainer) {
@@ -1054,21 +1053,28 @@
         try {
             geocoder = geocoder || new google.maps.Geocoder();
             const { Map } = await google.maps.importLibrary("maps");
-            const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
 
             let mapDiv = addressMapContainer.querySelector('div[data-address-map="true"]');
             if (!mapDiv) {
                 mapDiv = document.createElement('div');
                 mapDiv.dataset.addressMap = 'true';
-                mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem;';
+                mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem; position:relative;';
                 mapDiv.style.touchAction = 'none';
                 addressMapContainer.innerHTML = '';
                 addressMapContainer.append(mapDiv);
             }
 
-            if (!map || !marker) {
+            let centerPin = mapDiv.querySelector('[data-address-center-pin="true"]');
+            if (!centerPin) {
+                centerPin = document.createElement('div');
+                centerPin.dataset.addressCenterPin = 'true';
+                centerPin.style.cssText = 'position:absolute; left:50%; top:50%; transform:translate(-50%, -100%); z-index:5; pointer-events:none; font-size:32px; line-height:1;';
+                centerPin.innerHTML = '<i class="fa-solid fa-location-dot" style="color:#ef4444; text-shadow:0 2px 4px rgba(0,0,0,0.35);"></i>';
+                mapDiv.append(centerPin);
+            }
+
+            if (!map) {
                 map = new Map(mapDiv, { center: initialCoords, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
-                marker = new AdvancedMarkerElement({ map: map, position: initialCoords, gmpDraggable: false });
 
                 if (mapIdleListener) {
                     google.maps.event.removeListener(mapIdleListener);
@@ -1077,13 +1083,11 @@
                     const center = map.getCenter();
                     if (!center) return;
                     const centerCoords = { lat: center.lat(), lng: center.lng() };
-                    marker.position = centerCoords;
                     reverseGeocode(centerCoords);
                 });
             } else {
                 map.setCenter(initialCoords);
                 map.setZoom(17);
-                marker.position = initialCoords;
             }
 
             window.manualAddressLocationConfirmed = false;
