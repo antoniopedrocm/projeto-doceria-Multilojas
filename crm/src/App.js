@@ -3118,11 +3118,17 @@ function App() {
                               setData(computedData);
 
                               if (collectionName === 'pedidos') {
-                                    const activeOrders = (computedData.pedidos || []).filter(p => p.status !== 'Finalizado' && p.status !== 'Cancelado');
+                                    const activeOrders = (computedData.pedidos || []).filter(
+                                          (p) => p.status !== 'Finalizado' && p.status !== 'Cancelado' && !p._isPendingSync
+                                    );
                                     setPendingOrders(activeOrders);
 
                                     if (initialDataLoaded.current) {
-                                          const newPendingOrdersDetected = changes.some(change => change.type === 'added' && change.doc.data().status === 'Pendente');
+                                          const newPendingOrdersDetected = changes.some(
+                                                (change) => change.type === 'added'
+                                                      && change.doc.data().status === 'Pendente'
+                                                      && !change.doc.metadata?.hasPendingWrites
+                                          );
 
                                           if (newPendingOrdersDetected && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlaying && !isSnoozedRef.current) {
                                                 console.log('[App.js] Novo pedido pendente detectado pelo listener!');
@@ -3172,10 +3178,23 @@ function App() {
                               }
                         };
 
+                        const mapSnapshotDocs = (snapshotDocs) => snapshotDocs.map((docSnap) => {
+                              const mappedDoc = { id: docSnap.id, ...docSnap.data() };
+
+                              if (collectionName !== 'pedidos') {
+                                    return mappedDoc;
+                              }
+
+                              return {
+                                    ...mappedDoc,
+                                    _isPendingSync: docSnap.metadata?.hasPendingWrites === true
+                              };
+                        });
+
                         const primaryUnsubscribe = onSnapshot(
                               primaryQuery,
                               (snapshot) => {
-                                    primaryItems = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                                    primaryItems = mapSnapshotDocs(snapshot.docs);
                                     applyItems(snapshot.docChanges());
 
                                     if (!primaryItems.length && isConfigCollection && legacyQuery && !legacyUnsubscribe) {
@@ -3183,7 +3202,7 @@ function App() {
                                                 legacyQuery,
                                                 (legacySnap) => {
                                                       if (primaryItems.length) return;
-                                                      legacyItems = legacySnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+                                                      legacyItems = mapSnapshotDocs(legacySnap.docs);
                                                       if (!primaryItems.length && isConfigCollection && legacySnap.docs.length) {
                                                             migrateLegacyConfigCollection(storeId, collectionName, legacySnap.docs);
                                                       }
@@ -7204,7 +7223,7 @@ const handleSubmit = async (e) => {
     };
 
     const getStatusClass = (status) => { switch (status) { case 'Pendente': return 'bg-yellow-100 text-yellow-800'; case 'Em Produção': return 'bg-blue-100 text-blue-800'; case 'Finalizado': return 'bg-green-100 text-green-800'; case 'Cancelado': return 'bg-red-100 text-red-800'; default: return 'bg-gray-100 text-gray-800'; } };
-    const columns = [ { header: "ID do Pedido", render: (row) => <span className="font-mono text-xs text-gray-500">{row.id?.substring(0, 8) || 'N/A'}</span> }, { header: "Cliente", key: "clienteNome" }, { header: "Total", render: (row) => <span className="font-semibold text-green-600">R$ {(row.total || 0).toFixed(2)}</span> }, { header: "Data", render: (row) => { const date = getJSDate(row.createdAt); return date ? date.toLocaleDateString('pt-BR') : '-'; } }, { header: "Origem", key: "origem"}, { header: "Status", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusClass(row.status)}`}>{row.status}</span> } ];
+    const columns = [ { header: "ID do Pedido", render: (row) => <span className="font-mono text-xs text-gray-500">{row.id?.substring(0, 8) || 'N/A'}</span> }, { header: "Cliente", key: "clienteNome" }, { header: "Total", render: (row) => <span className="font-semibold text-green-600">R$ {(row.total || 0).toFixed(2)}</span> }, { header: "Data", render: (row) => { const date = getJSDate(row.createdAt); return date ? date.toLocaleDateString('pt-BR') : '-'; } }, { header: "Origem", key: "origem"}, { header: "Status", render: (row) => { const isPendingSync = row._isPendingSync; return <span className={`px-3 py-1 rounded-full text-xs font-medium ${isPendingSync ? 'bg-gray-100 text-gray-600' : getStatusClass(row.status)}`}>{isPendingSync ? 'Sincronizando...' : row.status}</span>; } } ];
     const actions = [ { icon: Eye, label: "Ver", onClick: (row) => setViewingOrder(row) }, { icon: Edit, label: "Editar", onClick: handleEdit }, { icon: Trash2, label: "Excluir", onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('pedidos', row.id) }) } ];
     
     return (
