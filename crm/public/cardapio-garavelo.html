@@ -476,7 +476,7 @@
                         <div id="manual-address-map-warning" class="hidden rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800" role="alert" aria-live="assertive">
                             <div class="flex items-start gap-3">
                                 <i class="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600"></i>
-                                <p class="text-sm font-medium" data-message>É preciso mover o marcador no mapa para o local da entrega.</p>
+                                <p class="text-sm font-medium" data-message>É preciso mover o mapa para ajustar o pino no local da entrega.</p>
                             </div>
                         </div>
 						<div class="flex gap-3 pt-2">
@@ -741,12 +741,24 @@
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
-	let map, marker, geocoder, placeAutocomplete;
+	let map, geocoder, placeAutocomplete, mapIdleListener;
     window.currentLatLng = null;
     window.pendingAddressLatLng = null;
     window.manualAddressLocationConfirmed = false;
 
+    const createInitialAddressFlowState = () => ({
+        currentStep: 1,
+        autocompleteSelection: '',
+        locationConfirmed: false,
+        currentLatLng: null,
+        pendingAddressLatLng: null,
+        formData: {}
+    });
+    window.addressFlowState = window.addressFlowState || createInitialAddressFlowState();
+    const addressFlowState = window.addressFlowState;
+
     const saveAddressBtn = document.getElementById('save-manual-address-button');
+    const addressStep2ConfirmBtn = document.getElementById('address-step2-confirm-btn');
     const manualAddressMapWarning = document.getElementById('manual-address-map-warning');
     const manualAddressMapWarningMessage = manualAddressMapWarning?.querySelector('[data-message]');
     if(saveAddressBtn) {
@@ -758,7 +770,7 @@
         if (!manualAddressMapWarning) return;
         manualAddressMapWarning.classList.remove('hidden');
         if (manualAddressMapWarningMessage) {
-            manualAddressMapWarningMessage.textContent = 'É preciso mover o marcador no mapa para o local da entrega.';
+            manualAddressMapWarningMessage.textContent = 'É preciso mover o mapa para ajustar o pino no local da entrega.';
         }
         manualAddressMapWarning.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
@@ -790,43 +802,199 @@
       return selectedOption.trim();
     }
 
+	function isValidLatLng(coords) {
+      return Number.isFinite(coords?.lat) && Number.isFinite(coords?.lng);
+    }
+
+    function snapshotManualAddressFormData() {
+      return {
+        street: document.getElementById('manual-address-street')?.value || '',
+        number: document.getElementById('manual-address-number')?.value || '',
+        neighborhood: document.getElementById('manual-address-neighborhood')?.value || '',
+        city: document.getElementById('manual-address-city')?.value || '',
+        zip: document.getElementById('manual-address-zip')?.value || '',
+        complement: document.getElementById('manual-address-complement')?.value || '',
+        reference: document.getElementById('manual-address-reference')?.value || '',
+        nickname: document.getElementById('manual-address-nickname')?.value || '',
+        noNumber: document.getElementById('manual-address-no-number')?.checked || false,
+        frequentLocation: document.getElementById('manual-address-frequent-location')?.checked || false
+      };
+    }
+
+    function applyManualAddressFormData(data = {}) {
+      const valueMap = {
+        'manual-address-street': data.street,
+        'manual-address-number': data.number,
+        'manual-address-neighborhood': data.neighborhood,
+        'manual-address-city': data.city,
+        'manual-address-zip': data.zip,
+        'manual-address-complement': data.complement,
+        'manual-address-reference': data.reference,
+        'manual-address-nickname': data.nickname
+      };
+
+      Object.entries(valueMap).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input && typeof value === 'string') {
+            input.value = value;
+        }
+      });
+
+      const noNumberCheckbox = document.getElementById('manual-address-no-number');
+      if (noNumberCheckbox) {
+        noNumberCheckbox.checked = !!data.noNumber;
+        const numberInput = document.getElementById('manual-address-number');
+        if (numberInput) {
+            if (noNumberCheckbox.checked) {
+                numberInput.value = 'S/N';
+                numberInput.setAttribute('readonly', 'readonly');
+            } else {
+                numberInput.removeAttribute('readonly');
+                if (numberInput.value === 'S/N' && !data.number) numberInput.value = '';
+            }
+        }
+      }
+
+      const frequentLocationCheckbox = document.getElementById('manual-address-frequent-location');
+      if (frequentLocationCheckbox) {
+        frequentLocationCheckbox.checked = !!data.frequentLocation;
+      }
+    }
+
+    function syncAddressFlowState(nextState = {}) {
+      Object.assign(addressFlowState, nextState);
+      addressFlowState.formData = snapshotManualAddressFormData();
+      addressFlowState.currentLatLng = isValidLatLng(window.currentLatLng) ? { ...window.currentLatLng } : null;
+      addressFlowState.pendingAddressLatLng = isValidLatLng(window.pendingAddressLatLng) ? { ...window.pendingAddressLatLng } : null;
+      addressFlowState.locationConfirmed = !!window.manualAddressLocationConfirmed;
+      if (placeAutocomplete?.value) {
+        addressFlowState.autocompleteSelection = placeAutocomplete.value;
+      }
+    }
+
+    function resetAddressFlowState() {
+      Object.assign(addressFlowState, createInitialAddressFlowState());
+      window.currentLatLng = null;
+      window.pendingAddressLatLng = null;
+      window.manualAddressLocationConfirmed = false;
+      map = null;
+      mapIdleListener = null;
+      const addressMapContainer = document.getElementById('address-map-container');
+      if (addressMapContainer) {
+        addressMapContainer.innerHTML = '';
+      }
+      if (placeAutocomplete && addressFlowState.autocompleteSelection === '') {
+        placeAutocomplete.value = '';
+      }
+      applyManualAddressFormData({ city: 'Goiânia' });
+      validateAddressForm();
+    }
+
 	function validateAddressForm() {
-	  const rua = document.getElementById('manual-address-street').value.trim();
-	  const numero = document.getElementById('manual-address-number').value.trim();
+      syncAddressFlowState();
+	  const rua = document.getElementById('manual-address-street')?.value.trim() || '';
+	  const numero = document.getElementById('manual-address-number')?.value.trim() || '';
       const semNumero = document.getElementById('manual-address-no-number')?.checked || false;
-	  const bairro = document.getElementById('manual-address-neighborhood').value.trim();
-	  const cidade = document.getElementById('manual-address-city').value.trim();
+	  const bairro = document.getElementById('manual-address-neighborhood')?.value.trim() || '';
+	  const cidade = document.getElementById('manual-address-city')?.value.trim() || '';
 	  const apelido = getManualAddressNickname();
-	  const hasCoords = window.currentLatLng?.lat && window.currentLatLng?.lng;
+	  const hasCoords = isValidLatLng(window.currentLatLng);
 	  const hasNumero = semNumero || numero.length > 0;
 	  const hasBasicInfo = rua.length > 0 && hasNumero && bairro.length > 0 && cidade.length > 0 && apelido.length > 0;
 
+      if (addressStep2ConfirmBtn) {
+        addressStep2ConfirmBtn.disabled = !hasCoords;
+        addressStep2ConfirmBtn.classList.toggle('opacity-50', !hasCoords);
+        addressStep2ConfirmBtn.classList.toggle('cursor-not-allowed', !hasCoords);
+      }
+
 	  if (saveAddressBtn) {
-        if (hasBasicInfo && hasCoords) {
-            saveAddressBtn.disabled = false;
-            saveAddressBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            saveAddressBtn.setAttribute('aria-disabled', 'false');
-        } else {
-            saveAddressBtn.disabled = true;
-            saveAddressBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            saveAddressBtn.setAttribute('aria-disabled', 'true');
-        }
+        saveAddressBtn.disabled = !hasBasicInfo;
+        saveAddressBtn.classList.toggle('opacity-50', !hasBasicInfo);
+        saveAddressBtn.classList.toggle('cursor-not-allowed', !hasBasicInfo);
+        saveAddressBtn.setAttribute('aria-disabled', hasBasicInfo ? 'false' : 'true');
       }
 	}
 
     function showAddressStep(step) {
-        addressStep = Number.isInteger(step) ? step : 1;
+        const normalizedStep = Number.isInteger(step) ? step : 1;
+        syncAddressFlowState({ currentStep: normalizedStep });
         const step1 = document.getElementById('new-address-step1');
         const step2 = document.getElementById('new-address-step2');
         const step3 = document.getElementById('new-address-step3');
         [step1, step2, step3].forEach((el, idx) => {
             if (!el) return;
-            el.classList.toggle('hidden', idx !== addressStep - 1);
+            el.classList.toggle('hidden', idx !== normalizedStep - 1);
         });
-        window.addressStep = addressStep;
+        applyManualAddressFormData(addressFlowState.formData);
+        validateAddressForm();
+        window.addressStep = normalizedStep;
         window.persistCheckoutState?.();
     }
     window.showAddressStep = showAddressStep;
+    window.resetAddressFlowState = resetAddressFlowState;
+
+    function fillManualAddressFields(place) {
+        const rawComponents = place?.addressComponents || place?.address_components || [];
+        const normalizeComponent = (component) => {
+            if (!component) return null;
+            const name = component.long_name || component.longName || component.name || component.short_name || component.shortName;
+            return {
+                value: name || '',
+                types: component.types || [],
+            };
+        };
+
+        const components = rawComponents.map(normalizeComponent).filter(Boolean);
+        const get = (type) => components.find((c) => c.types.includes(type))?.value?.trim() || '';
+
+        const formattedAddress = place?.formattedAddress || place?.formatted_address || '';
+        const streetFromPlace = get('route') || formattedAddress.split(',')[0]?.trim();
+        const neighborhoodFromPlace = get('sublocality_level_1') || get('neighborhood') || get('political');
+        const cityFromPlace = get('administrative_area_level_2');
+        const zipFromPlace = get('postal_code');
+
+        const streetInput = document.getElementById('manual-address-street');
+        const neighborhoodInput = document.getElementById('manual-address-neighborhood');
+        const cityInput = document.getElementById('manual-address-city');
+        const zipInput = document.getElementById('manual-address-zip');
+
+        if (streetFromPlace && streetInput) streetInput.value = streetFromPlace;
+        if (neighborhoodFromPlace && neighborhoodInput) neighborhoodInput.value = neighborhoodFromPlace;
+        if (cityInput) {
+            cityInput.value = cityFromPlace || cityInput.value || 'Goiânia';
+        }
+        if (zipFromPlace && zipInput) zipInput.value = zipFromPlace;
+
+        validateAddressForm();
+    }
+
+    function reverseGeocode(latlng) {
+        const normalizedLatLng = {
+            lat: Number(latlng?.lat ?? latlng?.lat()),
+            lng: Number(latlng?.lng ?? latlng?.lng())
+        };
+
+        if (!isValidLatLng(normalizedLatLng)) {
+            showToast('Erro ao obter coordenadas do endereço. Tente novamente.', true);
+            return;
+        }
+
+        geocoder = geocoder || new google.maps.Geocoder();
+        geocoder.geocode({ location: normalizedLatLng }, (results, status) => {
+            if (status === 'OK' && results[0]) {
+                fillManualAddressFields(results[0]);
+                window.currentLatLng = normalizedLatLng;
+                window.pendingAddressLatLng = normalizedLatLng;
+                window.manualAddressLocationConfirmed = false;
+                syncAddressFlowState();
+                return;
+            }
+
+            console.warn('Não foi possível obter dados do endereço no mapa:', status);
+            showToast('Não foi possível identificar o endereço neste ponto do mapa.', true);
+        });
+    }
 
     async function initAddressStep1Search() {
         const searchContainer = document.getElementById('address-search-container');
@@ -849,6 +1017,9 @@
                             window.pendingAddressLatLng = coords;
                             window.currentLatLng = coords;
                             window.manualAddressLocationConfirmed = false;
+                            fillManualAddressFields(place);
+                            addressFlowState.autocompleteSelection = place.formattedAddress || '';
+                            syncAddressFlowState({ currentStep: 2 });
                             showAddressStep(2);
                             await initAddressMap(coords);
                         }
@@ -865,6 +1036,10 @@
             searchContainer.append(placeAutocomplete);
         }
 
+        if (placeAutocomplete && addressFlowState.autocompleteSelection && !placeAutocomplete.value) {
+            placeAutocomplete.value = addressFlowState.autocompleteSelection;
+        }
+
         if (locationBtn && !locationBtn.dataset.boundStep1Location) {
             locationBtn.dataset.boundStep1Location = 'true';
             locationBtn.addEventListener('click', useCurrentLocationForAddress);
@@ -878,26 +1053,41 @@
         try {
             geocoder = geocoder || new google.maps.Geocoder();
             const { Map } = await google.maps.importLibrary("maps");
-            const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
 
             let mapDiv = addressMapContainer.querySelector('div[data-address-map="true"]');
             if (!mapDiv) {
                 mapDiv = document.createElement('div');
                 mapDiv.dataset.addressMap = 'true';
-                mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem;';
+                mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem; position:relative;';
                 mapDiv.style.touchAction = 'none';
                 addressMapContainer.innerHTML = '';
                 addressMapContainer.append(mapDiv);
             }
 
-            if (!map || !marker) {
+            let centerPin = mapDiv.querySelector('[data-address-center-pin="true"]');
+            if (!centerPin) {
+                centerPin = document.createElement('div');
+                centerPin.dataset.addressCenterPin = 'true';
+                centerPin.style.cssText = 'position:absolute; left:50%; top:50%; transform:translate(-50%, -100%); z-index:5; pointer-events:none; font-size:32px; line-height:1;';
+                centerPin.innerHTML = '<i class="fa-solid fa-location-dot" style="color:#ef4444; text-shadow:0 2px 4px rgba(0,0,0,0.35);"></i>';
+                mapDiv.append(centerPin);
+            }
+
+            if (!map) {
                 map = new Map(mapDiv, { center: initialCoords, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
-                marker = new AdvancedMarkerElement({ map: map, position: initialCoords, gmpDraggable: true });
-                marker.addListener('dragend', () => reverseGeocode(marker.position));
+
+                if (mapIdleListener) {
+                    google.maps.event.removeListener(mapIdleListener);
+                }
+                mapIdleListener = map.addListener('idle', () => {
+                    const center = map.getCenter();
+                    if (!center) return;
+                    const centerCoords = { lat: center.lat(), lng: center.lng() };
+                    reverseGeocode(centerCoords);
+                });
             } else {
                 map.setCenter(initialCoords);
                 map.setZoom(17);
-                marker.position = initialCoords;
             }
 
             window.manualAddressLocationConfirmed = false;
@@ -920,6 +1110,7 @@
                 window.pendingAddressLatLng = coords;
                 window.currentLatLng = coords;
                 window.manualAddressLocationConfirmed = false;
+                syncAddressFlowState({ currentStep: 2 });
                 showAddressStep(2);
                 await initAddressMap(coords);
             },
@@ -992,7 +1183,7 @@
         };
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const CHECKOUT_STORAGE_KEY = 'checkoutState_v1';
-        let addressStep = 1;
+        let addressStep = Number.isInteger(window.addressFlowState?.currentStep) ? window.addressFlowState.currentStep : 1;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
@@ -1126,7 +1317,9 @@
                     pendingOrderDetails,
                     guestCurrentLatLng: window.guestCurrentLatLng || null,
                     valorFrete: Number.isFinite(window.valorFrete) ? window.valorFrete : 0,
-                    addressStep: Number.isInteger(addressStep) ? addressStep : 1
+                    addressStep: Number.isInteger(window.addressFlowState?.currentStep)
+                        ? window.addressFlowState.currentStep
+                        : (Number.isInteger(addressStep) ? addressStep : 1)
                 };
                 sessionStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify(checkoutState));
             } catch (error) {
@@ -1147,6 +1340,10 @@
                 window.guestCurrentLatLng = savedState?.guestCurrentLatLng || null;
                 window.valorFrete = Number.isFinite(savedState?.valorFrete) ? savedState.valorFrete : 0;
                 addressStep = Number.isInteger(savedState?.addressStep) ? savedState.addressStep : 1;
+                if (window.addressFlowState) {
+                    window.addressFlowState.currentStep = addressStep;
+                }
+
 
                 if (selectedAddressText && pendingOrderDetails?.clienteEndereco) {
                     selectedAddressText.textContent = pendingOrderDetails.clienteEndereco;
@@ -1641,18 +1838,20 @@
             });
 
             document.getElementById('show-new-address-btn').addEventListener('click', showNewAddressSection);
-            document.getElementById('address-step1-back-btn').addEventListener('click', cancelNewAddress);
+            document.getElementById('address-step1-back-btn').addEventListener('click', goBackAddressFlowStep);
             document.getElementById('address-step2-confirm-btn').addEventListener('click', () => {
-                if (!window.currentLatLng || typeof window.currentLatLng.lat === 'undefined' || typeof window.currentLatLng.lng === 'undefined') {
+                if (!isValidLatLng(window.currentLatLng)) {
                     showToast('Confirme uma localização válida no mapa antes de continuar.', true);
                     window.showManualAddressMapWarning?.();
+                    validateAddressForm();
                     return;
                 }
                 window.manualAddressLocationConfirmed = true;
+                syncAddressFlowState({ locationConfirmed: true, currentStep: 3 });
                 showAddressStep(3);
             });
-            document.getElementById('address-step2-back-btn').addEventListener('click', () => showAddressStep(1));
-            document.getElementById('address-step3-back-btn').addEventListener('click', () => showAddressStep(2));
+            document.getElementById('address-step2-back-btn').addEventListener('click', goBackAddressFlowStep);
+            document.getElementById('address-step3-back-btn').addEventListener('click', goBackAddressFlowStep);
             document.getElementById('save-manual-address-button').addEventListener('click', saveManualAddress);
             ['manual-address-street', 'manual-address-number', 'manual-address-neighborhood', 'manual-address-city', 'manual-address-nickname'].forEach((id) => {
                 const input = document.getElementById(id);
@@ -1737,16 +1936,41 @@
         async function showNewAddressSection() {
             document.getElementById('new-address-section').classList.remove('hidden');
             document.getElementById('show-new-address-btn').classList.add('hidden');
-            showAddressStep(1);
+            applyManualAddressFormData(addressFlowState.formData);
+            window.currentLatLng = addressFlowState.currentLatLng ? { ...addressFlowState.currentLatLng } : null;
+            window.pendingAddressLatLng = addressFlowState.pendingAddressLatLng ? { ...addressFlowState.pendingAddressLatLng } : null;
+            window.manualAddressLocationConfirmed = !!addressFlowState.locationConfirmed;
             await initAddressStep1Search();
+            showAddressStep(addressFlowState.currentStep || 1);
+            if (addressFlowState.currentStep >= 2 && isValidLatLng(window.currentLatLng)) {
+                await initAddressMap(window.currentLatLng);
+            }
+            window.clearManualAddressMapWarning?.();
+            validateAddressForm();
+        }
+
+        function cancelNewAddress(resetFlow = false) {
+            if (resetFlow) {
+                window.resetAddressFlowState?.();
+            } else {
+                syncAddressFlowState();
+            }
+            document.getElementById('new-address-section').classList.add('hidden');
+            document.getElementById('show-new-address-btn').classList.remove('hidden');
             window.clearManualAddressMapWarning?.();
         }
 
-        function cancelNewAddress() {
-            document.getElementById('new-address-section').classList.add('hidden');
-            document.getElementById('show-new-address-btn').classList.remove('hidden');
-            showAddressStep(1);
-            window.clearManualAddressMapWarning?.();
+        function goBackAddressFlowStep() {
+            const currentStep = addressFlowState.currentStep || 1;
+            if (currentStep === 3) {
+                showAddressStep(2);
+                return;
+            }
+            if (currentStep === 2) {
+                showAddressStep(1);
+                return;
+            }
+            cancelNewAddress();
         }
 
         async function saveManualAddress() {
@@ -1837,7 +2061,7 @@
                     : [newAddress];
 
                 showToast('✅ Endereço salvo com sucesso!');
-                cancelNewAddress();
+                cancelNewAddress(true);
                 openAddressManagementModal(currentClient);
                 await useExistingAddress(addressText, newAddress);
 
