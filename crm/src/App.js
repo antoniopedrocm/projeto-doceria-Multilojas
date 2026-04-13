@@ -6883,6 +6883,8 @@ const effectiveStoreName = useMemo(() => {
     const [statusFilter, setStatusFilter] = usePersistentState("pedidos_statusFilter", 'Todos');
     const [showModal, setShowModal] = useState(false);
     const [editingOrder, setEditingOrder] = useState(null);
+    const [isSavingOrder, setIsSavingOrder] = useState(false);
+    const [saveOrderError, setSaveOrderError] = useState('');
     const [formData, setFormData] = useState({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
     const [viewingOrder, setViewingOrder] = useState(null);
             const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
@@ -6961,6 +6963,7 @@ const effectiveStoreName = useMemo(() => {
 
     const resetForm = () => {
         setEditingOrder(null);
+        setSaveOrderError('');
         setFormData({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
         setDescontoValor('');
         setDescontoPercentual('');
@@ -7050,6 +7053,8 @@ const effectiveStoreName = useMemo(() => {
 
 const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSavingOrder(true);
+    setSaveOrderError('');
     console.log('[Sales][Create] Iniciando tentativa de criar pedido pelo modal.', {
         isEditing: Boolean(editingOrder),
         authCurrentUserUid: auth.currentUser?.uid || null,
@@ -7181,6 +7186,9 @@ const handleSubmit = async (e) => {
         resetForm();
     } catch (error) {
         console.error('[Sales][Create] Fluxo de cadastro abortado por falha na persistência.', error);
+        setSaveOrderError(error?.message || 'Não foi possível salvar o pedido. Tente novamente.');
+    } finally {
+        setIsSavingOrder(false);
     }
 };
     
@@ -7329,7 +7337,13 @@ const handleSubmit = async (e) => {
                         </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4" />{editingOrder ? "Salvar Alterações" : "Criar Pedido"}</Button></div>
+                    {saveOrderError && (
+                        <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+                            {saveOrderError}
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button><Button type="submit" disabled={isSavingOrder}><Save className="w-4 h-4" />{isSavingOrder ? "Salvando..." : (editingOrder ? "Salvar Alterações" : "Criar Pedido")}</Button></div>
                 </form>
             </Modal>
             <Modal isOpen={!!viewingOrder} onClose={() => setViewingOrder(null)} title="Detalhes do Pedido" size="lg">
