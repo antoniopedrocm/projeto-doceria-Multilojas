@@ -1054,23 +1054,26 @@
             geocoder = geocoder || new google.maps.Geocoder();
             const { Map } = await google.maps.importLibrary("maps");
 
+            let mapShell = addressMapContainer.querySelector('div[data-address-map-shell="true"]');
             let mapDiv = addressMapContainer.querySelector('div[data-address-map="true"]');
-            if (!mapDiv) {
+            if (!mapShell || !mapDiv) {
+                mapShell = document.createElement('div');
+                mapShell.dataset.addressMapShell = 'true';
+                mapShell.style.cssText = 'position:relative; height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem; overflow:hidden;';
+
                 mapDiv = document.createElement('div');
                 mapDiv.dataset.addressMap = 'true';
-                mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem; position:relative;';
+                mapDiv.style.cssText = 'height:100%; width:100%;';
                 mapDiv.style.touchAction = 'none';
-                addressMapContainer.innerHTML = '';
-                addressMapContainer.append(mapDiv);
-            }
 
-            let centerPin = mapDiv.querySelector('[data-address-center-pin="true"]');
-            if (!centerPin) {
-                centerPin = document.createElement('div');
+                const centerPin = document.createElement('div');
                 centerPin.dataset.addressCenterPin = 'true';
-                centerPin.style.cssText = 'position:absolute; left:50%; top:50%; transform:translate(-50%, -100%); z-index:5; pointer-events:none; width:26px; height:26px;';
-                centerPin.innerHTML = '<div style="width:24px;height:24px;background:#ef4444;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.35);position:relative;"><div style="width:8px;height:8px;background:#fff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(45deg);"></div></div>';
-                mapDiv.append(centerPin);
+                centerPin.style.cssText = 'position:absolute; left:50%; top:50%; transform:translate(-50%, -100%); z-index:9999; pointer-events:none; width:28px; height:28px;';
+                centerPin.innerHTML = '<div style="width:26px;height:26px;background:#ef4444;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 3px 8px rgba(0,0,0,.4);position:relative;"><div style="width:9px;height:9px;background:#fff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(45deg);"></div></div>';
+
+                mapShell.append(mapDiv, centerPin);
+                addressMapContainer.innerHTML = '';
+                addressMapContainer.append(mapShell);
             }
 
             if (!map) {
