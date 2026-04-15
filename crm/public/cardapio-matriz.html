@@ -1192,6 +1192,7 @@
                 window.guestCurrentLatLng = null;
         let storeConfig = {};
         let storeIsOpenNow = true;
+        let checkoutBlockingIssue = null;
 
         // --- SELEÇÃO DE ELEMENTOS DOM ---
         const productList = document.getElementById('product-list'),
@@ -1310,6 +1311,85 @@
             } catch (error) {
                 console.error('❌ Erro ao inicializar aplicação:', error);
                 await startAppFlow('falha na autenticação');
+            }
+        }
+
+
+        function mapCriticalCheckoutError(error, fallbackMessage = 'Não foi possível concluir a operação agora.') {
+            const rawCode = String(error?.code || '').toLowerCase();
+            const rawMessage = String(error?.message || '').toLowerCase();
+
+            if (rawCode.includes('permission-denied') || rawCode.includes('unauthenticated') || rawMessage.includes('permission') || rawMessage.includes('insufficient permissions')) {
+                return 'Sua sessão expirou ou não tem permissão para continuar. Faça login novamente e tente de novo.';
+            }
+
+            if (rawCode.includes('unavailable') || rawCode.includes('network') || rawMessage.includes('failed to fetch') || rawMessage.includes('networkerror')) {
+                return 'Sem conexão com o servidor no momento. Verifique sua internet e tente novamente.';
+            }
+
+            return error?.message || fallbackMessage;
+        }
+
+        function setCheckoutBlockingIssue(type, message) {
+            checkoutBlockingIssue = { type, message };
+            if (paymentError) {
+                paymentError.textContent = message;
+                paymentError.classList.remove('hidden');
+            }
+        }
+
+        function clearCheckoutBlockingIssue(type = null) {
+            if (!checkoutBlockingIssue) return;
+            if (type && checkoutBlockingIssue.type !== type) return;
+            checkoutBlockingIssue = null;
+            if (paymentError) {
+                paymentError.textContent = '';
+                paymentError.classList.add('hidden');
+            }
+        }
+
+        function ensureCheckoutNotBlocked() {
+            if (!checkoutBlockingIssue) return;
+            const message = checkoutBlockingIssue.message || 'Há uma pendência de conexão/sessão. Tente novamente.';
+            showToast(message, true);
+            if (paymentError) {
+                paymentError.textContent = message;
+                paymentError.classList.remove('hidden');
+            }
+            throw new Error(message);
+        }
+
+        async function revalidateCheckoutBeforeFinalSubmit(clientInfo) {
+            ensureCheckoutNotBlocked();
+
+            if (clientInfo?.clienteEndereco !== 'Retirar na Loja' && !Number.isFinite(window.valorFrete)) {
+                const message = 'Não foi possível validar o frete deste pedido. Confirme o endereço novamente.';
+                setCheckoutBlockingIssue('frete', message);
+                throw new Error(message);
+            }
+
+            if (appliedCupom) {
+                const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
+                try {
+                    const response = await fetch(`${API_BASE_URL}/cupons/verificar?lojaId=${encodeURIComponent(STORE_ID)}`, {
+                        method: 'POST',
+                        cache: 'no-store',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        },
+                        body: JSON.stringify({ codigo: appliedCupom.codigo, totalCarrinho: subtotal })
+                    });
+                    const responseData = await response.json().catch(() => ({}));
+                    if (!response.ok || !responseData?.valido || !responseData?.cupom) {
+                        throw new Error(responseData?.mensagem || 'Cupom inválido ou indisponível no momento.');
+                    }
+                    clearCheckoutBlockingIssue('cupom');
+                } catch (error) {
+                    const message = mapCriticalCheckoutError(error, 'Não foi possível revalidar o cupom agora.');
+                    setCheckoutBlockingIssue('cupom', message);
+                    throw new Error(message);
+                }
             }
         }
 
@@ -2221,9 +2301,12 @@
 					const resultado = await window.calcularFreteParaEndereco({ lat: parseFloat(addressData.lat), lng: parseFloat(addressData.lng) });
 					window.valorFrete = parseFloat(resultado.valorFrete);
 					showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
+					clearCheckoutBlockingIssue('frete');
 				} catch (error) {
 					console.error('Erro ao calcular frete:', error);
-					showToast('Não foi possível calcular o frete.', true);
+					const friendlyMessage = mapCriticalCheckoutError(error, 'Não foi possível calcular o frete para este endereço.');
+					setCheckoutBlockingIssue('frete', friendlyMessage);
+					showToast(friendlyMessage, true);
 					window.valorFrete = 0;
 				}
 			} else {
@@ -2516,20 +2599,19 @@
                 verifyButton.textContent = 'Remover';
                 verifyButton.classList.replace('bg-gray-600', 'bg-red-600');
                 showToast('Cupom aplicado!');
+                clearCheckoutBlockingIssue('cupom');
                 updateAllSummaries();
                 persistCheckoutState();
 
             } catch (error) {
                 console.error('Erro ao aplicar cupom:', error);
                 const technicalMessage = String(error?.message || '');
-                const isPermissionError = technicalMessage.includes('Missing or insufficient permissions') || technicalMessage.includes('permission-denied');
-                const friendlyMessage = isPermissionError
-                    ? 'Não foi possível validar o cupom agora. Tente novamente.'
-                    : technicalMessage;
+                const friendlyMessage = mapCriticalCheckoutError(error, technicalMessage || 'Cupom inválido ou indisponível.');
 
-                cupomMessage.textContent = friendlyMessage || 'Cupom inválido ou indisponível.';
+                cupomMessage.textContent = friendlyMessage;
                 cupomMessage.className = 'text-sm text-red-500';
                 appliedCupom = null;
+                setCheckoutBlockingIssue('cupom', friendlyMessage);
             } finally {
                 verifyButton.disabled = false;
                 verifyButton.innerHTML = appliedCupom ? 'Remover' : 'Aplicar';
@@ -2538,6 +2620,7 @@
 
         function removeCupom() {
             if (appliedCupom) { showToast('Cupom removido.'); appliedCupom = null; }
+            clearCheckoutBlockingIssue('cupom');
             [paymentCupomInput].filter(Boolean).forEach(input => { input.value = ''; input.disabled = false; });
             [paymentVerifyCupomButton].filter(Boolean).forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
             [paymentCupomMessage].filter(Boolean).forEach(msg => { msg.textContent = ''; });
@@ -2577,6 +2660,7 @@
 			sendWhatsappButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
 
 			try {
+				ensureCheckoutNotBlocked();
 				await finalizeOrder({
 					clienteNome: name,
 					clienteEndereco: fullAddress,
@@ -2586,7 +2670,7 @@
 
 			} catch (error) {
 				console.error('Erro ao processar pedido do visitante:', error);
-				showToast('Erro ao processar o pedido.', true);
+				showToast(error?.message || 'Erro ao processar o pedido.', true);
 				sendWhatsappButton.disabled = false;
 				sendWhatsappButton.innerHTML = '<i class="fa-brands fa-whatsapp"></i> Finalizar e Enviar via WhatsApp';
 			}
@@ -2603,11 +2687,12 @@
             confirmOrderButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Confirmando...';
 
             try {
+                ensureCheckoutNotBlocked();
                 const finalOrderDetails = { ...pendingOrderDetails, formaPagamento: paymentMethodSelect.value };
                 await finalizeOrder(finalOrderDetails, finalOrderDetails.clienteId, true);
             } catch (error) {
                 console.error('Erro ao confirmar pedido:', error);
-                showToast('Erro ao confirmar o pedido.', true);
+                showToast(error?.message || 'Erro ao confirmar o pedido.', true);
             } finally {
                 confirmOrderButton.disabled = false;
                 confirmOrderButton.textContent = 'Confirmar Pedido';
@@ -2615,6 +2700,7 @@
         }
 
         async function finalizeOrder(clientInfo, clientId, isPlatform) {
+            await revalidateCheckoutBeforeFinalSubmit(clientInfo);
             if (!storeIsOpenNow) {
                 showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
                 throw new Error('STORE_CLOSED');
@@ -2656,8 +2742,11 @@
                         showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
                         throw new Error('STORE_CLOSED');
                     }
-                    throw new Error(responseData?.message || 'Erro ao criar pedido.');
+                    const backendMessage = responseData?.message || 'Não foi possível confirmar o pedido no servidor.';
+                    throw new Error(backendMessage);
                 }
+
+                clearCheckoutBlockingIssue();
 
                 const docRef = { id: responseData.id || 'sem-id' };
 
@@ -2722,7 +2811,10 @@
 
             } catch (error) {
                 console.error("Erro ao salvar pedido:", error);
-                showToast('Erro ao confirmar o pedido.', true);
+                const friendlyMessage = mapCriticalCheckoutError(error, 'Erro ao confirmar o pedido.');
+                setCheckoutBlockingIssue('pedido', friendlyMessage);
+                showToast(friendlyMessage, true);
+                throw error;
             }
         }
         document.addEventListener('DOMContentLoaded', () => {
@@ -2784,9 +2876,12 @@
             window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
             window.persistCheckoutState?.();
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
+            clearCheckoutBlockingIssue('frete');
         } catch (error) {
             console.error('Falha ao calcular frete para visitante:', error);
-            window.showToast('Não foi possível calcular o frete.', true);
+            const friendlyMessage = mapCriticalCheckoutError(error, 'Não foi possível calcular o frete para este endereço.');
+            setCheckoutBlockingIssue('frete', friendlyMessage);
+            window.showToast(friendlyMessage, true);
             window.valorFrete = 0;
             window.persistCheckoutState?.();
         } finally {
