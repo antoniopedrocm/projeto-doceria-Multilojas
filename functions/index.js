@@ -319,6 +319,17 @@ const findClientByPhone = async (telefone) => {
   return {id: docSnap.id, data: docSnap.data()};
 };
 
+const createHttpError = (status, message, code = null) => {
+  const error = new Error(message);
+  error.httpStatus = status;
+  if (code) error.code = code;
+  return error;
+};
+
+const normalizeCouponCode = (value) => (
+  typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : ''
+);
+
 const upsertClientDocument = async ({
   targetRef,
   data,
@@ -509,6 +520,186 @@ app.post("/pedidos", async (req, res) => {
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
     res.status(500).send("Erro ao criar pedido.");
+  }
+});
+
+app.post("/checkout/confirmar", async (req, res) => {
+  const lojaId = requireStoreId(req, res);
+  if (!lojaId) return;
+
+  const cliente = req.body?.cliente || {};
+  const itens = Array.isArray(req.body?.itens) ? req.body.itens : [];
+  const pagamento = req.body?.pagamento || {};
+  const cupom = req.body?.cupom || null;
+  const subtotal = Number(req.body?.subtotal ?? 0);
+  const descontoInformado = Number(req.body?.desconto ?? 0);
+  const valorFrete = Number(req.body?.valorFrete ?? 0);
+  const origem = typeof req.body?.origem === 'string' ? req.body.origem : 'Cardapio Online';
+  const status = typeof req.body?.status === 'string' ? req.body.status : 'Pendente';
+
+  if (!itens.length) {
+    return res.status(400).json({ok: false, message: 'Adicione ao menos um item ao pedido.'});
+  }
+
+  if (!cliente?.nome || !cliente?.telefone) {
+    return res.status(400).json({ok: false, message: 'Dados do cliente incompletos.'});
+  }
+
+  try {
+    const orderId = await db.runTransaction(async (transaction) => {
+      const storeConfigRef = getStoreConfigDoc(lojaId);
+      const storeConfigSnap = await transaction.get(storeConfigRef);
+      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
+
+      if (!isStoreOpenNow(storeConfig)) {
+        throw createHttpError(
+          403,
+          'A loja está fechada no momento. Volte em nosso horário de atendimento.',
+          'STORE_CLOSED',
+        );
+      }
+
+      const stockUpdates = [];
+      for (const item of itens) {
+        const produtoId = item?.produtoId || item?.id;
+        const quantity = Number(item?.quantity || 0);
+        if (!produtoId || !Number.isFinite(quantity) || quantity <= 0) {
+          throw createHttpError(400, 'Item de pedido inválido.');
+        }
+
+        const productRef = db.collection('lojas').doc(lojaId).collection('produtos').doc(String(produtoId));
+        const productSnap = await transaction.get(productRef);
+
+        if (!productSnap.exists) {
+          throw createHttpError(404, `Produto ${produtoId} não encontrado.`);
+        }
+
+        const productData = productSnap.data() || {};
+        if (typeof productData.estoque === 'number') {
+          const newStock = productData.estoque - quantity;
+          if (newStock < 0) {
+            throw createHttpError(409, `Estoque insuficiente para ${productData.nome || produtoId}.`);
+          }
+          stockUpdates.push({ref: productRef, newStock});
+        }
+      }
+
+      let cupomDocRef = null;
+      let couponCode = '';
+      let valorDesconto = 0;
+
+      if (cupom?.codigo) {
+        couponCode = normalizeCouponCode(cupom.codigo);
+        if (!couponCode) {
+          throw createHttpError(400, 'Cupom inválido.');
+        }
+
+        let cupomQuerySnap = await transaction.get(
+          getStoreConfigCollection(lojaId, 'cupons').where('codigo', '==', couponCode).limit(1),
+        );
+
+        if (!cupomQuerySnap.empty) {
+          cupomDocRef = cupomQuerySnap.docs[0].ref;
+        } else if (cupom?.id) {
+          const fallbackRef = getStoreConfigCollection(lojaId, 'cupons').doc(String(cupom.id));
+          const fallbackSnap = await transaction.get(fallbackRef);
+          if (fallbackSnap.exists && normalizeCouponCode(fallbackSnap.data()?.codigo) === couponCode) {
+            cupomDocRef = fallbackRef;
+          }
+        }
+
+        if (!cupomDocRef) {
+          throw createHttpError(404, 'Cupom não encontrado.');
+        }
+
+        const cupomSnap = await transaction.get(cupomDocRef);
+        const cupomData = cupomSnap.data() || {};
+        if (cupomData.status !== 'Ativo') {
+          throw createHttpError(400, 'Este cupom não está ativo.');
+        }
+
+        const usosAtuais = typeof cupomData.usos === 'number' ? cupomData.usos : 0;
+        const limiteUso = Number(cupomData.limiteUso || 0);
+        if (limiteUso > 0 && usosAtuais >= limiteUso) {
+          throw createHttpError(400, 'Este cupom atingiu o limite de usos.');
+        }
+
+        const valorMinimo = Number(cupomData.valorMinimo || 0);
+        if (valorMinimo > 0 && subtotal < valorMinimo) {
+          throw createHttpError(400, `O pedido mínimo para este cupom é de R$ ${valorMinimo.toFixed(2)}.`);
+        }
+
+        if (cupomData.tipoDesconto === 'percentual') {
+          valorDesconto = Number(((subtotal * Number(cupomData.valor || 0)) / 100).toFixed(2));
+        } else {
+          valorDesconto = Number(Number(cupomData.valor || 0).toFixed(2));
+        }
+      } else if (descontoInformado > 0) {
+        throw createHttpError(400, 'Desconto informado sem cupom válido.');
+      }
+
+      const descontoFinal = cupomDocRef ? valorDesconto : 0;
+      const total = Number((subtotal - descontoFinal + valorFrete).toFixed(2));
+      if (!Number.isFinite(total) || total < 0) {
+        throw createHttpError(400, 'Totais do pedido inválidos.');
+      }
+
+      const orderRef = db.collection('lojas').doc(lojaId).collection('pedidos').doc();
+      transaction.set(orderRef, {
+        lojaId,
+        clienteId: cliente.id || null,
+        clienteNome: cliente.nome,
+        clienteEndereco: cliente.endereco || '',
+        telefone: cliente.telefone,
+        formaPagamento: pagamento.forma || pagamento.formaPagamento || '',
+        itens: itens.map((item) => ({
+          produtoId: item?.produtoId || item?.id,
+          nome: item?.nome || '',
+          quantity: Number(item?.quantity || 0),
+          preco: Number(item?.preco || 0),
+        })),
+        subtotal,
+        desconto: descontoFinal,
+        valorFrete,
+        total,
+        cupom: cupomDocRef ? {codigo: couponCode, valorDesconto: descontoFinal} : null,
+        status,
+        origem,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      for (const stockUpdate of stockUpdates) {
+        transaction.update(stockUpdate.ref, {estoque: stockUpdate.newStock});
+      }
+
+      if (cupomDocRef) {
+        transaction.set(cupomDocRef, {usos: admin.firestore.FieldValue.increment(1)}, {merge: true});
+
+        if (cliente?.id) {
+          const clienteRef = getClientsCollection().doc(String(cliente.id));
+          const clienteSnap = await transaction.get(clienteRef);
+          if (clienteSnap.exists) {
+            transaction.set(clienteRef, {
+              cuponsUsados: admin.firestore.FieldValue.arrayUnion(couponCode),
+              atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
+          }
+        }
+      }
+
+      return orderRef.id;
+    });
+
+    return res.status(200).json({ok: true, id: orderId});
+  } catch (error) {
+    logger.error('Erro ao confirmar checkout:', error);
+    const statusCode = Number(error?.httpStatus) || 500;
+    const payload = {
+      ok: false,
+      message: error?.message || 'Erro ao confirmar pedido.',
+    };
+    if (error?.code) payload.code = error.code;
+    return res.status(statusCode).json(payload);
   }
 });
 
