@@ -2234,10 +2234,16 @@
 			addressManagementModal.classList.remove('hidden');
 		}
 
-		async function deleteAddress(addressIndex) {
+        async function deleteAddress(addressIndex) {
 			if (!confirm('Tem certeza que deseja excluir este endereço?')) return;
 
 			try {
+                           const auth = getAuth(app);
+                           const currentUser = auth.currentUser;
+                           if (!currentUser?.uid) {
+                               throw new Error('Usuário não autenticado. Faça login novamente para excluir endereço.');
+                           }
+
                            const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
                            const clientDocRef = doc(db, ...storePath('clientes', currentClient.id));
 				const clientSnap = await getDoc(clientDocRef);
@@ -2245,7 +2251,12 @@
                     throw new Error('Cliente não encontrado.');
                 }
 
-				const existingAddresses = clientSnap.data().enderecos || [];
+                const clientData = clientSnap.data() || {};
+                if (clientData.uid !== currentUser.uid) {
+                    throw new Error('Você não tem permissão para excluir endereços deste cliente.');
+                }
+
+				const existingAddresses = clientData.enderecos || [];
 
                 existingAddresses.splice(addressIndex, 1);
 
@@ -2406,10 +2417,17 @@
                 button.textContent = 'Criando...';
 
                 try {
+                    const auth = getAuth(app);
+                    const currentUser = auth.currentUser;
+                    if (!currentUser?.uid) {
+                        throw new Error('Usuário não autenticado. Faça login novamente para criar cadastro.');
+                    }
+
                     const { db, addDoc, collection, serverTimestamp } = await import('./firebaseClientConfig.js');
                     const newClientData = {
                         nome: newName,
                         aniversario: newBirthdate,
+                        uid: currentUser.uid,
                         telefone: phone.replace(/\D/g, ''),
                         enderecos: [],
                         lojasVisitadas: [STORE_ID],
@@ -2453,8 +2471,18 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
+                const auth = getAuth(app);
+                const currentUser = auth.currentUser;
+                if (!currentUser?.uid) {
+                    throw new Error('Usuário não autenticado. Faça login novamente para continuar.');
+                }
+
                 const { db, collection, getDocs, query, where, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
-                const q = query(collection(db, ...storePath("clientes")), where("telefone", "==", phoneDigits));
+                const q = query(
+                    collection(db, ...storePath("clientes")),
+                    where("telefone", "==", phoneDigits),
+                    where("uid", "==", currentUser.uid)
+                );
                 const querySnapshot = await getDocs(q);
 
                 phoneLoginModal.classList.add('hidden');
