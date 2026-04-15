@@ -2324,6 +2324,7 @@ function App() {
   const [stopAlarmFn, setStopAlarmFn] = useState(null);
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
   const [hasNewPendingOrders, setHasNewPendingOrders] = useState(false);
+  const [pedidosConnectivityStatus, setPedidosConnectivityStatus] = useState('online');
   const [pendingOrders, setPendingOrders] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -3172,6 +3173,9 @@ function App() {
 
                         const handleSnapshotError = (error) => {
                               console.error(`[App.js] Erro ao sincronizar ${collectionName} da loja ${storeId}:`, error);
+                              if (collectionName === 'pedidos') {
+                                    setPedidosConnectivityStatus('offline');
+                              }
                               if (!initialResolved) {
                                     markInitialLoaded();
                                     initialResolved = true;
@@ -3194,6 +3198,16 @@ function App() {
                         const primaryUnsubscribe = onSnapshot(
                               primaryQuery,
                               (snapshot) => {
+                                    if (collectionName === 'pedidos') {
+                                          const isFromCache = snapshot.metadata?.fromCache === true;
+                                          if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+                                                setPedidosConnectivityStatus('offline');
+                                          } else if (isFromCache) {
+                                                setPedidosConnectivityStatus('reconnecting');
+                                          } else {
+                                                setPedidosConnectivityStatus('online');
+                                          }
+                                    }
                                     primaryItems = mapSnapshotDocs(snapshot.docs);
                                     applyItems(snapshot.docChanges());
 
@@ -3297,6 +3311,26 @@ function App() {
     return resolvedAuthUser;
   }, [user]);
 
+  const mapCriticalWriteErrorMessage = useCallback((error) => {
+    const rawCode = String(error?.code || '').toLowerCase();
+    const rawMessage = String(error?.message || '').toLowerCase();
+    const isSessionError = rawCode.includes('permission-denied')
+      || rawCode.includes('unauthenticated')
+      || rawCode.includes('auth/')
+      || rawCode.includes('invalid-user-token')
+      || rawCode.includes('user-token-expired')
+      || rawMessage.includes('permission-denied')
+      || rawMessage.includes('missing or insufficient permissions')
+      || rawMessage.includes('auth')
+      || rawMessage.includes('token');
+
+    if (isSessionError) {
+      return 'Sua sessão expirou ou não tem mais permissão para esta ação. Faça login novamente.';
+    }
+
+    return error?.message || 'Não foi possível concluir a operação agora. Tente novamente.';
+  }, []);
+
   const addItem = async (section, item, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
@@ -3348,9 +3382,7 @@ function App() {
             console.error('[Sales][Create] Erro real ao persistir venda:', e);
         }
         console.error("Erro ao adicionar documento: ", e);
-        if (e && e.message) {
-            alert(e.message);
-        }
+        alert(mapCriticalWriteErrorMessage(e));
         throw e;
     }
   };
@@ -3390,9 +3422,7 @@ function App() {
         await updateDoc(itemDoc, updatedItem);
     } catch (e) {
         console.error("Erro ao atualizar documento: ", e);
-		if (e && e.message) {
-            alert(e.message);
-        }
+        alert(mapCriticalWriteErrorMessage(e));
         throw e;
     }
   };
@@ -3411,13 +3441,23 @@ function App() {
         }
     } catch (e) {
         console.error("Erro ao deletar documento: ", e);
-
-		    if (e && e.message) {
-            alert(e.message);
-        }
+        alert(mapCriticalWriteErrorMessage(e));
         throw e;
     }
   };
+
+  useEffect(() => {
+    const handleOffline = () => setPedidosConnectivityStatus('offline');
+    const handleOnline = () => setPedidosConnectivityStatus((prev) => (prev === 'offline' ? 'reconnecting' : prev));
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
   
   useEffect(() => {
     const scripts = [
@@ -8063,6 +8103,17 @@ const handleSubmit = async (e) => {
 				</div>
 			</div>
         </div>
+        {pedidosConnectivityStatus !== 'online' && (
+          <div className={`mx-4 mt-3 rounded-lg border px-4 py-2 text-sm ${
+            pedidosConnectivityStatus === 'offline'
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-blue-200 bg-blue-50 text-blue-800'
+          }`}>
+            {pedidosConnectivityStatus === 'offline'
+              ? 'Sem conexão com o Firestore para pedidos no momento. Os dados podem estar desatualizados.'
+              : 'Reconectando com o Firestore de pedidos... atualizando dados em segundo plano.'}
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto">
             {renderCurrentPage()}
         </main>
