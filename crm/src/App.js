@@ -8,7 +8,18 @@ import {
 
 // --- CORREÇÃO ---
 // Importando 'functions' do seu arquivo de configuração do Firebase.
-import { auth, db, storage, functions, onSnapshot, getDoc, deleteDoc } from './firebaseConfig.js';
+import {
+  auth,
+  db,
+  storage,
+  functions,
+  onSnapshot,
+  getDoc,
+  getDocs,
+  deleteDoc,
+  runWithRetry,
+  setFirestoreTelemetryContext
+} from './firebaseConfig.js';
 //import { firebaseConfig } from './firebaseConfig.js';
 
 // --- CORREÇÃO ---
@@ -19,7 +30,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, query, doc, setDoc, addDoc, updateDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
+import { collection, query, doc, setDoc, addDoc, updateDoc, where, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -2429,6 +2440,29 @@ function App() {
   const [resolvedAlarmPauseMinutes, setResolvedAlarmPauseMinutes] = useState(DEFAULT_ALARM_PAUSE_MINUTES);
 
   useEffect(() => {
+    setFirestoreTelemetryContext({
+      route: currentPage,
+      uid: userId
+    });
+  }, [currentPage, userId]);
+
+  useEffect(() => {
+    const handleListenerStatus = (event) => {
+      const detail = event?.detail || {};
+      if (detail.collection !== 'pedidos') return;
+
+      if (detail.status === 'reconnecting') {
+        setPedidosConnectivityStatus('reconnecting');
+      } else if (detail.status === 'offline') {
+        setPedidosConnectivityStatus('offline');
+      }
+    };
+
+    window.addEventListener('firestore:listener-status', handleListenerStatus);
+    return () => window.removeEventListener('firestore:listener-status', handleListenerStatus);
+  }, []);
+
+  useEffect(() => {
     if (isGeneralViewSelected || !selectedStoreIdForAlarm) {
       setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
       return;
@@ -3085,6 +3119,12 @@ function App() {
                                   markInitialLoaded();
                                   initialResolved = true;
                             }
+                      },
+                      {
+                            __listenerOptions: true,
+                            operation: 'sync-clientes',
+                            route: currentPage,
+                            uid: userId
                       }
                 );
 
@@ -3227,7 +3267,13 @@ function App() {
                                                       }
                                                       applyItems(legacySnap.docChanges());
                                                 },
-                                                handleSnapshotError
+                                                handleSnapshotError,
+                                                {
+                                                      __listenerOptions: true,
+                                                      operation: `sync-${collectionName}-legacy`,
+                                                      route: currentPage,
+                                                      uid: userId
+                                                }
                                           );
                                     } else if (primaryItems.length && legacyUnsubscribe) {
                                           legacyUnsubscribe();
@@ -3235,7 +3281,13 @@ function App() {
                                           legacyItems = [];
                                     }
                               },
-                              handleSnapshotError
+                              handleSnapshotError,
+                              {
+                                    __listenerOptions: true,
+                                    operation: `sync-${collectionName}`,
+                                    route: currentPage,
+                                    uid: userId
+                              }
                         );
 
                         unsubscribes.push(() => {
@@ -3250,7 +3302,7 @@ function App() {
                 unsubscribes.forEach(unsubscribe => unsubscribe());
                 initialDataLoaded.current = false;
           };
-        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm]);
+        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm, currentPage, userId]);
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
         if (isGeneralViewSelected) {
@@ -3361,7 +3413,11 @@ function App() {
             createdAt: new Date()
          };
 
-        const docRef = await addDoc(getStoreCollectionRef(storeId, section), payload);
+        const docRef = await runWithRetry(
+            `addItem:${section}`,
+            () => addDoc(getStoreCollectionRef(storeId, section), payload),
+            { route: currentPage, uid: currentAuthUser?.uid || userId, collection: section }
+        );
         await waitForPendingWrites(db);
 
         if (isSalesOrder) {
@@ -3372,12 +3428,16 @@ function App() {
         }
 
         if (user && section !== 'logs') {
-            await addDoc(getStoreCollectionRef(storeId, 'logs'), {
+            await runWithRetry(
+                'addItem:logs',
+                () => addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Novo item adicionado em ${section}`,
                 details: `ID: ${docRef.id}`,
                 userEmail: user?.auth?.email || 'N/A',
                 timestamp: new Date()
-            });
+                }),
+                { route: currentPage, uid: userId, collection: 'logs' }
+            );
         }
 
         return docRef;
@@ -3414,16 +3474,24 @@ function App() {
                     }
                 }
                 if (Object.keys(changes).length > 0) {
-                     await addDoc(getStoreCollectionRef(storeId, 'logs'), {
+                     await runWithRetry(
+                        'updateItem:logs',
+                        () => addDoc(getStoreCollectionRef(storeId, 'logs'), {
                         action: `Item atualizado em ${section}`,
                         details: `ID ${id} com alterações: ${JSON.stringify(changes)}`,
                         userEmail: user?.auth?.email || 'N/A',
                         timestamp: new Date()
-                    });
+                        }),
+                        { route: currentPage, uid: userId, collection: 'logs' }
+                    );
                 }
              }
         }
-        await updateDoc(itemDoc, updatedItem);
+        await runWithRetry(
+            `updateItem:${section}`,
+            () => updateDoc(itemDoc, updatedItem),
+            { route: currentPage, uid: userId, collection: section }
+        );
     } catch (e) {
         console.error("Erro ao atualizar documento: ", e);
         alert(mapCriticalWriteErrorMessage(e));
@@ -3434,14 +3502,22 @@ function App() {
   const deleteItem = async (section, id, targetStoreId = null) => {
     try {
         const storeId = targetStoreId || resolveActiveStoreForWrite();
-        await deleteDoc(getStoreDocRef(storeId, section, id));
+        await runWithRetry(
+            `deleteItem:${section}`,
+            () => deleteDoc(getStoreDocRef(storeId, section, id)),
+            { route: currentPage, uid: userId, collection: section }
+        );
         if (user && section !== 'logs') {
-            await addDoc(getStoreCollectionRef(storeId, 'logs'), {
+            await runWithRetry(
+                'deleteItem:logs',
+                () => addDoc(getStoreCollectionRef(storeId, 'logs'), {
                 action: `Item deletado de ${section}`,
                 details: `ID: ${id}`,
                 userEmail: user?.auth?.email || 'N/A',
                 timestamp: new Date()
-            });
+                }),
+                { route: currentPage, uid: userId, collection: 'logs' }
+            );
         }
     } catch (e) {
         console.error("Erro ao deletar documento: ", e);
@@ -4045,6 +4121,11 @@ function App() {
       }, (error) => {
         console.error('Erro ao carregar dados da empresa', error);
         setCompanyLoading(false);
+      }, {
+        __listenerOptions: true,
+        operation: 'meu-espaco-company',
+        route: 'meu-espaco',
+        uid: userId
       });
 
       return () => unsubscribe();
@@ -4094,6 +4175,11 @@ function App() {
         console.error('Erro ao carregar registros de ponto', error);
         setRecords([]);
         setRecordsLoading(false);
+      }, {
+        __listenerOptions: true,
+        operation: 'meu-espaco-pontos',
+        route: 'meu-espaco',
+        uid: userId
       });
 
       return () => unsubscribe();
@@ -4121,7 +4207,12 @@ function App() {
         } else {
           setTodayRecordData(null);
         }
-      }, () => setTodayRecordData(null));
+      }, () => setTodayRecordData(null), {
+        __listenerOptions: true,
+        operation: 'meu-espaco-today',
+        route: 'meu-espaco',
+        uid: userId
+      });
       return () => unsubscribe();
     }, [currentStoreIdForDisplay, userId]);
 
@@ -5701,11 +5792,21 @@ const effectiveStoreName = useMemo(() => {
                         legacyUnsub = onSnapshot(legacyRef, (legacySnap) => {
                             if (items.length) return;
                             setCupons(legacySnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                        }, undefined, {
+                            __listenerOptions: true,
+                            operation: 'config-cupons-legacy',
+                            route: 'configuracoes',
+                            uid: user?.auth?.uid || null
                         });
                     } else if (items.length && legacyUnsub) {
                         legacyUnsub();
                         legacyUnsub = null;
                     }
+                }, undefined, {
+                    __listenerOptions: true,
+                    operation: 'config-cupons',
+                    route: 'configuracoes',
+                    uid: user?.auth?.uid || null
                 });
 
                 unsubscribe = () => {

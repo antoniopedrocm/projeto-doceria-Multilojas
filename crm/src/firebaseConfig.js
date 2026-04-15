@@ -8,6 +8,7 @@ import {
   getFirestore,
   onSnapshot as firestoreOnSnapshot,
   getDoc as firestoreGetDoc,
+  getDocs as firestoreGetDocs,
   deleteDoc as firestoreDeleteDoc,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -100,6 +101,69 @@ export { app, analytics };
 
 
 const FIRESTORE_LISTEN_CHANNEL_PATTERN = /firestore\.googleapis\.com\/.+\/listen\/channel/i;
+const FIRESTORE_LISTENER_STATUS_EVENT = 'firestore:listener-status';
+const DEFAULT_RETRY_DELAYS_MS = [400, 900, 1800];
+
+let firestoreTelemetryContext = {
+  route: null,
+  uid: null,
+};
+
+export const setFirestoreTelemetryContext = (nextContext = {}) => {
+  firestoreTelemetryContext = {
+    ...firestoreTelemetryContext,
+    route: nextContext.route || null,
+    uid: nextContext.uid || null,
+  };
+};
+
+const classifyFirestoreFailure = (error) => {
+  const code = String(error?.code || '').toLowerCase();
+  if (code.includes('permission-denied') || code.includes('unauthenticated')) return 'permission';
+  if (code.includes('unavailable') || code.includes('deadline-exceeded') || code.includes('cancelled')) return 'network';
+
+  const message = String(error?.message || '').toLowerCase();
+  if (message.includes('network') || message.includes('fetch') || message.includes('offline') || message.includes('cors')) return 'network';
+  if (message.includes('permission') || message.includes('insufficient')) return 'permission';
+  return 'unknown';
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const extractCollectionFromRef = (refOrQuery) => {
+  if (!refOrQuery) return null;
+
+  if (typeof refOrQuery.path === 'string') {
+    const segments = refOrQuery.path.split('/').filter(Boolean);
+    if (segments.length >= 2) return segments[segments.length - 2];
+  }
+
+  const queryPath = refOrQuery?._query?.path?.segments || refOrQuery?._queryOptions?.parentPath?.segments;
+  if (Array.isArray(queryPath) && queryPath.length) {
+    return queryPath[queryPath.length - 1];
+  }
+
+  return null;
+};
+
+const emitListenerStatus = (detail) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(FIRESTORE_LISTENER_STATUS_EVENT, { detail }));
+};
+
+const logFirestoreTelemetry = ({ operation, error, collection, route, uid, extra = {} }) => {
+  const failureType = classifyFirestoreFailure(error);
+  console.error('[Telemetry][Firestore] Falha detectada', {
+    operation,
+    failureType,
+    route: route || firestoreTelemetryContext.route || null,
+    uid: uid || firestoreTelemetryContext.uid || null,
+    collection: collection || null,
+    code: error?.code || null,
+    message: error?.message || null,
+    ...extra,
+  });
+};
 
 const normalizeFirebaseError = (error) => {
   const code = typeof error?.code === 'string' ? error.code : '';
@@ -184,6 +248,50 @@ export const getDoc = async (...args) => {
   }
 };
 
+export const getDocs = async (...args) => {
+  try {
+    return await firestoreGetDocs(...args);
+  } catch (error) {
+    throw buildUiError('getDocs', error);
+  }
+};
+
+export const runWithRetry = async (
+  operationName,
+  operationFn,
+  { maxAttempts = 3, baseDelayMs = 400, route = null, uid = null, collection = null } = {}
+) => {
+  let attempt = 0;
+  let lastError;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      return await operationFn(attempt);
+    } catch (error) {
+      lastError = error;
+      const failureType = classifyFirestoreFailure(error);
+      const shouldRetry = failureType === 'network' && attempt < maxAttempts;
+
+      logFirestoreTelemetry({
+        operation: operationName,
+        error,
+        route,
+        uid,
+        collection,
+        extra: { attempt, maxAttempts, shouldRetry },
+      });
+
+      if (!shouldRetry) break;
+
+      const delay = Math.round(baseDelayMs * (2 ** (attempt - 1)) + Math.random() * 120);
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+};
+
 export const deleteDoc = async (...args) => {
   try {
     return await firestoreDeleteDoc(...args);
@@ -193,36 +301,109 @@ export const deleteDoc = async (...args) => {
 };
 
 export const onSnapshot = (...args) => {
+  const refOrQuery = args[0];
+  const collection = extractCollectionFromRef(refOrQuery);
   const hasObserverObject = typeof args[1] === 'object' && args[1] !== null;
+  let listenerOptions = {};
+  const maybeLastArg = args[args.length - 1];
+  if (maybeLastArg && typeof maybeLastArg === 'object' && maybeLastArg.__listenerOptions === true) {
+    listenerOptions = maybeLastArg;
+    args = args.slice(0, -1);
+  }
 
-  if (hasObserverObject) {
-    const observer = args[1];
-    const originalError = observer.error;
-    return firestoreOnSnapshot(args[0], {
-      ...observer,
-      error: (error) => {
+  const {
+    maxRetryAttempts = 2,
+    retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+    route = null,
+    uid = null,
+    operation = 'onSnapshot',
+  } = listenerOptions;
+
+  const runFallbackFetch = async () => {
+    try {
+      if (typeof refOrQuery?.type === 'string' && refOrQuery.type === 'document') {
+        const docSnap = await firestoreGetDoc(refOrQuery);
+        return { docs: docSnap.exists() ? [docSnap] : [] };
+      }
+
+      const querySnap = await firestoreGetDocs(refOrQuery);
+      return { docs: querySnap.docs };
+    } catch (fallbackError) {
+      logFirestoreTelemetry({
+        operation: `${operation}:fallback`,
+        error: fallbackError,
+        route,
+        uid,
+        collection,
+      });
+      return null;
+    }
+  };
+
+  let currentUnsubscribe = () => {};
+  let stopped = false;
+  let failureCount = 0;
+
+  const subscribe = (nextCb, errorCb) => {
+    currentUnsubscribe = firestoreOnSnapshot(
+      refOrQuery,
+      nextCb,
+      async (error) => {
         const uiError = buildUiError('onSnapshot', error);
-        if (typeof originalError === 'function') {
-          originalError(uiError);
+        failureCount += 1;
+        const canRetry = failureCount <= maxRetryAttempts;
+
+        logFirestoreTelemetry({
+          operation,
+          error: uiError,
+          route,
+          uid,
+          collection,
+          extra: { failureCount, maxRetryAttempts, canRetry },
+        });
+
+        if (canRetry && !stopped) {
+          emitListenerStatus({ operation, collection, status: 'reconnecting', failureCount });
+          const delay = retryDelaysMs[Math.min(failureCount - 1, retryDelaysMs.length - 1)] || DEFAULT_RETRY_DELAYS_MS[DEFAULT_RETRY_DELAYS_MS.length - 1];
+          await sleep(delay);
+          if (!stopped) {
+            currentUnsubscribe();
+            subscribe(nextCb, errorCb);
+          }
+          return;
+        }
+
+        emitListenerStatus({ operation, collection, status: 'offline', failureCount });
+        const fallback = await runFallbackFetch();
+        if (fallback?.docs && typeof nextCb === 'function') {
+          nextCb(fallback);
+        }
+        if (typeof errorCb === 'function') {
+          errorCb(uiError);
         } else {
           console.error('[Firebase][Firestore] onSnapshot sem callback de erro:', uiError);
         }
       }
-    });
+    );
+  };
+
+  if (hasObserverObject) {
+    const observer = args[1];
+    subscribe(observer.next, observer.error);
+    return () => {
+      stopped = true;
+      currentUnsubscribe();
+    };
   }
 
   const errorCallbackIndex = typeof args[2] === 'function' ? 2 : -1;
-  if (errorCallbackIndex >= 0) {
-    const originalError = args[errorCallbackIndex];
-    const nextArgs = [...args];
-    nextArgs[errorCallbackIndex] = (error) => {
-      const uiError = buildUiError('onSnapshot', error);
-      originalError(uiError);
-    };
-    return firestoreOnSnapshot(...nextArgs);
-  }
-
-  return firestoreOnSnapshot(...args);
+  const nextCb = typeof args[1] === 'function' ? args[1] : undefined;
+  const errorCb = errorCallbackIndex >= 0 ? args[errorCallbackIndex] : undefined;
+  subscribe(nextCb, errorCb);
+  return () => {
+    stopped = true;
+    currentUnsubscribe();
+  };
 };
 
 export const messagingPromise = (async () => {
