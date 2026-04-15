@@ -8,7 +8,7 @@ import {
 
 // --- CORREÇÃO ---
 // Importando 'functions' do seu arquivo de configuração do Firebase.
-import { auth, db, storage, functions } from './firebaseConfig.js';
+import { auth, db, storage, functions, onSnapshot, getDoc, deleteDoc } from './firebaseConfig.js';
 //import { firebaseConfig } from './firebaseConfig.js';
 
 // --- CORREÇÃO ---
@@ -19,7 +19,7 @@ import { httpsCallable } from "firebase/functions";
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
-import { collection, onSnapshot, query, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
+import { collection, query, doc, setDoc, addDoc, updateDoc, where, getDocs, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
@@ -3079,7 +3079,8 @@ function App() {
                             }
                       },
                       (error) => {
-                            console.error('[App.js] Erro ao sincronizar clientes:', error);
+                            console.error('[App.js] Erro ao sincronizar clientes:', { code: error?.code || null, message: error?.originalMessage || error?.message || null });
+                            setLoginError(error?.message || 'Não foi possível sincronizar os dados de clientes.');
                             if (!initialResolved) {
                                   markInitialLoaded();
                                   initialResolved = true;
@@ -3172,7 +3173,11 @@ function App() {
                         };
 
                         const handleSnapshotError = (error) => {
-                              console.error(`[App.js] Erro ao sincronizar ${collectionName} da loja ${storeId}:`, error);
+                              console.error(`[App.js] Erro ao sincronizar ${collectionName} da loja ${storeId}:`, {
+                                    code: error?.code || null,
+                                    message: error?.originalMessage || error?.message || null
+                              });
+                              setLoginError(error?.message || 'Não foi possível sincronizar dados em tempo real.');
                               if (collectionName === 'pedidos') {
                                     setPedidosConnectivityStatus('offline');
                               }
@@ -3314,18 +3319,17 @@ function App() {
   const mapCriticalWriteErrorMessage = useCallback((error) => {
     const rawCode = String(error?.code || '').toLowerCase();
     const rawMessage = String(error?.message || '').toLowerCase();
-    const isSessionError = rawCode.includes('permission-denied')
-      || rawCode.includes('unauthenticated')
-      || rawCode.includes('auth/')
-      || rawCode.includes('invalid-user-token')
-      || rawCode.includes('user-token-expired')
-      || rawMessage.includes('permission-denied')
-      || rawMessage.includes('missing or insufficient permissions')
-      || rawMessage.includes('auth')
-      || rawMessage.includes('token');
 
-    if (isSessionError) {
-      return 'Sua sessão expirou ou não tem mais permissão para esta ação. Faça login novamente.';
+    if (rawCode.includes('permission-denied') || rawMessage.includes('permission-denied') || rawMessage.includes('missing or insufficient permissions')) {
+      return 'Você não tem permissão para realizar esta ação nesta loja.';
+    }
+
+    if (rawCode.includes('unauthenticated') || rawCode.includes('auth/') || rawCode.includes('invalid-user-token') || rawCode.includes('user-token-expired')) {
+      return 'Sua sessão expirou. Faça login novamente para continuar.';
+    }
+
+    if (rawCode.includes('failed-precondition') || rawMessage.includes('failed-precondition')) {
+      return 'Não foi possível concluir esta operação agora. Atualize a página e tente novamente.';
     }
 
     return error?.message || 'Não foi possível concluir a operação agora. Tente novamente.';

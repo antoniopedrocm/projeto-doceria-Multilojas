@@ -4,7 +4,12 @@
 
 import { initializeApp, getApps } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  onSnapshot as firestoreOnSnapshot,
+  getDoc as firestoreGetDoc,
+  deleteDoc as firestoreDeleteDoc,
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
@@ -92,6 +97,134 @@ export { app, analytics };
 // the browser supports it and the user grants permission for
 // notifications.  Code that requires messaging should await this
 // promise.
+
+
+const FIRESTORE_LISTEN_CHANNEL_PATTERN = /firestore\.googleapis\.com\/.+\/listen\/channel/i;
+
+const normalizeFirebaseError = (error) => {
+  const code = typeof error?.code === 'string' ? error.code : '';
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const lowerCode = code.toLowerCase();
+  const lowerMessage = message.toLowerCase();
+
+  const codeWithoutNamespace = lowerCode.startsWith('firestore/')
+    ? lowerCode.replace('firestore/', '')
+    : lowerCode;
+
+  let friendlyMessage = '';
+  if (codeWithoutNamespace === 'permission-denied') {
+    friendlyMessage = 'Você não tem permissão para acessar estes dados.';
+  } else if (codeWithoutNamespace === 'unauthenticated') {
+    friendlyMessage = 'Sua sessão expirou. Faça login novamente para continuar.';
+  } else if (codeWithoutNamespace === 'failed-precondition') {
+    friendlyMessage = 'A operação não pode ser concluída agora. Atualize a página e tente novamente.';
+  }
+
+  const isListenChannelRequest = FIRESTORE_LISTEN_CHANNEL_PATTERN.test(lowerMessage);
+  const hasFirebaseErrorCode = Boolean(codeWithoutNamespace);
+  const looksLikeCorsOrNetwork = lowerMessage.includes('cors')
+    || lowerMessage.includes('typeerror')
+    || lowerMessage.includes('failed to fetch')
+    || lowerMessage.includes('networkerror');
+
+  const interpretedAsCors = isListenChannelRequest && !hasFirebaseErrorCode && looksLikeCorsOrNetwork;
+
+  console.error('[Firebase][Firestore] Erro capturado:', {
+    operation: null,
+    code: code || null,
+    message: message || null,
+    interpretedAsCors
+  });
+
+  return {
+    code,
+    codeWithoutNamespace,
+    message,
+    friendlyMessage,
+    interpretedAsCors
+  };
+};
+
+const mapFirestoreErrorForUi = (operation, error) => {
+  const normalized = normalizeFirebaseError(error);
+  console.error('[Firebase][Firestore] Falha na operação:', {
+    operation,
+    code: normalized.code || null,
+    message: normalized.message || null,
+    interpretedAsCors: normalized.interpretedAsCors
+  });
+
+  const fallbackMessage = normalized.interpretedAsCors
+    ? 'Não foi possível conectar ao Firestore agora. Verifique sua conexão e tente novamente.'
+    : (normalized.message || 'Ocorreu um erro inesperado ao acessar o Firestore.');
+
+  return {
+    ...normalized,
+    uiMessage: normalized.friendlyMessage || fallbackMessage
+  };
+};
+
+const buildUiError = (operation, error) => {
+  const mapped = mapFirestoreErrorForUi(operation, error);
+  const uiError = new Error(mapped.uiMessage);
+  uiError.name = 'FirestoreUiError';
+  uiError.code = mapped.code;
+  uiError.firebaseCode = mapped.codeWithoutNamespace || null;
+  uiError.originalMessage = mapped.message;
+  uiError.interpretedAsCors = mapped.interpretedAsCors;
+  uiError.cause = error;
+  return uiError;
+};
+
+export const getDoc = async (...args) => {
+  try {
+    return await firestoreGetDoc(...args);
+  } catch (error) {
+    throw buildUiError('getDoc', error);
+  }
+};
+
+export const deleteDoc = async (...args) => {
+  try {
+    return await firestoreDeleteDoc(...args);
+  } catch (error) {
+    throw buildUiError('deleteDoc', error);
+  }
+};
+
+export const onSnapshot = (...args) => {
+  const hasObserverObject = typeof args[1] === 'object' && args[1] !== null;
+
+  if (hasObserverObject) {
+    const observer = args[1];
+    const originalError = observer.error;
+    return firestoreOnSnapshot(args[0], {
+      ...observer,
+      error: (error) => {
+        const uiError = buildUiError('onSnapshot', error);
+        if (typeof originalError === 'function') {
+          originalError(uiError);
+        } else {
+          console.error('[Firebase][Firestore] onSnapshot sem callback de erro:', uiError);
+        }
+      }
+    });
+  }
+
+  const errorCallbackIndex = typeof args[2] === 'function' ? 2 : -1;
+  if (errorCallbackIndex >= 0) {
+    const originalError = args[errorCallbackIndex];
+    const nextArgs = [...args];
+    nextArgs[errorCallbackIndex] = (error) => {
+      const uiError = buildUiError('onSnapshot', error);
+      originalError(uiError);
+    };
+    return firestoreOnSnapshot(...nextArgs);
+  }
+
+  return firestoreOnSnapshot(...args);
+};
+
 export const messagingPromise = (async () => {
   if (typeof window === 'undefined') return null;
   try {
