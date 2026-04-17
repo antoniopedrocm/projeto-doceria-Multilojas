@@ -2477,16 +2477,25 @@
                 });
                 openAddressManagementModal(currentClient);
             } catch (error) {
+                const errorCode = (error?.code || '').replace(/^functions\//, '');
                 console.error('Error searching client:', error);
+                console.error('Phone search Firebase error details:', {
+                    code: errorCode || 'unknown',
+                    message: error?.message || 'Sem mensagem disponível.'
+                });
 
-                if (error?.code === 'functions/not-found') {
+                if (errorCode === 'not-found') {
                     phoneLoginModal.classList.add('hidden');
                     openCustomerModalForCreate(phone);
                     return;
                 }
 
-                if (error?.code === 'functions/permission-denied') {
-                    phoneError.textContent = 'Muitas tentativas ou acesso negado. Aguarde e tente novamente.';
+                if (errorCode === 'permission-denied') {
+                    phoneError.textContent = 'Acesso não autorizado para busca de cadastro.';
+                } else if (errorCode === 'unauthenticated') {
+                    phoneError.textContent = 'Faça login para continuar.';
+                } else if (errorCode === 'unavailable') {
+                    phoneError.textContent = 'Instabilidade de conexão, tente novamente.';
                 } else {
                     phoneError.textContent = 'Erro ao buscar cliente. Tente novamente.';
                 }
