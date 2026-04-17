@@ -2453,28 +2453,25 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
-                const { db, collection, getDocs, query, where, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
-                const q = query(collection(db, ...storePath("clientes")), where("telefone", "==", phoneDigits));
-                const querySnapshot = await getDocs(q);
+                const lookupUrl = `${API_BASE_URL}/clientes/buscar?lojaId=${encodeURIComponent(STORE_ID)}&telefone=${encodeURIComponent(phoneDigits)}`;
+                const response = await fetch(lookupUrl, { method: 'GET' });
 
-                phoneLoginModal.classList.add('hidden');
-
-                if (!querySnapshot.empty) {
-                    const clientDoc = querySnapshot.docs[0];
-                    await updateDoc(doc(db, 'clientes', clientDoc.id), {
-                        lojasVisitadas: arrayUnion(STORE_ID),
-                        lojaId: STORE_ID
-                    });
-                    const existingData = clientDoc.data();
-                    const lojasVisitadas = Array.from(new Set([...(existingData.lojasVisitadas || []), STORE_ID]));
-                    currentClient = { id: clientDoc.id, ...existingData, lojasVisitadas };
-                    console.log("✅ Cliente encontrado:", currentClient);
-                    openAddressManagementModal(currentClient);
-                } else {
+                if (response.status === 404) {
+                    phoneLoginModal.classList.add('hidden');
                     console.log("❌ Cliente não encontrado. Abrindo modal de criação.");
                     openCustomerModalForCreate(phone);
+                    return;
                 }
 
+                if (!response.ok) {
+                    throw new Error(`Falha ao buscar cliente (${response.status})`);
+                }
+
+                const clientData = await response.json();
+                phoneLoginModal.classList.add('hidden');
+                currentClient = clientData;
+                console.log("✅ Cliente encontrado:", currentClient);
+                openAddressManagementModal(currentClient);
             } catch (error) {
                 console.error("Error searching client:", error);
                 phoneError.textContent = 'Erro ao buscar cliente. Tente novamente.';
