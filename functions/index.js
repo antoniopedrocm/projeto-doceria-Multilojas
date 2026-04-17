@@ -13,6 +13,7 @@ const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const express = require("express");
 const cors = require("cors");
+const crypto = require('crypto');
 
 // Inicializa o Firebase Admin SDK
 admin.initializeApp();
@@ -317,6 +318,111 @@ const findClientByPhone = async (telefone) => {
   if (snapshot.empty) return null;
   const docSnap = snapshot.docs[0];
   return {id: docSnap.id, data: docSnap.data()};
+};
+
+const normalizePhoneNumber = (value) => {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+
+  let digits = String(value).replace(/\D/g, '');
+
+  if (digits.startsWith('55') && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.length < 10 || digits.length > 11) return '';
+  return digits;
+};
+
+const getPhoneLookupCandidates = (normalizedPhone) => {
+  if (!normalizedPhone) return [];
+
+  const candidates = [normalizedPhone];
+  if (normalizedPhone.length === 11 && normalizedPhone[2] === '9') {
+    candidates.push(`${normalizedPhone.slice(0, 2)}${normalizedPhone.slice(3)}`);
+  }
+
+  if (normalizedPhone.length === 10) {
+    candidates.push(`${normalizedPhone.slice(0, 2)}9${normalizedPhone.slice(2)}`);
+  }
+
+  return Array.from(new Set(candidates));
+};
+
+const abbreviateName = (name) => {
+  if (typeof name !== 'string' || !name.trim()) return 'Cliente';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+};
+
+const getClientRegistrationStatus = (clientData = {}) => {
+  const hasName = typeof clientData.nome === 'string' && clientData.nome.trim().length > 0;
+  const hasBirthdate = typeof clientData.aniversario === 'string' && clientData.aniversario.trim().length > 0;
+  const hasAddress = Array.isArray(clientData.enderecos) && clientData.enderecos.length > 0;
+
+  return hasName && hasBirthdate && hasAddress ? 'completo' : 'incompleto';
+};
+
+const findClientByNormalizedPhone = async (normalizedPhone) => {
+  const candidates = getPhoneLookupCandidates(normalizedPhone);
+
+  for (const candidate of candidates) {
+    const existing = await findClientByPhone(candidate);
+    if (existing) {
+      return {
+        ...existing,
+        matchedPhone: candidate,
+      };
+    }
+  }
+
+  return null;
+};
+
+const hashForPrivacy = (value) => crypto.createHash('sha256').update(String(value || '')).digest('hex');
+
+const RATE_LIMIT_MAX_CALLS = 8;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMIT_BLOCK_MS = 20 * 60 * 1000;
+
+const enforcePhoneLookupRateLimit = async ({callerKeyHash, phoneHash}) => {
+  const ref = db.collection('rateLimits').doc('phoneLookup').collection('entries').doc(callerKeyHash);
+  const now = Date.now();
+
+  await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    const currentData = snap.exists ? snap.data() || {} : {};
+
+    const blockedUntil = Number(currentData.blockedUntil || 0);
+    if (blockedUntil > now) {
+      throw new HttpsError('permission-denied', 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.');
+    }
+
+    const windowStart = Number(currentData.windowStart || 0);
+    const isSameWindow = windowStart > 0 && now - windowStart < RATE_LIMIT_WINDOW_MS;
+    const currentCount = isSameWindow ? Number(currentData.count || 0) : 0;
+    const nextCount = currentCount + 1;
+
+    const nextPayload = {
+      count: nextCount,
+      windowStart: isSameWindow ? windowStart : now,
+      lastAttemptAt: now,
+      lastPhoneHash: phoneHash,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (nextCount > RATE_LIMIT_MAX_CALLS) {
+      nextPayload.blockedUntil = now + RATE_LIMIT_BLOCK_MS;
+      transaction.set(ref, nextPayload, {merge: true});
+      throw new HttpsError('permission-denied', 'Limite de tentativas excedido. Tente novamente mais tarde.');
+    }
+
+    transaction.set(ref, nextPayload, {merge: true});
+  });
 };
 
 const createHttpError = (status, message, code = null) => {
@@ -856,6 +962,74 @@ app.post("/cupons/verificar", async (req, res) => {
         logger.error("Erro ao verificar cupom:", error);
         res.status(500).send("Erro ao verificar cupom.");
     }
+});
+
+
+exports.lookupClientByPhone = onCall(async (request) => {
+  const rawPhone = request.data?.telefone;
+  const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
+
+  const normalizedPhone = normalizePhoneNumber(rawPhone);
+  if (!normalizedPhone) {
+    throw new HttpsError('invalid-argument', 'Telefone inválido.');
+  }
+
+  if (!lojaId) {
+    throw new HttpsError('invalid-argument', 'lojaId é obrigatório.');
+  }
+
+  const storeDoc = await getStoreRef(lojaId).get();
+  if (!storeDoc.exists) {
+    throw new HttpsError('permission-denied', 'Loja inválida para consulta.');
+  }
+
+  const rawIp = request.rawRequest?.headers?.['x-forwarded-for'] || request.rawRequest?.ip || 'unknown';
+  const callerIdentity = request.auth?.uid || `${rawIp}`.split(',')[0].trim() || 'anonymous';
+  const callerKeyHash = hashForPrivacy(callerIdentity);
+  const phoneHash = hashForPrivacy(normalizedPhone);
+
+  await enforcePhoneLookupRateLimit({callerKeyHash, phoneHash});
+
+  const found = await findClientByNormalizedPhone(normalizedPhone);
+
+  const auditPayload = {
+    action: 'lookupClientByPhone',
+    callerKeyHash,
+    phoneHash,
+    lojaId,
+    found: Boolean(found),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (!found) {
+    await db.collection('auditLogs').add({
+      ...auditPayload,
+      outcome: 'not-found',
+    });
+    throw new HttpsError('not-found', 'Cliente não encontrado.');
+  }
+
+  await upsertClientDocument({
+    targetRef: getClientsCollection().doc(found.id),
+    data: found.data,
+    lojaId,
+    setCreatedIfMissing: true,
+  });
+
+  await db.collection('auditLogs').add({
+    ...auditPayload,
+    outcome: 'success',
+    clientId: found.id,
+  });
+
+  return {
+    clientId: found.id,
+    phoneNormalized: normalizedPhone,
+    client: {
+      nomeAbreviado: abbreviateName(found.data.nome),
+      statusCadastro: getClientRegistrationStatus(found.data),
+    },
+  };
 });
 
 // Exporta o app Express como uma Cloud Function HTTP
