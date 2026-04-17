@@ -2471,41 +2471,44 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
-                const auth = getAuth(app);
-                const currentUser = auth.currentUser;
-                if (!currentUser?.uid) {
-                    throw new Error('Usuário não autenticado. Faça login novamente para continuar.');
-                }
-
-                const { db, collection, getDocs, query, where, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
-                const q = query(
-                    collection(db, ...storePath("clientes")),
-                    where("telefone", "==", phoneDigits),
-                    where("uid", "==", currentUser.uid)
-                );
-                const querySnapshot = await getDocs(q);
+                const { db, doc, getDoc, functions, httpsCallable } = await import('./firebaseClientConfig.js');
+                const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
+                const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
 
                 phoneLoginModal.classList.add('hidden');
 
-                if (!querySnapshot.empty) {
-                    const clientDoc = querySnapshot.docs[0];
-                    await updateDoc(doc(db, 'clientes', clientDoc.id), {
-                        lojasVisitadas: arrayUnion(STORE_ID),
-                        lojaId: STORE_ID
-                    });
-                    const existingData = clientDoc.data();
-                    const lojasVisitadas = Array.from(new Set([...(existingData.lojasVisitadas || []), STORE_ID]));
-                    currentClient = { id: clientDoc.id, ...existingData, lojasVisitadas };
-                    console.log("✅ Cliente encontrado:", currentClient);
-                    openAddressManagementModal(currentClient);
-                } else {
-                    console.log("❌ Cliente não encontrado. Abrindo modal de criação.");
-                    openCustomerModalForCreate(phone);
+                const { clientId, client } = lookupResult.data || {};
+                if (!clientId) {
+                    throw new Error('Resposta inválida da busca de cliente.');
                 }
 
+                const clientSnap = await getDoc(doc(db, 'clientes', clientId));
+                if (!clientSnap.exists()) {
+                    throw new Error('Cadastro do cliente não está disponível.');
+                }
+
+                currentClient = { id: clientId, ...clientSnap.data() };
+                console.log('✅ Cliente identificado:', {
+                    id: clientId,
+                    nomeAbreviado: client?.nomeAbreviado || currentClient.nome,
+                    statusCadastro: client?.statusCadastro || 'indefinido'
+                });
+                openAddressManagementModal(currentClient);
             } catch (error) {
-                console.error("Error searching client:", error);
-                phoneError.textContent = 'Erro ao buscar cliente. Tente novamente.';
+                console.error('Error searching client:', error);
+
+                if (error?.code === 'functions/not-found') {
+                    phoneLoginModal.classList.add('hidden');
+                    openCustomerModalForCreate(phone);
+                    return;
+                }
+
+                if (error?.code === 'functions/permission-denied') {
+                    phoneError.textContent = 'Muitas tentativas ou acesso negado. Aguarde e tente novamente.';
+                } else {
+                    phoneError.textContent = 'Erro ao buscar cliente. Tente novamente.';
+                }
+
                 phoneError.classList.remove('hidden');
                 phoneLoginModal.classList.remove('hidden');
             } finally {

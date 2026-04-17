@@ -20,6 +20,7 @@ import {
   arrayUnion,
   onSnapshot,
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js';
 import {
   getAuth,
   signInAnonymously,
@@ -54,6 +55,7 @@ const db = getFirestore(app);
 
 // Authentication service.
 const auth = getAuth(app);
+const functions = getFunctions(app, 'us-central1');
 
 // Some Firebase projects restrict anonymous authentication and return
 // 403 errors from securetoken.googleapis.com when visitors first open
@@ -104,6 +106,8 @@ export {
   app,
   db,
   auth,
+  functions,
+  httpsCallable,
   collection,
   getDocs,
   getDoc,
