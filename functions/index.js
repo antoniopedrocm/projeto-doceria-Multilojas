@@ -965,7 +965,7 @@ app.post("/cupons/verificar", async (req, res) => {
 });
 
 
-exports.lookupClientByPhone = onCall(async (request) => {
+exports.lookupClientByPhone = onCall({ cors: true }, async (request) => {
   const rawPhone = request.data?.telefone;
   const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
 
