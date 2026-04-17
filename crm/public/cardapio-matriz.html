@@ -2453,7 +2453,9 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
-                const { db, doc, getDoc, functions, httpsCallable } = await import('./firebaseClientConfig.js');
+                const { app, db, doc, getDoc } = await import('./firebaseClientConfig.js');
+                const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js');
+                const functions = getFunctions(app, 'us-central1');
                 const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
 
