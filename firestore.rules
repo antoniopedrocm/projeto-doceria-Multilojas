@@ -39,10 +39,11 @@ match /cupons/{cupomId} {
 // --- REGRAS PARA COLEÇÕES COM ACESSO RESTRITO ---
 
 // PERMITE que a página do cardápio CRIE um novo cliente, mas não leia a lista toda.
-// PERMITE a leitura apenas se for uma busca por telefone OU se o usuário estiver logado no CRM.
+// Fluxo público deve usar Cloud Function para identificação por telefone, sem leitura direta no cliente.
+// Apenas usuários autenticados (CRM) podem ler documentos de clientes.
 match /clientes/{clienteId} {
   allow create: if isCreatingOwnClient();
-  allow read: if isOwnerByUid();
+  allow read: if isSignedIn();
   allow update: if isOwnerByUid() && request.resource.data.uid == resource.data.uid;
   allow delete: if isOwnerByUid();
 }
