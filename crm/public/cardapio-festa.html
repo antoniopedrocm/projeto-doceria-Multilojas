@@ -2452,9 +2452,29 @@
             searchPhoneButton.disabled = true;
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
-            const { db, doc, getDoc, lookupClientByPhone, normalizeCallableError } = await import('./firebaseClientConfig.js');
+            let normalizeError = (error) => {
+                const rawCode = typeof error?.code === 'string' ? error.code : '';
+                return {
+                    code: rawCode.replace(/^functions\//, '') || 'unknown',
+                    message: error?.message || 'Erro desconhecido ao comunicar com o servidor.',
+                    original: error,
+                };
+            };
 
             try {
+                const firebaseClient = await import('./firebaseClientConfig.js');
+                const { db, doc, getDoc, lookupClientByPhone } = firebaseClient;
+
+                if (typeof firebaseClient.normalizeCallableError === 'function') {
+                    normalizeError = firebaseClient.normalizeCallableError;
+                } else if (typeof window.normalizeCallableError === 'function') {
+                    normalizeError = window.normalizeCallableError;
+                }
+
+                if (typeof lookupClientByPhone !== 'function') {
+                    throw new Error('Função de busca de cliente indisponível no momento.');
+                }
+
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
 
                 phoneLoginModal.classList.add('hidden');
@@ -2477,7 +2497,7 @@
                 });
                 openAddressManagementModal(currentClient);
             } catch (error) {
-                const normalizedError = normalizeCallableError(error);
+                const normalizedError = normalizeError(error);
                 const errorCode = normalizedError.code;
                 console.error('Error searching client:', error);
                 console.error('Phone search Firebase error details:', {
