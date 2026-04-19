@@ -57,6 +57,27 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const functions = getFunctions(app, 'us-central1');
 
+const normalizeCallableError = (error) => {
+  const rawCode = typeof error?.code === 'string' ? error.code : '';
+  const code = rawCode.replace(/^functions\//, '') || 'unknown';
+  return {
+    code,
+    message: error?.message || 'Erro desconhecido ao comunicar com o servidor.',
+    original: error,
+  };
+};
+
+const lookupClientByPhoneCallable = httpsCallable(functions, 'lookupClientByPhone');
+
+const lookupClientByPhone = async ({ telefone, lojaId }) => {
+  const payload = {
+    telefone: telefone == null ? '' : String(telefone),
+    lojaId: typeof lojaId === 'string' ? lojaId.trim() : '',
+  };
+
+  return lookupClientByPhoneCallable(payload);
+};
+
 // Some Firebase projects restrict anonymous authentication and return
 // 403 errors from securetoken.googleapis.com when visitors first open
 // the public page.  To avoid noisy errors for unauthenticated visitors,
@@ -108,6 +129,8 @@ export {
   auth,
   functions,
   httpsCallable,
+  lookupClientByPhone,
+  normalizeCallableError,
   collection,
   getDocs,
   getDoc,
