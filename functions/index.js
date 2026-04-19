@@ -965,7 +965,14 @@ app.post("/cupons/verificar", async (req, res) => {
 });
 
 
-exports.lookupClientByPhone = onCall({ cors: true }, async (request) => {
+const LOOKUP_CLIENT_ALLOWED_ORIGINS = [
+  'https://www.anaguimaraesdoceria.com.br',
+  'https://anaguimaraesdoceria.com.br',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+];
+
+exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
   const rawPhone = request.data?.telefone;
   const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
 
