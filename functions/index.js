@@ -973,70 +973,86 @@ const LOOKUP_CLIENT_ALLOWED_ORIGINS = [
 ];
 
 exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
-  const rawPhone = request.data?.telefone;
-  const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
+  try {
+    const rawPhone = request.data?.telefone;
+    const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
 
-  const normalizedPhone = normalizePhoneNumber(rawPhone);
-  if (!normalizedPhone) {
-    throw new HttpsError('invalid-argument', 'Telefone inválido.');
-  }
+    const normalizedPhone = normalizePhoneNumber(rawPhone);
+    if (!normalizedPhone) {
+      throw new HttpsError('invalid-argument', 'Telefone inválido.');
+    }
 
-  if (!lojaId) {
-    throw new HttpsError('invalid-argument', 'lojaId é obrigatório.');
-  }
+    if (!lojaId) {
+      throw new HttpsError('invalid-argument', 'lojaId é obrigatório.');
+    }
 
-  const storeDoc = await getStoreRef(lojaId).get();
-  if (!storeDoc.exists) {
-    throw new HttpsError('permission-denied', 'Loja inválida para consulta.');
-  }
+    const storeDoc = await getStoreRef(lojaId).get();
+    if (!storeDoc.exists) {
+      throw new HttpsError('permission-denied', 'Loja inválida para consulta.');
+    }
 
-  const rawIp = request.rawRequest?.headers?.['x-forwarded-for'] || request.rawRequest?.ip || 'unknown';
-  const callerIdentity = request.auth?.uid || `${rawIp}`.split(',')[0].trim() || 'anonymous';
-  const callerKeyHash = hashForPrivacy(callerIdentity);
-  const phoneHash = hashForPrivacy(normalizedPhone);
+    const rawIp = request.rawRequest?.headers?.['x-forwarded-for'] || request.rawRequest?.ip || 'unknown';
+    const callerIdentity = request.auth?.uid || `${rawIp}`.split(',')[0].trim() || 'anonymous';
+    const callerKeyHash = hashForPrivacy(callerIdentity);
+    const phoneHash = hashForPrivacy(normalizedPhone);
 
-  await enforcePhoneLookupRateLimit({callerKeyHash, phoneHash});
+    await enforcePhoneLookupRateLimit({callerKeyHash, phoneHash});
 
-  const found = await findClientByNormalizedPhone(normalizedPhone);
+    const found = await findClientByNormalizedPhone(normalizedPhone);
 
-  const auditPayload = {
-    action: 'lookupClientByPhone',
-    callerKeyHash,
-    phoneHash,
-    lojaId,
-    found: Boolean(found),
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  };
+    const auditPayload = {
+      action: 'lookupClientByPhone',
+      callerKeyHash,
+      phoneHash,
+      lojaId,
+      found: Boolean(found),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
 
-  if (!found) {
+    if (!found) {
+      await db.collection('auditLogs').add({
+        ...auditPayload,
+        outcome: 'not-found',
+      });
+      throw new HttpsError('not-found', 'Cliente não encontrado.');
+    }
+
+    await upsertClientDocument({
+      targetRef: getClientsCollection().doc(found.id),
+      data: found.data,
+      lojaId,
+      setCreatedIfMissing: true,
+    });
+
     await db.collection('auditLogs').add({
       ...auditPayload,
-      outcome: 'not-found',
+      outcome: 'success',
+      clientId: found.id,
     });
-    throw new HttpsError('not-found', 'Cliente não encontrado.');
+
+    return {
+      clientId: found.id,
+      phoneNormalized: normalizedPhone,
+      client: {
+        nomeAbreviado: abbreviateName(found.data.nome),
+        statusCadastro: getClientRegistrationStatus(found.data),
+      },
+    };
+  } catch (error) {
+    logger.error('lookupClientByPhone failed', {
+      code: error?.code || null,
+      message: error?.message || 'Erro desconhecido',
+      stack: error?.stack || null,
+      hasAuth: Boolean(request.auth?.uid),
+      lojaId: request.data?.lojaId || null,
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Não foi possível buscar o cliente agora. Tente novamente.');
   }
-
-  await upsertClientDocument({
-    targetRef: getClientsCollection().doc(found.id),
-    data: found.data,
-    lojaId,
-    setCreatedIfMissing: true,
-  });
-
-  await db.collection('auditLogs').add({
-    ...auditPayload,
-    outcome: 'success',
-    clientId: found.id,
-  });
-
-  return {
-    clientId: found.id,
-    phoneNormalized: normalizedPhone,
-    client: {
-      nomeAbreviado: abbreviateName(found.data.nome),
-      statusCadastro: getClientRegistrationStatus(found.data),
-    },
-  };
 });
 
 // Exporta o app Express como uma Cloud Function HTTP

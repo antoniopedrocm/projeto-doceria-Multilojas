@@ -2452,11 +2452,9 @@
             searchPhoneButton.disabled = true;
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
+            const { db, doc, getDoc, lookupClientByPhone, normalizeCallableError } = await import('./firebaseClientConfig.js');
+
             try {
-                const { app, db, doc, getDoc } = await import('./firebaseClientConfig.js');
-                const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js');
-                const functions = getFunctions(app, 'us-central1');
-                const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
 
                 phoneLoginModal.classList.add('hidden');
@@ -2479,11 +2477,12 @@
                 });
                 openAddressManagementModal(currentClient);
             } catch (error) {
-                const errorCode = (error?.code || '').replace(/^functions\//, '');
+                const normalizedError = normalizeCallableError(error);
+                const errorCode = normalizedError.code;
                 console.error('Error searching client:', error);
                 console.error('Phone search Firebase error details:', {
                     code: errorCode || 'unknown',
-                    message: error?.message || 'Sem mensagem disponível.'
+                    message: normalizedError.message || 'Sem mensagem disponível.'
                 });
 
                 if (errorCode === 'not-found') {
