@@ -78,6 +78,12 @@ const lookupClientByPhone = async ({ telefone, lojaId }) => {
   return lookupClientByPhoneCallable(payload);
 };
 
+
+if (typeof window !== 'undefined') {
+  window.lookupClientByPhone = lookupClientByPhone;
+  window.normalizeCallableError = normalizeCallableError;
+}
+
 // Some Firebase projects restrict anonymous authentication and return
 // 403 errors from securetoken.googleapis.com when visitors first open
 // the public page.  To avoid noisy errors for unauthenticated visitors,
