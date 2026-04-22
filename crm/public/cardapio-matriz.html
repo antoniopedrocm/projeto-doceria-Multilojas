@@ -1157,6 +1157,10 @@
             onAuthStateChanged
         } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import {
+            getFunctions,
+            httpsCallable
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+        import {
             app
         } from "./firebaseClientConfig.js";
 
@@ -2452,29 +2456,11 @@
             searchPhoneButton.disabled = true;
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
-            let normalizeError = (error) => {
-                const rawCode = typeof error?.code === 'string' ? error.code : '';
-                return {
-                    code: rawCode.replace(/^functions\//, '') || 'unknown',
-                    message: error?.message || 'Erro desconhecido ao comunicar com o servidor.',
-                    original: error,
-                };
-            };
-
             try {
                 const firebaseClient = await import('./firebaseClientConfig.js');
-                const { db, doc, getDoc, lookupClientByPhone } = firebaseClient;
-
-                if (typeof firebaseClient.normalizeCallableError === 'function') {
-                    normalizeError = firebaseClient.normalizeCallableError;
-                } else if (typeof window.normalizeCallableError === 'function') {
-                    normalizeError = window.normalizeCallableError;
-                }
-
-                if (typeof lookupClientByPhone !== 'function') {
-                    throw new Error('Função de busca de cliente indisponível no momento.');
-                }
-
+                const { db, doc, getDoc } = firebaseClient;
+                const functions = getFunctions(app, 'us-central1');
+                const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
 
                 phoneLoginModal.classList.add('hidden');
@@ -2497,12 +2483,12 @@
                 });
                 openAddressManagementModal(currentClient);
             } catch (error) {
-                const normalizedError = normalizeError(error);
-                const errorCode = normalizedError.code;
+                const rawCode = typeof error?.code === 'string' ? error.code : '';
+                const errorCode = rawCode.replace(/^functions\//, '') || 'unknown';
                 console.error('Error searching client:', error);
                 console.error('Phone search Firebase error details:', {
                     code: errorCode || 'unknown',
-                    message: normalizedError.message || 'Sem mensagem disponível.'
+                    message: error?.message || 'Sem mensagem disponível.'
                 });
 
                 if (errorCode === 'not-found') {
