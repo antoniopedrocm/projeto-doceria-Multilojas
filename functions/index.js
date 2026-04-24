@@ -314,7 +314,7 @@ const sanitizeClientPayload = (input = {}) => {
 
 const findClientByPhone = async (telefone) => {
   if (!telefone) return null;
-  const snapshot = await getClientsCollection().where('telefone', '==', telefone).limit(1).get();
+  const snapshot = await admin.firestore().collection(CLIENTS_COLLECTION).where('telefone', '==', telefone).limit(1).get();
   if (snapshot.empty) return null;
   const docSnap = snapshot.docs[0];
   return {id: docSnap.id, data: docSnap.data()};
