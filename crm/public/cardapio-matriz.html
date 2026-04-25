@@ -703,6 +703,12 @@
           const CONFIG_DOC_ID = 'config';
           const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
           const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
+          const STATIC_FRETE_FALLBACK = Object.freeze({
+                valorPorKm: 0,
+                taxaMinima: 0,
+                raioMaximoKm: 10,
+                cidadeBase: 'Goiânia'
+          });
 
           // Variável global para armazenar os dados de frete
           window.dadosFrete = null;
@@ -729,10 +735,31 @@
                         window.dadosFrete = fallbackSnap.data();
                         console.warn("⚠️ Usando fallback padrão de frete:", window.dadosFrete);
                   } else {
-                        console.error("❌ Documento 'frete' não encontrado");
+                        window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+                        console.warn("⚠️ Documento 'frete' não encontrado. Usando fallback estático local.");
                   }
                 } catch (error) {
-                  console.error("Erro ao carregar frete:", error);
+                  const errorCode = String(error?.code || '').toLowerCase();
+                  const isPermissionDenied = errorCode.includes('permission-denied') || String(error?.message || '').toLowerCase().includes('insufficient permissions');
+
+                  if (isPermissionDenied) {
+                        // Ajuda no diagnóstico: revela em qual projeto o app está inicializado.
+                        const currentProjectId = db?.app?.options?.projectId || 'desconhecido';
+                        console.error(`❌ Sem permissão para ler frete no projeto '${currentProjectId}'. Verifique regras implantadas e projectId/apiKey.`, error);
+
+                        // Recuperação: evita quebra total do checkout carregando valores locais.
+                        window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+
+                        if (typeof window.showToast === 'function') {
+                              window.showToast('Não foi possível carregar o frete online agora. Usando valores padrão temporários.', true);
+                        } else {
+                              alert('Não foi possível carregar o frete online agora. Usando valores padrão temporários.');
+                        }
+                        return;
+                  }
+
+                  window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+                  console.error("Erro ao carregar frete. Aplicando fallback estático.", error);
                 }
           }
 
