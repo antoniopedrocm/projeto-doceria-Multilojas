@@ -760,6 +760,13 @@ app.post("/checkout/confirmar", async (req, res) => {
         throw createHttpError(400, 'Totais do pedido inválidos.');
       }
 
+      let clienteRef = null;
+      let clienteSnap = null;
+      if (cliente?.id) {
+        clienteRef = getClientsCollection().doc(String(cliente.id));
+        clienteSnap = await transaction.get(clienteRef);
+      }
+
       const orderRef = db.collection('lojas').doc(lojaId).collection('pedidos').doc();
       transaction.set(orderRef, {
         lojaId,
@@ -791,15 +798,11 @@ app.post("/checkout/confirmar", async (req, res) => {
       if (cupomDocRef) {
         transaction.set(cupomDocRef, {usos: admin.firestore.FieldValue.increment(1)}, {merge: true});
 
-        if (cliente?.id) {
-          const clienteRef = getClientsCollection().doc(String(cliente.id));
-          const clienteSnap = await transaction.get(clienteRef);
-          if (clienteSnap.exists) {
-            transaction.set(clienteRef, {
-              cuponsUsados: admin.firestore.FieldValue.arrayUnion(couponCode),
-              atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            }, {merge: true});
-          }
+        if (clienteRef && clienteSnap?.exists) {
+          transaction.set(clienteRef, {
+            cuponsUsados: admin.firestore.FieldValue.arrayUnion(couponCode),
+            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          }, {merge: true});
         }
       }
 
