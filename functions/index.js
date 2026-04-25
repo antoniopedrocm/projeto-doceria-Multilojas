@@ -367,6 +367,16 @@ const getClientRegistrationStatus = (clientData = {}) => {
   return hasName && hasBirthdate && hasAddress ? 'completo' : 'incompleto';
 };
 
+const buildSafeClientPayload = (clientData = {}) => ({
+  nome: typeof clientData.nome === 'string' ? clientData.nome : '',
+  telefone: typeof clientData.telefone === 'string' ? clientData.telefone : '',
+  aniversario: typeof clientData.aniversario === 'string' ? clientData.aniversario : '',
+  enderecos: Array.isArray(clientData.enderecos) ? clientData.enderecos : [],
+  lojasVisitadas: Array.isArray(clientData.lojasVisitadas) ? clientData.lojasVisitadas : [],
+  statusCadastro: getClientRegistrationStatus(clientData),
+  nomeAbreviado: abbreviateName(clientData.nome),
+});
+
 const findClientByNormalizedPhone = async (normalizedPhone) => {
   const candidates = getPhoneLookupCandidates(normalizedPhone);
 
@@ -1033,10 +1043,7 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
     return {
       clientId: found.id,
       phoneNormalized: normalizedPhone,
-      client: {
-        nomeAbreviado: abbreviateName(found.data.nome),
-        statusCadastro: getClientRegistrationStatus(found.data),
-      },
+      client: buildSafeClientPayload(found.data),
     };
   } catch (error) {
     logger.error('lookupClientByPhone failed', {
@@ -1052,6 +1059,72 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
     }
 
     throw new HttpsError('internal', 'Não foi possível buscar o cliente agora. Tente novamente.');
+  }
+});
+
+exports.addClientAddress = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
+  try {
+    const clientId = typeof request.data?.clientId === 'string' ? request.data.clientId.trim() : '';
+    const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
+    const incomingAddress = request.data?.address;
+    const address = incomingAddress && typeof incomingAddress === 'object' ? incomingAddress : null;
+
+    if (!clientId || !lojaId || !address) {
+      throw new HttpsError('invalid-argument', 'Parâmetros obrigatórios ausentes.');
+    }
+
+    const storeDoc = await getStoreRef(lojaId).get();
+    if (!storeDoc.exists) {
+      throw new HttpsError('permission-denied', 'Loja inválida para atualização.');
+    }
+
+    const allowedAddress = {
+      enderecoCompleto: typeof address.enderecoCompleto === 'string' ? address.enderecoCompleto.trim() : '',
+      nickname: typeof address.nickname === 'string' ? address.nickname.trim() : '',
+      referencia: typeof address.referencia === 'string' ? address.referencia.trim() : '',
+      complemento: typeof address.complemento === 'string' ? address.complemento.trim() : '',
+      semNumero: Boolean(address.semNumero),
+      isDefault: Boolean(address.isDefault),
+      localizacaoFrequente: Boolean(address.localizacaoFrequente),
+      criadoEm: typeof address.criadoEm === 'string' && address.criadoEm.trim() ? address.criadoEm.trim() : new Date().toISOString(),
+    };
+
+    const lat = Number(address.lat);
+    const lng = Number(address.lng);
+    if (!allowedAddress.enderecoCompleto || !allowedAddress.nickname || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpsError('invalid-argument', 'Dados de endereço inválidos.');
+    }
+
+    allowedAddress.lat = lat;
+    allowedAddress.lng = lng;
+
+    const clientRef = getClientsCollection().doc(clientId);
+    const clientSnap = await clientRef.get();
+    if (!clientSnap.exists) {
+      throw new HttpsError('not-found', 'Cliente não encontrado.');
+    }
+
+    await clientRef.update({
+      enderecos: admin.firestore.FieldValue.arrayUnion(allowedAddress),
+      lojasVisitadas: admin.firestore.FieldValue.arrayUnion(lojaId),
+      lojaId,
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {success: true, address: allowedAddress};
+  } catch (error) {
+    logger.error('addClientAddress failed', {
+      code: error?.code || null,
+      message: error?.message || 'Erro desconhecido',
+      clientId: request.data?.clientId || null,
+      lojaId: request.data?.lojaId || null,
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Não foi possível salvar o endereço agora. Tente novamente.');
   }
 });
 

@@ -2154,11 +2154,9 @@
             const addressText = addressParts.join(', ');
 
             try {
-                const { db, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
                 if (!currentClient?.id) {
                     throw new Error('Cliente não identificado para atualizar endereço.');
                 }
-                const clientDocRef = doc(db, ...storePath('clientes', currentClient.id));
 
                 const lat = parseFloat(window.currentLatLng.lat);
                 const lng = parseFloat(window.currentLatLng.lng);
@@ -2181,9 +2179,12 @@
                     criadoEm: new Date().toISOString()
                 };
 
-                await updateDoc(clientDocRef, {
-                    enderecos: arrayUnion(newAddress),
-                    lojaId: STORE_ID
+                const functions = getFunctions(app, 'us-central1');
+                const addClientAddress = httpsCallable(functions, 'addClientAddress');
+                await addClientAddress({
+                    clientId: currentClient.id,
+                    lojaId: STORE_ID,
+                    address: newAddress
                 });
 
                 currentClient.enderecos = Array.isArray(currentClient.enderecos)
@@ -2484,8 +2485,6 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
-                const firebaseClient = await import('./firebaseClientConfig.js');
-                const { db, doc, getDoc } = firebaseClient;
                 const functions = getFunctions(app, 'us-central1');
                 const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
@@ -2497,12 +2496,11 @@
                     throw new Error('Resposta inválida da busca de cliente.');
                 }
 
-                const clientSnap = await getDoc(doc(db, 'clientes', clientId));
-                if (!clientSnap.exists()) {
-                    throw new Error('Cadastro do cliente não está disponível.');
+                if (!client || typeof client !== 'object') {
+                    throw new Error('Dados do cliente não retornados pela função.');
                 }
 
-                currentClient = { id: clientId, ...clientSnap.data() };
+                currentClient = { id: clientId, ...client };
                 console.log('✅ Cliente identificado:', {
                     id: clientId,
                     nomeAbreviado: client?.nomeAbreviado || currentClient.nome,
