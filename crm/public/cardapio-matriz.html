@@ -636,6 +636,10 @@
                                     <label for="guest-address-complement" class="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
                                     <input id="guest-address-complement" type="text" placeholder="Apto, Bloco, etc." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
                                 </div>
+                                <div class="md:col-span-2">
+                                    <label for="guest-address-reference" class="block text-sm font-medium text-gray-700 mb-2">Referência</label>
+                                    <input id="guest-address-reference" type="text" placeholder="Ponto de referência" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
@@ -654,6 +658,16 @@
                             <div>
                                 <label for="guest-address-nickname" class="block text-sm font-medium text-gray-700 mb-2">Apelido do endereço *</label>
                                 <input id="guest-address-nickname" type="text" placeholder="Como você chama este endereço? (Ex: Casa, Trabalho)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input id="guest-address-no-number" type="checkbox" class="rounded border-gray-300 text-pink-600 focus:ring-pink-500">
+                                    Sem número
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input id="guest-address-frequent-location" type="checkbox" class="rounded border-gray-300 text-pink-600 focus:ring-pink-500">
+                                    Localização frequente
+                                </label>
                             </div>
                             <button id="guest-address-step3-back-btn" type="button" class="bg-gray-500 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-600 transition-colors">Voltar ao mapa</button>
                         </div>
@@ -2041,8 +2055,14 @@
                 window.clearGuestMapWarning?.();
                 window.guestAddressFlowState = window.guestAddressFlowState || {};
                 window.guestAddressFlowState.locationConfirmed = true;
-                await window.updateGuestShippingAndSummary(normalizedLatLng);
-                window.showGuestAddressStep?.(3);
+                window.syncGuestAddressFlowState?.({ locationConfirmed: true, currentStep: 2 });
+                try {
+                    await window.updateGuestShippingAndSummary(normalizedLatLng);
+                } finally {
+                    window.showGuestAddressStep?.(3);
+                    window.syncGuestAddressFlowState?.({ locationConfirmed: true, currentStep: 3 });
+                    window.persistCheckoutState?.();
+                }
             });
             document.getElementById('guest-address-step2-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(1));
             document.getElementById('guest-address-step3-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(2));
@@ -2709,19 +2729,30 @@
             persistCheckoutState();
         }
 
-		async function handleGuestOrder() {
+        async function handleGuestOrder() {
             const name = guestNameInput.value.trim();
             const phone = guestPhoneInput.value.trim();
             const paymentMethod = guestPaymentMethodSelect.value;
             const street = document.getElementById('guest-address-street').value.trim();
-            const number = document.getElementById('guest-address-number').value.trim();
+            const numberInputValue = document.getElementById('guest-address-number').value.trim();
+            const noNumber = document.getElementById('guest-address-no-number')?.checked || false;
+            const number = noNumber ? 'S/N' : numberInputValue;
             const complement = document.getElementById('guest-address-complement').value.trim();
+            const reference = document.getElementById('guest-address-reference')?.value.trim() || '';
             const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
             const city = document.getElementById('guest-address-city').value.trim();
             const zip = document.getElementById('guest-address-zip').value.trim();
             const nickname = document.getElementById('guest-address-nickname').value.trim();
+            const guestStep3Visible = !document.getElementById('guest-address-step3')?.classList.contains('hidden');
 
-            if (!name || !phone || !paymentMethod || !street || !number || !neighborhood || !city || !nickname) {
+            if (!guestStep3Visible) {
+                showToast('Confirme o local para avançar ao preenchimento do endereço.', true);
+                window.showGuestAddressStep?.(2);
+                window.showGuestMapWarning?.('Confirme o local para calcular o frete.');
+                return;
+            }
+
+            if (!name || !phone || !paymentMethod || !street || (!noNumber && !numberInputValue) || !neighborhood || !city || !nickname) {
                 showToast('Preencha todos os campos obrigatórios (*).', true);
                 return;
             }
@@ -2740,7 +2771,7 @@
                 return;
             }
 
-            let fullAddress = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
+            let fullAddress = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${reference ? ' - Ref: ' + reference : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
             if (nickname) fullAddress += ` (${nickname})`;
 
             document.getElementById('guest-address-full').value = fullAddress;
@@ -2906,10 +2937,13 @@
             street: document.getElementById('guest-address-street')?.value || '',
             number: document.getElementById('guest-address-number')?.value || '',
             complement: document.getElementById('guest-address-complement')?.value || '',
+            reference: document.getElementById('guest-address-reference')?.value || '',
             neighborhood: document.getElementById('guest-address-neighborhood')?.value || '',
             city: document.getElementById('guest-address-city')?.value || 'Goiânia',
             zip: document.getElementById('guest-address-zip')?.value || '',
-            nickname: document.getElementById('guest-address-nickname')?.value || ''
+            nickname: document.getElementById('guest-address-nickname')?.value || '',
+            noNumber: document.getElementById('guest-address-no-number')?.checked || false,
+            frequentLocation: document.getElementById('guest-address-frequent-location')?.checked || false
         };
     }
 
@@ -2919,6 +2953,7 @@
             'guest-address-street': data.street || '',
             'guest-address-number': data.number || '',
             'guest-address-complement': data.complement || '',
+            'guest-address-reference': data.reference || '',
             'guest-address-neighborhood': data.neighborhood || '',
             'guest-address-city': city,
             'guest-address-zip': data.zip || '',
@@ -2928,6 +2963,20 @@
             const input = document.getElementById(id);
             if (input && input.value !== value) input.value = value;
         });
+        const noNumberCheckbox = document.getElementById('guest-address-no-number');
+        const numberInput = document.getElementById('guest-address-number');
+        if (noNumberCheckbox) {
+            noNumberCheckbox.checked = !!data.noNumber;
+        }
+        if (numberInput) {
+            const shouldDisableNumber = !!noNumberCheckbox?.checked;
+            numberInput.disabled = shouldDisableNumber;
+            if (shouldDisableNumber && !numberInput.value) numberInput.value = 'S/N';
+        }
+        const frequentLocationCheckbox = document.getElementById('guest-address-frequent-location');
+        if (frequentLocationCheckbox) {
+            frequentLocationCheckbox.checked = !!data.frequentLocation;
+        }
     }
 
     function syncGuestAddressFlowState(nextState = {}) {
@@ -2941,6 +2990,7 @@
         window.guestAddressStep = window.guestAddressFlowState.currentStep || 1;
         window.persistCheckoutState?.();
     }
+    window.syncGuestAddressFlowState = syncGuestAddressFlowState;
 
     function showGuestMapWarning(message = 'Confirme o local para calcular o frete.') {
         const warning = document.getElementById('guest-map-warning');
@@ -3218,7 +3268,7 @@
         }
     };
 
-    ['guest-address-street', 'guest-address-number', 'guest-address-complement', 'guest-address-neighborhood', 'guest-address-city', 'guest-address-zip', 'guest-address-nickname', 'guest-name', 'guest-phone', 'guest-payment-method']
+    ['guest-address-street', 'guest-address-number', 'guest-address-complement', 'guest-address-reference', 'guest-address-neighborhood', 'guest-address-city', 'guest-address-zip', 'guest-address-nickname', 'guest-address-no-number', 'guest-address-frequent-location', 'guest-name', 'guest-phone', 'guest-payment-method']
         .forEach((id) => {
             const input = document.getElementById(id);
             if (!input || input.dataset.boundGuestState) return;
@@ -3226,6 +3276,22 @@
             input.addEventListener('input', () => syncGuestAddressFlowState());
             input.addEventListener('change', () => syncGuestAddressFlowState());
         });
+
+    const guestNoNumberCheckbox = document.getElementById('guest-address-no-number');
+    const guestNumberInput = document.getElementById('guest-address-number');
+    if (guestNoNumberCheckbox && guestNumberInput && !guestNoNumberCheckbox.dataset.boundGuestNoNumber) {
+        guestNoNumberCheckbox.dataset.boundGuestNoNumber = 'true';
+        guestNoNumberCheckbox.addEventListener('change', () => {
+            const checked = guestNoNumberCheckbox.checked;
+            guestNumberInput.disabled = checked;
+            if (checked) {
+                guestNumberInput.value = 'S/N';
+            } else if (guestNumberInput.value === 'S/N') {
+                guestNumberInput.value = '';
+            }
+            syncGuestAddressFlowState();
+        });
+    }
 	// ==================== CÁLCULO DE FRETE - VERSÃO ÚNICA ====================
 
 	// Função auxiliar para aguardar o Google Maps carregar
