@@ -1065,6 +1065,68 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
   }
 });
 
+
+exports.updateClientProfile = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
+  try {
+    const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
+    const clientId = typeof request.data?.clientId === 'string' ? request.data.clientId.trim() : '';
+    const nome = typeof request.data?.nome === 'string' ? request.data.nome.trim() : '';
+    const aniversario = typeof request.data?.aniversario === 'string' ? request.data.aniversario.trim() : '';
+
+    if (!lojaId) {
+      throw new HttpsError('invalid-argument', 'lojaId é obrigatório.');
+    }
+
+    if (!clientId) {
+      throw new HttpsError('invalid-argument', 'clientId é obrigatório.');
+    }
+
+    if (!nome) {
+      throw new HttpsError('invalid-argument', 'nome é obrigatório.');
+    }
+
+    if (!aniversario) {
+      throw new HttpsError('invalid-argument', 'aniversario é obrigatório.');
+    }
+
+    const clientRef = getClientsCollection().doc(clientId);
+    const clientSnap = await clientRef.get();
+
+    if (!clientSnap.exists) {
+      throw new HttpsError('not-found', 'Cliente não encontrado.');
+    }
+
+    await clientRef.update({
+      nome,
+      aniversario,
+      lojaId,
+      lojasVisitadas: admin.firestore.FieldValue.arrayUnion(lojaId),
+      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const updatedClientSnap = await clientRef.get();
+    const updatedClientData = updatedClientSnap.data() || {};
+
+    return {
+      clientId,
+      client: buildSafeClientPayload(updatedClientData),
+    };
+  } catch (error) {
+    logger.error('updateClientProfile failed', {
+      code: error?.code || null,
+      message: error?.message || 'Erro desconhecido',
+      clientId: request.data?.clientId || null,
+      lojaId: request.data?.lojaId || null,
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Não foi possível atualizar o perfil agora. Tente novamente.');
+  }
+});
+
 exports.addClientAddress = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
   try {
     const clientId = typeof request.data?.clientId === 'string' ? request.data.clientId.trim() : '';

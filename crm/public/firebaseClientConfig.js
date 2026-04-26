@@ -68,6 +68,7 @@ const normalizeCallableError = (error) => {
 };
 
 const lookupClientByPhoneCallable = httpsCallable(functions, 'lookupClientByPhone');
+const updateClientProfileCallable = httpsCallable(functions, 'updateClientProfile');
 
 const lookupClientByPhone = async ({ telefone, lojaId }) => {
   const payload = {
@@ -77,10 +78,22 @@ const lookupClientByPhone = async ({ telefone, lojaId }) => {
 
   return lookupClientByPhoneCallable(payload);
 };
+const updateClientProfile = async ({ lojaId, clientId, nome, aniversario }) => {
+  const payload = {
+    lojaId: typeof lojaId === 'string' ? lojaId.trim() : '',
+    clientId: typeof clientId === 'string' ? clientId.trim() : '',
+    nome: typeof nome === 'string' ? nome.trim() : '',
+    aniversario: typeof aniversario === 'string' ? aniversario.trim() : '',
+  };
+
+  return updateClientProfileCallable(payload);
+};
+
 
 
 if (typeof window !== 'undefined') {
   window.lookupClientByPhone = lookupClientByPhone;
+  window.updateClientProfile = updateClientProfile;
   window.normalizeCallableError = normalizeCallableError;
 }
 
@@ -136,6 +149,7 @@ export {
   functions,
   httpsCallable,
   lookupClientByPhone,
+  updateClientProfile,
   normalizeCallableError,
   collection,
   getDocs,
