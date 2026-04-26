@@ -1407,6 +1407,10 @@
             }
         }
 
+        window.mapCriticalCheckoutError = mapCriticalCheckoutError;
+        window.setCheckoutBlockingIssue = setCheckoutBlockingIssue;
+        window.clearCheckoutBlockingIssue = clearCheckoutBlockingIssue;
+
         function ensureCheckoutNotBlocked() {
             if (!checkoutBlockingIssue) return;
             const message = checkoutBlockingIssue.message || 'Há uma pendência de conexão/sessão. Tente novamente.';
@@ -3011,11 +3015,12 @@
             window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
             window.persistCheckoutState?.();
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
-            clearCheckoutBlockingIssue('frete');
+            window.clearCheckoutBlockingIssue?.('frete');
         } catch (error) {
             console.error('Falha ao calcular frete para visitante:', error);
-            const friendlyMessage = mapCriticalCheckoutError(error, 'Não foi possível calcular o frete para este endereço.');
-            setCheckoutBlockingIssue('frete', friendlyMessage);
+            const fallbackMessage = 'Não foi possível calcular o frete para este endereço.';
+            const friendlyMessage = window.mapCriticalCheckoutError?.(error, fallbackMessage) || error?.message || fallbackMessage;
+            window.setCheckoutBlockingIssue?.('frete', friendlyMessage);
             window.showToast(friendlyMessage, true);
             window.valorFrete = 0;
             window.persistCheckoutState?.();
