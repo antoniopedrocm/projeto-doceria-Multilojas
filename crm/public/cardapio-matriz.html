@@ -2386,18 +2386,29 @@
                 document.getElementById('customer-modal-error').classList.add('hidden');
 
                 try {
-                    const { db, doc, updateDoc } = await import('./firebaseClientConfig.js');
-                    const clientRef = doc(db, ...storePath('clientes', client.id));
-                    await updateDoc(clientRef, { nome: newName, aniversario: newBirthdate });
+                    const { updateClientProfile, normalizeCallableError } = await import('./firebaseClientConfig.js');
+                    const response = await updateClientProfile({
+                        lojaId: STORE_ID,
+                        clientId: client.id,
+                        nome: newName,
+                        aniversario: newBirthdate,
+                    });
 
-                    currentClient.nome = newName;
-                    currentClient.aniversario = newBirthdate;
+                    const payload = response?.data || {};
+                    const updatedClient = payload?.client || {};
+
+                    currentClient = {
+                        ...currentClient,
+                        ...updatedClient,
+                        id: payload?.clientId || client.id,
+                    };
 
                     showToast('Dados atualizados com sucesso!');
                     modal.classList.add('hidden');
                     openAddressManagementModal(currentClient); // Reopen address modal with updated name
                 } catch (error) {
-                    console.error("Erro ao atualizar cliente:", error);
+                    const callableError = normalizeCallableError?.(error) || error;
+                    console.error("Erro ao atualizar cliente:", callableError);
                     showToast('Erro ao atualizar dados.', true);
                 }
             };
