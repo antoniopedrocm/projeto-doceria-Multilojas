@@ -465,7 +465,9 @@ const Table = ({ columns, data, actions = [] }) => (
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {(data || []).map((row, rowIndex) => (
+                        {(data || []).map((row, rowIndex) => {
+                            const visibleActions = actions.filter((action) => (typeof action.isVisible === 'function' ? action.isVisible(row) : true));
+                            return (
                             <tr key={row.id || row.uid || rowIndex} className="hover:bg-gradient-to-r hover:from-pink-50/50 hover:to-rose-50/50 transition-all">
                                 {columns.map((col, colIndex) => (
                                     <td key={colIndex} className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{col.render ? col.render(row) : row[col.key]}</td>
@@ -473,7 +475,7 @@ const Table = ({ columns, data, actions = [] }) => (
                                 {actions.length > 0 && (
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex justify-end gap-2">
-                                            {actions.map((action, actionIndex) => (
+                                            {visibleActions.map((action, actionIndex) => (
                                                 <button key={actionIndex} onClick={() => action.onClick(row)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title={action.label}>
                                                     <action.icon className="w-4 h-4 text-gray-600" />
                                                 </button>
@@ -482,7 +484,7 @@ const Table = ({ columns, data, actions = [] }) => (
                                     </td>
                                 )}
                             </tr>
-                        ))}
+                        )})}
                     </tbody>
                 </table>
             </div>
@@ -490,7 +492,9 @@ const Table = ({ columns, data, actions = [] }) => (
 
         {/* Visualização de Cards para Celular */}
         <div className="block md:hidden space-y-4">
-            {(data || []).map((row, rowIndex) => (
+            {(data || []).map((row, rowIndex) => {
+                const visibleActions = actions.filter((action) => (typeof action.isVisible === 'function' ? action.isVisible(row) : true));
+                return (
                 <div key={row.id || row.uid || rowIndex} className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 space-y-2">
                     {columns.map((col, colIndex) => {
                         const content = col.render ? col.render(row) : row[col.key];
@@ -505,7 +509,7 @@ const Table = ({ columns, data, actions = [] }) => (
                     })}
                     {actions.length > 0 && (
                         <div className="flex justify-end gap-2 pt-3 mt-2 border-t border-gray-100">
-                            {actions.map((action, actionIndex) => (
+                            {visibleActions.map((action, actionIndex) => (
                                 <button key={actionIndex} onClick={() => action.onClick(row)} className="flex items-center gap-2 p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm text-gray-700" title={action.label}>
                                     <action.icon className="w-4 h-4" />
                                     <span>{action.label}</span>
@@ -514,7 +518,7 @@ const Table = ({ columns, data, actions = [] }) => (
                         </div>
                     )}
                 </div>
-            ))}
+            )})}
         </div>
     </>
 );
@@ -7704,6 +7708,7 @@ const handleSubmit = async (e) => {
     const [endDateFilter, setEndDateFilter] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [viewingTransfer, setViewingTransfer] = useState(null);
+    const [editingTransfer, setEditingTransfer] = useState(null);
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
     const [formError, setFormError] = useState('');
     const [actionComment, setActionComment] = useState('');
@@ -7732,6 +7737,7 @@ const handleSubmit = async (e) => {
 
     const canMarkAsPaid = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
     const canConfirmPaymentByRole = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
+    const isEditingTransfer = !!editingTransfer?.id;
 
     useEffect(() => {
       if (!user) return undefined;
@@ -7780,6 +7786,7 @@ const handleSubmit = async (e) => {
 
     const resetForm = () => {
       setFormError('');
+      setEditingTransfer(null);
       setFormData({
         lojaOrigemId: allowedOriginStoreIds[0] || '',
         lojaDestinoId: '',
@@ -7839,7 +7846,9 @@ const handleSubmit = async (e) => {
         return 'A loja destino deve ser diferente da loja origem.';
       }
       if (!allowedOriginStoreIds.includes(formData.lojaOrigemId)) {
-        return 'Você não pode criar remessa para essa loja de origem.';
+        return isEditingTransfer
+          ? 'Você não pode editar remessa para essa loja de origem.'
+          : 'Você não pode criar remessa para essa loja de origem.';
       }
       for (const item of formData.itens) {
         if (!item.produtoId) return 'Selecione um produto para todos os itens.';
@@ -7850,7 +7859,40 @@ const handleSubmit = async (e) => {
       return '';
     };
 
+    const canEditTransfer = (transfer) => {
+      if (!user || !transfer) return false;
+      if (transfer.status !== 'rascunho') return false;
+      if (user.role === ROLE_OWNER) return true;
+      if (user.role === ROLE_MANAGER) return userStoreIds.includes(transfer.lojaOrigemId);
+      if (user.role === ROLE_ATTENDANT) return userStoreIds.includes(transfer.lojaOrigemId);
+      return false;
+    };
+
+    const startEditingTransfer = (transfer) => {
+      if (!canEditTransfer(transfer)) return;
+      setFormError('');
+      setEditingTransfer(transfer);
+      setFormData({
+        lojaOrigemId: transfer.lojaOrigemId || '',
+        lojaDestinoId: transfer.lojaDestinoId || '',
+        dataRemessa: transfer.dataRemessa || new Date().toISOString().slice(0, 10),
+        observacaoOrigem: transfer.observacaoOrigem || '',
+        itens: (transfer.itens || []).map((item) => ({
+          produtoId: item.produtoId || '',
+          nome: item.nome || '',
+          quantidade: Number(item.quantidade) || 0,
+          valorUnitarioRepasse: Number(item.valorUnitarioRepasse) || 0,
+          valorUnitarioRevenda: Number(item.valorUnitarioRevenda) || 0
+        }))
+      });
+      setShowModal(true);
+    };
+
     const saveTransfer = async (mode = 'rascunho') => {
+      if (isEditingTransfer && (!editingTransfer || editingTransfer.status !== 'rascunho' || !canEditTransfer(editingTransfer))) {
+        setFormError('Você não tem permissão para editar esta remessa.');
+        return;
+      }
       const validationError = validateTransfer();
       if (validationError) {
         setFormError(validationError);
@@ -7879,50 +7921,78 @@ const handleSubmit = async (e) => {
         const destinoNome = storeInfoMap[formData.lojaDestinoId]?.nome || formData.lojaDestinoId;
         const finalStatus = mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho';
         const now = serverTimestamp();
-
-        await addDoc(collection(db, 'transferenciasEntreLojas'), {
-          numero: Date.now(),
-          lojaOrigemId: formData.lojaOrigemId,
-          lojaOrigemNome: origemNome,
-          lojaDestinoId: formData.lojaDestinoId,
-          lojaDestinoNome: destinoNome,
-          status: finalStatus,
-          dataCriacao: now,
-          dataRemessa: formData.dataRemessa || null,
-          dataEnvio: mode === 'enviar' ? now : null,
-          dataConferencia: null,
-          dataPagamentoInformado: null,
-          dataPagamentoConfirmado: null,
-          criadoPorUid: user?.auth?.uid || '',
-          criadoPorNome: user?.name || user?.email || '',
-          enviadoPorUid: mode === 'enviar' ? (user?.auth?.uid || '') : null,
-          enviadoPorNome: mode === 'enviar' ? (user?.name || user?.email || '') : null,
-          conferidoPorUid: null,
-          conferidoPorNome: null,
-          pagamentoInformadoPorUid: null,
-          pagamentoInformadoPorNome: null,
-          pagamentoConfirmadoPorUid: null,
-          pagamentoConfirmadoPorNome: null,
-          observacaoOrigem: formData.observacaoOrigem || '',
-          observacaoDestino: '',
-          observacaoPagamento: '',
-          formaPagamento: '',
-          dataPagamento: null,
-          totalRepasse: totals.totalRepasse,
-          totalRevenda: totals.totalRevenda,
-          quantidadeTotalItens: totals.quantidadeTotalItens,
-          itens: itemsPayload,
-          stockIntegration: { enabled: false, status: 'pendente' },
-          storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
-          historico: [{
-            acao: mode === 'enviar' ? 'remessa_enviada' : 'remessa_criada',
+        if (isEditingTransfer && editingTransfer?.id) {
+          const transferRef = doc(db, 'transferenciasEntreLojas', editingTransfer.id);
+          await updateDoc(transferRef, {
+            lojaOrigemId: formData.lojaOrigemId,
+            lojaOrigemNome: origemNome,
+            lojaDestinoId: formData.lojaDestinoId,
+            lojaDestinoNome: destinoNome,
             status: finalStatus,
-            data: Timestamp.now(),
-            usuarioUid: user?.auth?.uid || '',
-            usuarioNome: user?.name || user?.email || '',
-            comentario: mode === 'enviar' ? 'Remessa enviada para conferência' : 'Remessa salva como rascunho'
-          }]
-        });
+            dataRemessa: formData.dataRemessa || null,
+            dataEnvio: mode === 'enviar' ? now : (editingTransfer.dataEnvio || null),
+            enviadoPorUid: mode === 'enviar' ? (user?.auth?.uid || '') : (editingTransfer.enviadoPorUid || null),
+            enviadoPorNome: mode === 'enviar' ? (user?.name || user?.email || '') : (editingTransfer.enviadoPorNome || null),
+            observacaoOrigem: formData.observacaoOrigem || '',
+            totalRepasse: totals.totalRepasse,
+            totalRevenda: totals.totalRevenda,
+            quantidadeTotalItens: totals.quantidadeTotalItens,
+            itens: itemsPayload,
+            storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
+            historico: arrayUnion({
+              acao: mode === 'enviar' ? 'enviado_para_conferencia' : 'rascunho_atualizado',
+              status: finalStatus,
+              data: Timestamp.now(),
+              usuarioUid: user?.auth?.uid || '',
+              usuarioNome: user?.name || user?.email || '',
+              comentario: mode === 'enviar' ? 'Rascunho enviado para conferência' : 'Rascunho atualizado'
+            })
+          });
+        } else {
+          await addDoc(collection(db, 'transferenciasEntreLojas'), {
+            numero: Date.now(),
+            lojaOrigemId: formData.lojaOrigemId,
+            lojaOrigemNome: origemNome,
+            lojaDestinoId: formData.lojaDestinoId,
+            lojaDestinoNome: destinoNome,
+            status: finalStatus,
+            dataCriacao: now,
+            dataRemessa: formData.dataRemessa || null,
+            dataEnvio: mode === 'enviar' ? now : null,
+            dataConferencia: null,
+            dataPagamentoInformado: null,
+            dataPagamentoConfirmado: null,
+            criadoPorUid: user?.auth?.uid || '',
+            criadoPorNome: user?.name || user?.email || '',
+            enviadoPorUid: mode === 'enviar' ? (user?.auth?.uid || '') : null,
+            enviadoPorNome: mode === 'enviar' ? (user?.name || user?.email || '') : null,
+            conferidoPorUid: null,
+            conferidoPorNome: null,
+            pagamentoInformadoPorUid: null,
+            pagamentoInformadoPorNome: null,
+            pagamentoConfirmadoPorUid: null,
+            pagamentoConfirmadoPorNome: null,
+            observacaoOrigem: formData.observacaoOrigem || '',
+            observacaoDestino: '',
+            observacaoPagamento: '',
+            formaPagamento: '',
+            dataPagamento: null,
+            totalRepasse: totals.totalRepasse,
+            totalRevenda: totals.totalRevenda,
+            quantidadeTotalItens: totals.quantidadeTotalItens,
+            itens: itemsPayload,
+            stockIntegration: { enabled: false, status: 'pendente' },
+            storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
+            historico: [{
+              acao: mode === 'enviar' ? 'remessa_enviada' : 'remessa_criada',
+              status: finalStatus,
+              data: Timestamp.now(),
+              usuarioUid: user?.auth?.uid || '',
+              usuarioNome: user?.name || user?.email || '',
+              comentario: mode === 'enviar' ? 'Remessa enviada para conferência' : 'Remessa salva como rascunho'
+            }]
+          });
+        }
 
         setShowModal(false);
         resetForm();
@@ -7943,6 +8013,7 @@ const handleSubmit = async (e) => {
       if (action === 'marcar_pago') return canMarkAsPaid && destinationAllowed;
       if (action === 'confirmar_pagamento') return canConfirmPaymentByRole && originAllowed;
       if (action === 'contestar_pagamento') return canConfirmPaymentByRole && originAllowed;
+      if (action === 'editar_rascunho') return canEditTransfer(transfer);
       return originAllowed || destinationAllowed;
     };
 
@@ -8071,7 +8142,13 @@ const handleSubmit = async (e) => {
     ];
 
     const actions = [
-      { icon: Eye, label: 'Detalhar', onClick: (row) => setViewingTransfer(row) }
+      { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingTransfer(row) },
+      {
+        icon: Edit,
+        label: 'Editar rascunho',
+        onClick: (row) => startEditingTransfer(row),
+        isVisible: (row) => row.status === 'rascunho' && canActOnTransfer(row, 'editar_rascunho')
+      }
     ];
 
     const transferTotals = computeTotals(formData.itens);
@@ -8129,7 +8206,12 @@ const handleSubmit = async (e) => {
 
         <Table columns={columns} data={filteredTransfers} actions={actions} />
 
-        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Nova Remessa Entre Lojas" size="xl">
+        <Modal
+          isOpen={showModal}
+          onClose={() => { setShowModal(false); resetForm(); }}
+          title={isEditingTransfer ? 'Editar Remessa Entre Lojas' : 'Nova Remessa Entre Lojas'}
+          size="xl"
+        >
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select label="Loja origem" value={formData.lojaOrigemId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaOrigemId: e.target.value }))}>
@@ -8188,7 +8270,7 @@ const handleSubmit = async (e) => {
             {formError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{formError}</div>}
 
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Button>
+              <Button variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button>
               <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
               <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
             </div>
