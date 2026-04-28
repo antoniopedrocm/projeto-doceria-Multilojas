@@ -7738,6 +7738,15 @@ const handleSubmit = async (e) => {
     const canMarkAsPaid = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
     const canConfirmPaymentByRole = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
     const isEditingTransfer = !!editingTransfer?.id;
+    const canChangeOriginStore = allowedOriginStoreIds.length > 1;
+
+    const getDefaultOriginStoreId = useCallback(() => {
+      if (!allowedOriginStoreIds.length) return '';
+      if (currentStoreIdForDisplay && currentStoreIdForDisplay !== STORE_ALL_KEY && allowedOriginStoreIds.includes(currentStoreIdForDisplay)) {
+        return currentStoreIdForDisplay;
+      }
+      return allowedOriginStoreIds[0] || '';
+    }, [allowedOriginStoreIds, currentStoreIdForDisplay]);
 
     useEffect(() => {
       if (!user) return undefined;
@@ -7788,7 +7797,7 @@ const handleSubmit = async (e) => {
       setFormError('');
       setEditingTransfer(null);
       setFormData({
-        lojaOrigemId: allowedOriginStoreIds[0] || '',
+        lojaOrigemId: getDefaultOriginStoreId(),
         lojaDestinoId: '',
         dataRemessa: new Date().toISOString().slice(0, 10),
         observacaoOrigem: '',
@@ -7797,9 +7806,25 @@ const handleSubmit = async (e) => {
     };
 
     useEffect(() => {
-      if (!showModal) return;
-      setFormData((prev) => ({ ...prev, lojaOrigemId: prev.lojaOrigemId || allowedOriginStoreIds[0] || '' }));
-    }, [allowedOriginStoreIds, showModal]);
+      if (!showModal || isEditingTransfer) return;
+      setFormData((prev) => {
+        if (prev.lojaOrigemId && allowedOriginStoreIds.includes(prev.lojaOrigemId)) return prev;
+        return { ...prev, lojaOrigemId: getDefaultOriginStoreId() };
+      });
+    }, [allowedOriginStoreIds, getDefaultOriginStoreId, isEditingTransfer, showModal]);
+
+    useEffect(() => {
+      setFormData((prev) => {
+        if (!prev.lojaOrigemId || !prev.lojaDestinoId) return prev;
+        if (prev.lojaOrigemId !== prev.lojaDestinoId) return prev;
+        return { ...prev, lojaDestinoId: '' };
+      });
+    }, [formData.lojaOrigemId]);
+
+    const openNewTransferModal = () => {
+      resetForm();
+      setShowModal(true);
+    };
 
     const formatMoney = (value) => `R$ ${(Number(value) || 0).toFixed(2)}`;
     const statusLabelMap = {
@@ -8160,7 +8185,7 @@ const handleSubmit = async (e) => {
             <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Entre Lojas</h1>
             <p className="text-gray-600 mt-1">Controle de remessas e conferências entre unidades.</p>
           </div>
-          <Button onClick={() => { resetForm(); setShowModal(true); }} className="w-full md:w-auto">
+          <Button onClick={openNewTransferModal} className="w-full md:w-auto">
             <Plus className="w-4 h-4" /> Nova Remessa
           </Button>
         </div>
@@ -8214,7 +8239,12 @@ const handleSubmit = async (e) => {
         >
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select label="Loja origem" value={formData.lojaOrigemId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaOrigemId: e.target.value }))}>
+              <Select
+                label="Loja origem"
+                value={formData.lojaOrigemId}
+                disabled={!canChangeOriginStore}
+                onChange={(e) => setFormData((prev) => ({ ...prev, lojaOrigemId: e.target.value }))}
+              >
                 <option value="">Selecione</option>
                 {storesForSelect.filter((store) => allowedOriginStoreIds.includes(store.id)).map((store) => (
                   <option key={store.id} value={store.id}>{store.nome}</option>
