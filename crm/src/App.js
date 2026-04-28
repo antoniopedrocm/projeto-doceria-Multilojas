@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, ShoppingCart, Package, Calendar, Truck, DollarSign, BarChart3,
   Search, Bell, Menu, User as UserIcon, Settings, LogOut, Plus, Heart,
   Clock, Edit, Trash2, Eye, X, Save, MessageCircle, Cake, Gift, ChevronLeft, ChevronRight, Printer, Home, Store, BookOpen, Instagram, MapPin, Image as ImageIcon, MessageSquare, VolumeX, ArrowUpCircle, ArrowDownCircle, Banknote, PackagePlus, Ticket,
-  Key // Ícone adicionado
+  Key, ArrowLeftRight // Ícone adicionado
 } from 'lucide-react';
 
 // --- CORREÇÃO ---
@@ -80,6 +80,7 @@ const MENU_PERMISSION_KEYS = [
   'clientes',
   'pedidos',
   'produtos',
+  'entre-lojas',
   'agenda',
   'fornecedores',
   'relatorios',
@@ -267,6 +268,7 @@ const getDefaultPermissionsForRole = (role) => {
       clientes: true,
       pedidos: true,
       produtos: true,
+      'entre-lojas': true,
       agenda: true,
       fornecedores: true,
       relatorios: true,
@@ -289,6 +291,7 @@ const getDefaultPermissionsForRole = (role) => {
     'pagina-inicial': true,
     clientes: true,
     pedidos: true,
+    'entre-lojas': true,
     agenda: true,
     'meu-espaco': true,
   };
@@ -3921,6 +3924,7 @@ function App() {
     { id: 'clientes', permission: 'clientes', label: 'Clientes', icon: Users, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'pedidos', permission: 'pedidos', label: 'Pedidos', icon: ShoppingCart, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'produtos', permission: 'produtos', label: 'Produtos', icon: Package, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'entre-lojas', permission: 'entre-lojas', label: 'Entre Lojas', icon: ArrowLeftRight, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'agenda', permission: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'fornecedores', permission: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'relatorios', permission: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
@@ -7690,6 +7694,575 @@ const handleSubmit = async (e) => {
     );
   }
   
+  const EntreLojas = () => {
+    const [transferencias, setTransferencias] = useState([]);
+    const [activeTab, setActiveTab] = useState('todas');
+    const [statusFilter, setStatusFilter] = useState('todos');
+    const [origemFilter, setOrigemFilter] = useState('todos');
+    const [destinoFilter, setDestinoFilter] = useState('todos');
+    const [startDateFilter, setStartDateFilter] = useState('');
+    const [endDateFilter, setEndDateFilter] = useState('');
+    const [showModal, setShowModal] = useState(false);
+    const [viewingTransfer, setViewingTransfer] = useState(null);
+    const [isSavingTransfer, setIsSavingTransfer] = useState(false);
+    const [formError, setFormError] = useState('');
+    const [actionComment, setActionComment] = useState('');
+    const [formData, setFormData] = useState({
+      lojaOrigemId: '',
+      lojaDestinoId: '',
+      dataRemessa: new Date().toISOString().slice(0, 10),
+      observacaoOrigem: '',
+      itens: []
+    });
+
+    const userStoreIds = useMemo(() => {
+      if (!user) return [];
+      const stores = Array.isArray(user.lojaIds) && user.lojaIds.length ? user.lojaIds : (user.lojaId ? [user.lojaId] : []);
+      return Array.from(new Set(stores.filter(Boolean)));
+    }, [user]);
+
+    const canAccessAllTransfers = user?.role === ROLE_OWNER;
+    const allowedOriginStoreIds = useMemo(() => {
+      if (!user) return [];
+      if (user.role === ROLE_OWNER) return availableStores;
+      if (user.role === ROLE_MANAGER) return userStoreIds;
+      if (user.role === ROLE_ATTENDANT) return userStoreIds.slice(0, 1);
+      return [];
+    }, [availableStores, user, userStoreIds]);
+
+    const canMarkAsPaid = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
+    const canConfirmPaymentByRole = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
+
+    useEffect(() => {
+      if (!user) return undefined;
+      const transfersRef = collection(db, 'transferenciasEntreLojas');
+
+      let baseQuery = query(transfersRef, orderBy('dataCriacao', 'desc'), limit(250));
+      if (!canAccessAllTransfers) {
+        if (!userStoreIds.length) {
+          setTransferencias([]);
+          return undefined;
+        }
+        baseQuery = query(transfersRef, where('storeVisibility', 'array-contains-any', userStoreIds.slice(0, 10)), orderBy('dataCriacao', 'desc'), limit(250));
+      }
+
+      const unsubscribe = onSnapshot(baseQuery, (snapshot) => {
+        const rows = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        setTransferencias(rows);
+      }, (error) => {
+        console.error('[EntreLojas] Erro ao carregar transferências:', error);
+      });
+
+      return unsubscribe;
+    }, [canAccessAllTransfers, user, userStoreIds]);
+
+    const storesForSelect = useMemo(
+      () => availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId })),
+      [availableStores, storeInfoMap]
+    );
+
+    const productOptions = useMemo(() => (data.produtos || []).map((item) => ({
+      id: item.id,
+      nome: item.nome || item.descricao || 'Produto sem nome'
+    })), [data.produtos]);
+
+    const computeTotals = useCallback((items = []) => {
+      return items.reduce((acc, item) => {
+        const quantidade = Number(item.quantidade) || 0;
+        const valorUnitarioRepasse = Number(item.valorUnitarioRepasse) || 0;
+        const valorUnitarioRevenda = Number(item.valorUnitarioRevenda) || 0;
+        acc.quantidadeTotalItens += quantidade;
+        acc.totalRepasse += quantidade * valorUnitarioRepasse;
+        acc.totalRevenda += quantidade * valorUnitarioRevenda;
+        return acc;
+      }, { quantidadeTotalItens: 0, totalRepasse: 0, totalRevenda: 0 });
+    }, []);
+
+    const resetForm = () => {
+      setFormError('');
+      setFormData({
+        lojaOrigemId: allowedOriginStoreIds[0] || '',
+        lojaDestinoId: '',
+        dataRemessa: new Date().toISOString().slice(0, 10),
+        observacaoOrigem: '',
+        itens: []
+      });
+    };
+
+    useEffect(() => {
+      if (!showModal) return;
+      setFormData((prev) => ({ ...prev, lojaOrigemId: prev.lojaOrigemId || allowedOriginStoreIds[0] || '' }));
+    }, [allowedOriginStoreIds, showModal]);
+
+    const formatMoney = (value) => `R$ ${(Number(value) || 0).toFixed(2)}`;
+    const statusLabelMap = {
+      rascunho: 'Rascunho',
+      aguardando_conferencia: 'Aguardando conferência',
+      conferencia_sem_divergencia: 'Conferida sem divergência',
+      conferencia_com_divergencia: 'Conferida com divergência',
+      pagamento_informado: 'Pagamento informado',
+      pagamento_confirmado: 'Pagamento confirmado',
+      pagamento_contestado: 'Pagamento contestado',
+      cancelado: 'Cancelado'
+    };
+
+    const addItemToTransfer = () => {
+      setFormData((prev) => ({
+        ...prev,
+        itens: [...prev.itens, { produtoId: '', nome: '', quantidade: 1, valorUnitarioRepasse: 0, valorUnitarioRevenda: 0 }]
+      }));
+    };
+
+    const updateItemField = (index, field, value) => {
+      setFormData((prev) => ({
+        ...prev,
+        itens: prev.itens.map((item, itemIndex) => {
+          if (itemIndex !== index) return item;
+          if (field === 'produtoId') {
+            const selected = productOptions.find((option) => option.id === value);
+            return { ...item, produtoId: value, nome: selected?.nome || '' };
+          }
+          return { ...item, [field]: value };
+        })
+      }));
+    };
+
+    const removeItem = (index) => {
+      setFormData((prev) => ({ ...prev, itens: prev.itens.filter((_, itemIndex) => itemIndex !== index) }));
+    };
+
+    const validateTransfer = () => {
+      if (!formData.lojaOrigemId || !formData.lojaDestinoId || !formData.itens.length) {
+        return 'Informe loja origem, loja destino e pelo menos um item.';
+      }
+      if (formData.lojaOrigemId === formData.lojaDestinoId) {
+        return 'A loja destino deve ser diferente da loja origem.';
+      }
+      if (!allowedOriginStoreIds.includes(formData.lojaOrigemId)) {
+        return 'Você não pode criar remessa para essa loja de origem.';
+      }
+      for (const item of formData.itens) {
+        if (!item.produtoId) return 'Selecione um produto para todos os itens.';
+        if (Number(item.quantidade) <= 0) return 'A quantidade deve ser maior que zero.';
+        if (Number(item.valorUnitarioRepasse) < 0) return 'Valor unitário de repasse não pode ser negativo.';
+        if (Number(item.valorUnitarioRevenda) < 0) return 'Valor unitário de revenda não pode ser negativo.';
+      }
+      return '';
+    };
+
+    const saveTransfer = async (mode = 'rascunho') => {
+      const validationError = validateTransfer();
+      if (validationError) {
+        setFormError(validationError);
+        return;
+      }
+      setIsSavingTransfer(true);
+      setFormError('');
+      try {
+        const totals = computeTotals(formData.itens);
+        const itemsPayload = formData.itens.map((item) => {
+          const quantidade = Number(item.quantidade) || 0;
+          const valorUnitarioRepasse = Number(item.valorUnitarioRepasse) || 0;
+          const valorUnitarioRevenda = Number(item.valorUnitarioRevenda) || 0;
+          return {
+            produtoId: item.produtoId,
+            nome: item.nome,
+            quantidade,
+            valorUnitarioRepasse,
+            valorUnitarioRevenda,
+            totalRepasse: quantidade * valorUnitarioRepasse,
+            totalRevenda: quantidade * valorUnitarioRevenda
+          };
+        });
+
+        const origemNome = storeInfoMap[formData.lojaOrigemId]?.nome || formData.lojaOrigemId;
+        const destinoNome = storeInfoMap[formData.lojaDestinoId]?.nome || formData.lojaDestinoId;
+        const finalStatus = mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho';
+        const now = serverTimestamp();
+
+        await addDoc(collection(db, 'transferenciasEntreLojas'), {
+          numero: Date.now(),
+          lojaOrigemId: formData.lojaOrigemId,
+          lojaOrigemNome: origemNome,
+          lojaDestinoId: formData.lojaDestinoId,
+          lojaDestinoNome: destinoNome,
+          status: finalStatus,
+          dataCriacao: now,
+          dataRemessa: formData.dataRemessa || null,
+          dataEnvio: mode === 'enviar' ? now : null,
+          dataConferencia: null,
+          dataPagamentoInformado: null,
+          dataPagamentoConfirmado: null,
+          criadoPorUid: user?.auth?.uid || '',
+          criadoPorNome: user?.name || user?.email || '',
+          enviadoPorUid: mode === 'enviar' ? (user?.auth?.uid || '') : null,
+          enviadoPorNome: mode === 'enviar' ? (user?.name || user?.email || '') : null,
+          conferidoPorUid: null,
+          conferidoPorNome: null,
+          pagamentoInformadoPorUid: null,
+          pagamentoInformadoPorNome: null,
+          pagamentoConfirmadoPorUid: null,
+          pagamentoConfirmadoPorNome: null,
+          observacaoOrigem: formData.observacaoOrigem || '',
+          observacaoDestino: '',
+          observacaoPagamento: '',
+          formaPagamento: '',
+          dataPagamento: null,
+          totalRepasse: totals.totalRepasse,
+          totalRevenda: totals.totalRevenda,
+          quantidadeTotalItens: totals.quantidadeTotalItens,
+          itens: itemsPayload,
+          stockIntegration: { enabled: false, status: 'pendente' },
+          storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
+          historico: [{
+            acao: mode === 'enviar' ? 'remessa_enviada' : 'remessa_criada',
+            status: finalStatus,
+            data: Timestamp.now(),
+            usuarioUid: user?.auth?.uid || '',
+            usuarioNome: user?.name || user?.email || '',
+            comentario: mode === 'enviar' ? 'Remessa enviada para conferência' : 'Remessa salva como rascunho'
+          }]
+        });
+
+        setShowModal(false);
+        resetForm();
+      } catch (error) {
+        console.error('[EntreLojas] Erro ao salvar remessa:', error);
+        setFormError(error?.message || 'Não foi possível salvar a remessa.');
+      } finally {
+        setIsSavingTransfer(false);
+      }
+    };
+
+    const canActOnTransfer = (transfer, action) => {
+      if (!user || !transfer) return false;
+      if (user.role === ROLE_OWNER) return true;
+      const originAllowed = userStoreIds.includes(transfer.lojaOrigemId);
+      const destinationAllowed = userStoreIds.includes(transfer.lojaDestinoId);
+      if (action === 'conferir') return destinationAllowed;
+      if (action === 'marcar_pago') return canMarkAsPaid && destinationAllowed;
+      if (action === 'confirmar_pagamento') return canConfirmPaymentByRole && originAllowed;
+      if (action === 'contestar_pagamento') return canConfirmPaymentByRole && originAllowed;
+      return originAllowed || destinationAllowed;
+    };
+
+    const patchTransfer = async (transfer, payload, historyEntry) => {
+      const transferRef = doc(db, 'transferenciasEntreLojas', transfer.id);
+      await updateDoc(transferRef, {
+        ...payload,
+        historico: arrayUnion({
+          ...historyEntry,
+          data: Timestamp.now(),
+          usuarioUid: user?.auth?.uid || '',
+          usuarioNome: user?.name || user?.email || ''
+        })
+      });
+    };
+
+    const handleTransferAction = async (transfer, action) => {
+      try {
+        if (action === 'conferir_sem_divergencia' && canActOnTransfer(transfer, 'conferir')) {
+          await patchTransfer(transfer, {
+            status: 'conferencia_sem_divergencia',
+            dataConferencia: serverTimestamp(),
+            conferidoPorUid: user?.auth?.uid || '',
+            conferidoPorNome: user?.name || user?.email || '',
+            observacaoDestino: actionComment || ''
+          }, {
+            acao: 'conferencia_sem_divergencia',
+            status: 'conferencia_sem_divergencia',
+            comentario: actionComment || 'Conferência sem divergência'
+          });
+        }
+        if (action === 'conferir_com_divergencia' && canActOnTransfer(transfer, 'conferir')) {
+          await patchTransfer(transfer, {
+            status: 'conferencia_com_divergencia',
+            dataConferencia: serverTimestamp(),
+            conferidoPorUid: user?.auth?.uid || '',
+            conferidoPorNome: user?.name || user?.email || '',
+            observacaoDestino: actionComment || ''
+          }, {
+            acao: 'conferencia_com_divergencia',
+            status: 'conferencia_com_divergencia',
+            comentario: actionComment || 'Conferência com divergência'
+          });
+        }
+        if (action === 'marcar_pago' && canActOnTransfer(transfer, 'marcar_pago')) {
+          await patchTransfer(transfer, {
+            status: 'pagamento_informado',
+            dataPagamentoInformado: serverTimestamp(),
+            pagamentoInformadoPorUid: user?.auth?.uid || '',
+            pagamentoInformadoPorNome: user?.name || user?.email || '',
+            observacaoPagamento: actionComment || ''
+          }, {
+            acao: 'pagamento_informado',
+            status: 'pagamento_informado',
+            comentario: actionComment || 'Pagamento informado pela loja destino'
+          });
+        }
+        if (action === 'confirmar_pagamento' && canActOnTransfer(transfer, 'confirmar_pagamento')) {
+          await patchTransfer(transfer, {
+            status: 'pagamento_confirmado',
+            dataPagamentoConfirmado: serverTimestamp(),
+            pagamentoConfirmadoPorUid: user?.auth?.uid || '',
+            pagamentoConfirmadoPorNome: user?.name || user?.email || '',
+            observacaoPagamento: actionComment || transfer.observacaoPagamento || ''
+          }, {
+            acao: 'pagamento_confirmado',
+            status: 'pagamento_confirmado',
+            comentario: actionComment || 'Pagamento confirmado pela loja origem'
+          });
+        }
+        if (action === 'contestar_pagamento' && canActOnTransfer(transfer, 'contestar_pagamento')) {
+          await patchTransfer(transfer, {
+            status: 'pagamento_contestado',
+            observacaoPagamento: actionComment || transfer.observacaoPagamento || ''
+          }, {
+            acao: 'pagamento_contestado',
+            status: 'pagamento_contestado',
+            comentario: actionComment || 'Pagamento contestado pela loja origem'
+          });
+        }
+        setActionComment('');
+      } catch (error) {
+        console.error('[EntreLojas] Erro ao executar ação:', error);
+        alert(error?.message || 'Não foi possível executar a ação.');
+      }
+    };
+
+    const filteredTransfers = useMemo(() => {
+      return (transferencias || []).filter((item) => {
+        if (!canAccessAllTransfers) {
+          const visible = userStoreIds.includes(item.lojaOrigemId) || userStoreIds.includes(item.lojaDestinoId);
+          if (!visible) return false;
+        }
+        if (activeTab === 'enviadas' && !(userStoreIds.includes(item.lojaOrigemId) || canAccessAllTransfers)) return false;
+        if (activeTab === 'recebidas' && !(userStoreIds.includes(item.lojaDestinoId) || canAccessAllTransfers)) return false;
+        if (activeTab === 'aguardando_conferencia' && item.status !== 'aguardando_conferencia') return false;
+        if (activeTab === 'aguardando_pagamento' && !['pagamento_informado', 'conferencia_com_divergencia', 'conferencia_sem_divergencia'].includes(item.status)) return false;
+        if (statusFilter !== 'todos' && item.status !== statusFilter) return false;
+        if (origemFilter !== 'todos' && item.lojaOrigemId !== origemFilter) return false;
+        if (destinoFilter !== 'todos' && item.lojaDestinoId !== destinoFilter) return false;
+        const createdAtDate = getJSDate(item.dataCriacao);
+        if (startDateFilter && createdAtDate && createdAtDate < new Date(`${startDateFilter}T00:00:00`)) return false;
+        if (endDateFilter && createdAtDate && createdAtDate > new Date(`${endDateFilter}T23:59:59`)) return false;
+        return true;
+      });
+    }, [activeTab, canAccessAllTransfers, destinoFilter, endDateFilter, origemFilter, startDateFilter, statusFilter, transferencias, userStoreIds]);
+
+    const summary = useMemo(() => filteredTransfers.reduce((acc, item) => {
+      acc.total += 1;
+      acc.totalRepasse += Number(item.totalRepasse) || 0;
+      acc.totalRevenda += Number(item.totalRevenda) || 0;
+      if (item.status === 'aguardando_conferencia') acc.aguardandoConferencia += 1;
+      if (item.status === 'pagamento_informado') acc.aguardandoConfirmacao += 1;
+      return acc;
+    }, { total: 0, totalRepasse: 0, totalRevenda: 0, aguardandoConferencia: 0, aguardandoConfirmacao: 0 }), [filteredTransfers]);
+
+    const columns = [
+      { header: 'Nº', render: (row) => <span className="font-semibold text-pink-600">#{row.numero || '-'}</span> },
+      { header: 'Origem', render: (row) => row.lojaOrigemNome || row.lojaOrigemId || '-' },
+      { header: 'Destino', render: (row) => row.lojaDestinoNome || row.lojaDestinoId || '-' },
+      { header: 'Itens', key: 'quantidadeTotalItens' },
+      { header: 'Repasse', render: (row) => <span className="font-semibold">{formatMoney(row.totalRepasse)}</span> },
+      { header: 'Revenda', render: (row) => <span className="font-semibold">{formatMoney(row.totalRevenda)}</span> },
+      { header: 'Status', render: (row) => <span className="px-2 py-1 rounded-full bg-pink-100 text-pink-700 text-xs font-semibold">{statusLabelMap[row.status] || row.status}</span> },
+      { header: 'Criada em', render: (row) => getJSDate(row.dataCriacao)?.toLocaleString('pt-BR') || '-' }
+    ];
+
+    const actions = [
+      { icon: Eye, label: 'Detalhar', onClick: (row) => setViewingTransfer(row) }
+    ];
+
+    const transferTotals = computeTotals(formData.itens);
+
+    return (
+      <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Entre Lojas</h1>
+            <p className="text-gray-600 mt-1">Controle de remessas e conferências entre unidades.</p>
+          </div>
+          <Button onClick={() => { resetForm(); setShowModal(true); }} className="w-full md:w-auto">
+            <Plus className="w-4 h-4" /> Nova Remessa
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-white rounded-xl p-4 shadow border border-gray-100"><p className="text-xs text-gray-500">Remessas</p><p className="text-xl font-bold">{summary.total}</p></div>
+          <div className="bg-white rounded-xl p-4 shadow border border-gray-100"><p className="text-xs text-gray-500">Aguardando conferência</p><p className="text-xl font-bold">{summary.aguardandoConferencia}</p></div>
+          <div className="bg-white rounded-xl p-4 shadow border border-gray-100"><p className="text-xs text-gray-500">Aguardando confirmação</p><p className="text-xl font-bold">{summary.aguardandoConfirmacao}</p></div>
+          <div className="bg-white rounded-xl p-4 shadow border border-gray-100"><p className="text-xs text-gray-500">Total repasse</p><p className="text-xl font-bold">{formatMoney(summary.totalRepasse)}</p></div>
+          <div className="bg-white rounded-xl p-4 shadow border border-gray-100"><p className="text-xs text-gray-500">Total revenda</p><p className="text-xl font-bold">{formatMoney(summary.totalRevenda)}</p></div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'todas', label: 'Todas' },
+              { id: 'enviadas', label: 'Enviadas' },
+              { id: 'recebidas', label: 'Recebidas' },
+              { id: 'aguardando_conferencia', label: 'Aguardando Conferência' },
+              { id: 'aguardando_pagamento', label: 'Aguardando Pagamento' },
+              { id: 'historico', label: 'Histórico' }
+            ].map((tab) => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab.id ? 'bg-pink-100 text-pink-700' : 'bg-gray-50 text-gray-600'}`}>{tab.label}</button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <Select value={origemFilter} onChange={(e) => setOrigemFilter(e.target.value)}>
+              <option value="todos">Todas origens</option>
+              {storesForSelect.map((store) => <option key={store.id} value={store.id}>{store.nome}</option>)}
+            </Select>
+            <Select value={destinoFilter} onChange={(e) => setDestinoFilter(e.target.value)}>
+              <option value="todos">Todos destinos</option>
+              {storesForSelect.map((store) => <option key={store.id} value={store.id}>{store.nome}</option>)}
+            </Select>
+            <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="todos">Todos status</option>
+              {Object.keys(statusLabelMap).map((status) => <option key={status} value={status}>{statusLabelMap[status]}</option>)}
+            </Select>
+            <Input type="date" value={startDateFilter} onChange={(e) => setStartDateFilter(e.target.value)} />
+            <Input type="date" value={endDateFilter} onChange={(e) => setEndDateFilter(e.target.value)} />
+          </div>
+        </div>
+
+        <Table columns={columns} data={filteredTransfers} actions={actions} />
+
+        <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Nova Remessa Entre Lojas" size="xl">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select label="Loja origem" value={formData.lojaOrigemId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaOrigemId: e.target.value }))}>
+                <option value="">Selecione</option>
+                {storesForSelect.filter((store) => allowedOriginStoreIds.includes(store.id)).map((store) => (
+                  <option key={store.id} value={store.id}>{store.nome}</option>
+                ))}
+              </Select>
+              <Select label="Loja destino" value={formData.lojaDestinoId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
+                <option value="">Selecione</option>
+                {storesForSelect.filter((store) => store.id !== formData.lojaOrigemId).map((store) => (
+                  <option key={store.id} value={store.id}>{store.nome}</option>
+                ))}
+              </Select>
+              <Input label="Data da remessa" type="date" value={formData.dataRemessa} onChange={(e) => setFormData((prev) => ({ ...prev, dataRemessa: e.target.value }))} />
+            </div>
+            <Textarea label="Observação da origem" value={formData.observacaoOrigem} onChange={(e) => setFormData((prev) => ({ ...prev, observacaoOrigem: e.target.value }))} rows={3} />
+
+            <div className="border rounded-xl p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="font-semibold text-gray-800">Itens da remessa</h3>
+                <Button size="sm" variant="secondary" onClick={addItemToTransfer}><Plus className="w-4 h-4" /> Adicionar item</Button>
+              </div>
+              {!formData.itens.length && <p className="text-sm text-gray-500">Nenhum item adicionado.</p>}
+              {formData.itens.map((item, index) => {
+                const totalRepasse = (Number(item.quantidade) || 0) * (Number(item.valorUnitarioRepasse) || 0);
+                const totalRevenda = (Number(item.quantidade) || 0) * (Number(item.valorUnitarioRevenda) || 0);
+                return (
+                  <div key={`item-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end border rounded-lg p-3">
+                    <div className="md:col-span-4">
+                      <Select label="Produto" value={item.produtoId} onChange={(e) => updateItemField(index, 'produtoId', e.target.value)}>
+                        <option value="">Selecione</option>
+                        {productOptions.map((product) => <option key={product.id} value={product.id}>{product.nome}</option>)}
+                      </Select>
+                    </div>
+                    <div className="md:col-span-2"><Input label="Qtd." type="number" min="1" value={item.quantidade} onChange={(e) => updateItemField(index, 'quantidade', e.target.value)} /></div>
+                    <div className="md:col-span-2"><Input label="Repasse (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRepasse} onChange={(e) => updateItemField(index, 'valorUnitarioRepasse', e.target.value)} /></div>
+                    <div className="md:col-span-2"><Input label="Revenda (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRevenda} onChange={(e) => updateItemField(index, 'valorUnitarioRevenda', e.target.value)} /></div>
+                    <div className="md:col-span-1 text-xs text-gray-700">
+                      <p>Repasse</p>
+                      <p className="font-semibold">{formatMoney(totalRepasse)}</p>
+                      <p>Revenda</p>
+                      <p className="font-semibold">{formatMoney(totalRevenda)}</p>
+                    </div>
+                    <div className="md:col-span-1"><Button size="sm" variant="danger" onClick={() => removeItem(index)}><Trash2 className="w-4 h-4" /></Button></div>
+                  </div>
+                );
+              })}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-pink-50 rounded-lg p-3 text-sm">
+                <p>Quantidade total: <strong>{transferTotals.quantidadeTotalItens}</strong></p>
+                <p>Total repasse: <strong>{formatMoney(transferTotals.totalRepasse)}</strong></p>
+                <p>Total revenda: <strong>{formatMoney(transferTotals.totalRevenda)}</strong></p>
+              </div>
+            </div>
+
+            {formError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{formError}</div>}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Button>
+              <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
+              <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
+            </div>
+          </div>
+        </Modal>
+
+        <Modal isOpen={!!viewingTransfer} onClose={() => { setViewingTransfer(null); setActionComment(''); }} title="Detalhe da Remessa" size="xl">
+          {viewingTransfer && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 rounded-xl p-4 text-sm">
+                <p><strong>Número:</strong> #{viewingTransfer.numero}</p>
+                <p><strong>Origem:</strong> {viewingTransfer.lojaOrigemNome}</p>
+                <p><strong>Destino:</strong> {viewingTransfer.lojaDestinoNome}</p>
+                <p><strong>Status:</strong> {statusLabelMap[viewingTransfer.status] || viewingTransfer.status}</p>
+                <p><strong>Total repasse:</strong> {formatMoney(viewingTransfer.totalRepasse)}</p>
+                <p><strong>Total revenda:</strong> {formatMoney(viewingTransfer.totalRevenda)}</p>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-semibold">Itens</h3>
+                {(viewingTransfer.itens || []).map((item, idx) => (
+                  <div key={`${item.produtoId}-${idx}`} className="grid grid-cols-2 md:grid-cols-6 gap-2 bg-white border rounded-lg p-2 text-sm">
+                    <p className="md:col-span-2"><strong>{item.nome}</strong></p>
+                    <p>Qtd: {item.quantidade}</p>
+                    <p>Repasse: {formatMoney(item.valorUnitarioRepasse)}</p>
+                    <p>Revenda: {formatMoney(item.valorUnitarioRevenda)}</p>
+                    <p>Total: {formatMoney(item.totalRepasse)}</p>
+                  </div>
+                ))}
+              </div>
+              <Textarea
+                label="Comentário / observação para ação"
+                value={actionComment}
+                onChange={(e) => setActionComment(e.target.value)}
+                rows={3}
+                placeholder="Descreva divergências, detalhes do pagamento ou contestação."
+              />
+              <div className="flex flex-wrap gap-2">
+                {['aguardando_conferencia'].includes(viewingTransfer.status) && canActOnTransfer(viewingTransfer, 'conferir') && (
+                  <>
+                    <Button variant="outline" onClick={() => handleTransferAction(viewingTransfer, 'conferir_sem_divergencia')}>Conferir sem divergência</Button>
+                    <Button variant="secondary" onClick={() => handleTransferAction(viewingTransfer, 'conferir_com_divergencia')}>Conferir com divergência</Button>
+                  </>
+                )}
+                {['conferencia_sem_divergencia', 'conferencia_com_divergencia', 'aguardando_conferencia'].includes(viewingTransfer.status) && canActOnTransfer(viewingTransfer, 'marcar_pago') && (
+                  <Button onClick={() => handleTransferAction(viewingTransfer, 'marcar_pago')}>Marcar como pago</Button>
+                )}
+                {viewingTransfer.status === 'pagamento_informado' && canActOnTransfer(viewingTransfer, 'confirmar_pagamento') && (
+                  <Button onClick={() => handleTransferAction(viewingTransfer, 'confirmar_pagamento')}>Confirmar pagamento</Button>
+                )}
+                {viewingTransfer.status === 'pagamento_informado' && canActOnTransfer(viewingTransfer, 'contestar_pagamento') && (
+                  <Button variant="danger" onClick={() => handleTransferAction(viewingTransfer, 'contestar_pagamento')}>Contestar pagamento</Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-semibold">Histórico</h3>
+                <div className="max-h-56 overflow-y-auto border rounded-lg p-2 space-y-2">
+                  {(viewingTransfer.historico || []).length === 0 && <p className="text-sm text-gray-500">Sem histórico registrado.</p>}
+                  {(viewingTransfer.historico || []).map((evt, idx) => (
+                    <div key={`hist-${idx}`} className="text-sm bg-gray-50 rounded p-2">
+                      <p className="font-medium">{evt.acao}</p>
+                      <p className="text-xs text-gray-500">{getJSDate(evt.data)?.toLocaleString('pt-BR') || '-'}</p>
+                      <p className="text-xs text-gray-500">{evt.usuarioNome || '-'}</p>
+                      {evt.comentario && <p>{evt.comentario}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </Modal>
+      </div>
+    );
+  };
+
   const Agenda = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDay, setSelectedDay] = useState(null);
@@ -8004,6 +8577,7 @@ const handleSubmit = async (e) => {
       case 'clientes': return userHasPermission('clientes') ? <Clientes /> : <PaginaInicial />;
       case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
       case 'pedidos': return userHasPermission('pedidos') ? <Pedidos /> : <PaginaInicial />;
+      case 'entre-lojas': return userHasPermission('entre-lojas') ? <EntreLojas /> : <PaginaInicial />;
       case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
       case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : <PaginaInicial />;
       case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : <PaginaInicial />;
