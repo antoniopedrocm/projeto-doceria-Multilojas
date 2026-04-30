@@ -7897,8 +7897,8 @@ const handleSubmit = async (e) => {
         allowedOriginStoreIds,
         availableStores: availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId }))
       });
-      const originQuery = query(transfersRef, where('lojaOrigemId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
-      const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
+      const originQuery = query(transfersRef, where('lojaOrigemId', 'in', allowedStoreIds), limit(250));
+      const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', allowedStoreIds), limit(250));
 
       const mergeTransfers = (originDocs, destinationDocs) => {
         const merged = new Map();
