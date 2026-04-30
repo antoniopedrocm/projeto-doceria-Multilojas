@@ -5837,6 +5837,9 @@ const effectiveStoreName = useMemo(() => {
 
     const [storeHoursConfig, setStoreHoursConfig] = useState(getDefaultStoreHoursConfig());
     const [isSavingStoreHours, setIsSavingStoreHours] = useState(false);
+    const [entreLojasConfig, setEntreLojasConfig] = useState({ percentualRepasse: 0 });
+    const [isSavingEntreLojasConfig, setIsSavingEntreLojasConfig] = useState(false);
+    const canEditEntreLojasConfig = user?.role === ROLE_OWNER;
 
     useEffect(() => {
         if (activeTab !== 'frete') return;
@@ -5930,6 +5933,27 @@ const effectiveStoreName = useMemo(() => {
         };
 
         fetchStoreHoursConfig();
+    }, [activeTab, effectiveStoreId]);
+
+    useEffect(() => {
+        if (activeTab !== 'entre-lojas') return;
+        if (!effectiveStoreId) {
+            setEntreLojasConfig({ percentualRepasse: 0 });
+            return;
+        }
+        const fetchEntreLojasConfig = async () => {
+            try {
+                const configSnap = await getDoc(getStoreConfigDocRef(effectiveStoreId));
+                const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
+                setEntreLojasConfig({
+                    percentualRepasse: Number.isFinite(percentual) && percentual >= 0 ? percentual : 0
+                });
+            } catch (error) {
+                console.error('Erro ao carregar configuração de Entre Lojas:', error);
+                setEntreLojasConfig({ percentualRepasse: 0 });
+            }
+        };
+        fetchEntreLojasConfig();
     }, [activeTab, effectiveStoreId]);
 	
 	//Limpeza quando o componente desmontar
@@ -6371,6 +6395,39 @@ const effectiveStoreName = useMemo(() => {
         }
     };
 
+    const handleSaveEntreLojasConfig = async (event) => {
+        event.preventDefault();
+        if (!effectiveStoreId) {
+            alert('Selecione uma loja específica para salvar a configuração de Entre Lojas.');
+            return;
+        }
+        if (!canEditEntreLojasConfig) {
+            alert('Você não tem permissão para alterar essa configuração.');
+            return;
+        }
+        const percentual = Number(entreLojasConfig.percentualRepasse || 0);
+        if (percentual < 0) {
+            alert('Percentual de repasse não pode ser negativo.');
+            return;
+        }
+        setIsSavingEntreLojasConfig(true);
+        try {
+            await setDoc(getStoreConfigDocRef(effectiveStoreId), {
+                entreLojas: {
+                    percentualRepasse: Number.isFinite(percentual) ? percentual : 0,
+                    updatedAt: serverTimestamp(),
+                    updatedBy: user?.auth?.email || user?.email || 'Sistema'
+                }
+            }, { merge: true });
+            alert('Configuração de Entre Lojas salva com sucesso!');
+        } catch (error) {
+            console.error('Erro ao salvar configuração de Entre Lojas:', error);
+            alert('Não foi possível salvar a configuração de Entre Lojas.');
+        } finally {
+            setIsSavingEntreLojasConfig(false);
+        }
+    };
+
     const processedLogs = useMemo(() => {
         if (!data.logs || !Array.isArray(data.logs)) return [];
         return data.logs.map(log => {
@@ -6491,6 +6548,9 @@ const effectiveStoreName = useMemo(() => {
                     </button>
                     <button onClick={() => setActiveTab('funcionamento')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'funcionamento' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
                         Funcionamento
+                    </button>
+                    <button onClick={() => setActiveTab('entre-lojas')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'entre-lojas' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
+                        Entre Lojas
                     </button>
                     <button onClick={() => setActiveTab('logs')} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'logs' ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
                         Logs de Atividade
@@ -6767,6 +6827,47 @@ const effectiveStoreName = useMemo(() => {
                                 <Save className="w-4 h-4" /> {isSavingStoreHours ? 'Salvando...' : 'Salvar horário de funcionamento'}
                             </Button>
                         </div>
+                    </div>
+                )
+            )}
+
+            {activeTab === 'entre-lojas' && (
+                !effectiveStoreId ? (
+                    <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6 text-center text-gray-500">
+                        Selecione uma loja no topo da página para configurar o repasse do módulo Entre Lojas.
+                    </div>
+                ) : (
+                    <div className="mt-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+                        <form onSubmit={handleSaveEntreLojasConfig} className="space-y-4 max-w-xl">
+                            <h3 className="text-xl font-bold text-gray-800">Configuração de Repasse — Entre Lojas</h3>
+                            <p className="text-sm text-gray-500">
+                                Este percentual será somado ao custo do produto para calcular automaticamente o valor de repasse nas remessas entre lojas.
+                            </p>
+                            <Input
+                                label="Percentual de acréscimo do repasse (%)"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={entreLojasConfig.percentualRepasse}
+                                onChange={(e) => setEntreLojasConfig((prev) => ({ ...prev, percentualRepasse: Math.max(0, Number(e.target.value || 0)) }))}
+                                disabled={!canEditEntreLojasConfig}
+                            />
+                            <div className="rounded-lg border bg-pink-50 p-3 text-sm text-gray-700">
+                                <p><strong>Custo:</strong> R$ 8,00</p>
+                                <p><strong>Percentual:</strong> {Number(entreLojasConfig.percentualRepasse || 0).toFixed(2)}%</p>
+                                <p><strong>Repasse calculado:</strong> R$ {(8 * (1 + (Number(entreLojasConfig.percentualRepasse || 0) / 100))).toFixed(2)}</p>
+                            </div>
+                            {!canEditEntreLojasConfig && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                                    Apenas Admin/Dono pode alterar esse percentual.
+                                </p>
+                            )}
+                            <div className="pt-2">
+                                <Button type="submit" disabled={isSavingEntreLojasConfig || !canEditEntreLojasConfig}>
+                                    <Save className="w-4 h-4" /> {isSavingEntreLojasConfig ? 'Salvando...' : 'Salvar Configurações'}
+                                </Button>
+                            </div>
+                        </form>
                     </div>
                 )
             )}
@@ -7711,6 +7812,7 @@ const handleSubmit = async (e) => {
     const [editingTransfer, setEditingTransfer] = useState(null);
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
     const [formError, setFormError] = useState('');
+    const [repasseConfigPercentual, setRepasseConfigPercentual] = useState(0);
     const [actionComment, setActionComment] = useState('');
     const [formData, setFormData] = useState({
       lojaOrigemId: '',
@@ -7778,8 +7880,30 @@ const handleSubmit = async (e) => {
 
     const productOptions = useMemo(() => (data.produtos || []).map((item) => ({
       id: item.id,
-      nome: item.nome || item.descricao || 'Produto sem nome'
+      nome: item.nome || item.descricao || 'Produto sem nome',
+      preco: Number(item.preco || item.precoVenda || item.valor || 0),
+      custo: [item.custo, item.precoCusto, item.valorCusto, item.custoUnitario, item.precoCompra]
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0)
     })), [data.produtos]);
+
+    useEffect(() => {
+      if (!formData.lojaOrigemId) {
+        setRepasseConfigPercentual(0);
+        return;
+      }
+      const fetchRepasseConfig = async () => {
+        try {
+          const configSnap = await getDoc(getStoreConfigDocRef(formData.lojaOrigemId));
+          const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
+          setRepasseConfigPercentual(Number.isFinite(percentual) && percentual >= 0 ? percentual : 0);
+        } catch (error) {
+          console.error('[EntreLojas] Erro ao carregar percentual de repasse:', error);
+          setRepasseConfigPercentual(0);
+        }
+      };
+      fetchRepasseConfig();
+    }, [formData.lojaOrigemId]);
 
     const computeTotals = useCallback((items = []) => {
       return items.reduce((acc, item) => {
@@ -7841,7 +7965,7 @@ const handleSubmit = async (e) => {
     const addItemToTransfer = () => {
       setFormData((prev) => ({
         ...prev,
-        itens: [...prev.itens, { produtoId: '', nome: '', quantidade: 1, valorUnitarioRepasse: 0, valorUnitarioRevenda: 0 }]
+        itens: [...prev.itens, { produtoId: '', nome: '', quantidade: 1, valorUnitarioRepasse: '', valorUnitarioRevenda: 0, semCusto: false }]
       }));
     };
 
@@ -7852,7 +7976,17 @@ const handleSubmit = async (e) => {
           if (itemIndex !== index) return item;
           if (field === 'produtoId') {
             const selected = productOptions.find((option) => option.id === value);
-            return { ...item, produtoId: value, nome: selected?.nome || '' };
+            const custo = selected?.custo;
+            const hasCusto = Number.isFinite(custo);
+            const repasseCalculado = hasCusto ? Number((custo * (1 + (repasseConfigPercentual / 100))).toFixed(2)) : '';
+            return {
+              ...item,
+              produtoId: value,
+              nome: selected?.nome || '',
+              valorUnitarioRepasse: repasseCalculado,
+              valorUnitarioRevenda: item.valorUnitarioRevenda || (selected?.preco || 0),
+              semCusto: Boolean(value) && !hasCusto
+            };
           }
           return { ...item, [field]: value };
         })
@@ -7907,7 +8041,8 @@ const handleSubmit = async (e) => {
           nome: item.nome || '',
           quantidade: Number(item.quantidade) || 0,
           valorUnitarioRepasse: Number(item.valorUnitarioRepasse) || 0,
-          valorUnitarioRevenda: Number(item.valorUnitarioRevenda) || 0
+          valorUnitarioRevenda: Number(item.valorUnitarioRevenda) || 0,
+          semCusto: false
         }))
       });
       setShowModal(true);
@@ -8287,6 +8422,11 @@ const handleSubmit = async (e) => {
                       <p className="font-semibold">{formatMoney(totalRevenda)}</p>
                     </div>
                     <div className="md:col-span-1"><Button size="sm" variant="danger" onClick={() => removeItem(index)}><Trash2 className="w-4 h-4" /></Button></div>
+                    {item.semCusto && (
+                      <div className="md:col-span-12 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                        Produto sem custo cadastrado.
+                      </div>
+                    )}
                   </div>
                 );
               })}
