@@ -3346,9 +3346,9 @@ function App() {
   // useEffect(() => { if (audioUnlocked && ...) ... });
 
 
-  const updateStock = useCallback(async (productId, type, quantity, reason = 'Movimentação de estoque', userInfo = null, targetStoreId = null) => {
+  const updateStock = useCallback(async (productId, type, quantity, reason = 'Movimentação de estoque', userInfo = null, targetStoreId = null, options = {}) => {
     const storeId = targetStoreId || resolveActiveStoreForWrite();
-    await updateStockService(productId, type, quantity, reason, userInfo, storeId);
+    await updateStockService(productId, type, quantity, reason, userInfo, storeId, options);
   }, [resolveActiveStoreForWrite]);
 
 
@@ -5289,12 +5289,43 @@ function App() {
       }
 
       try {
+        const product = stockMovementModal.product || {};
+        const unitPrice = Number(product.preco || 0) || 0;
+        const subtotal = unitPrice * quantity;
+        const shouldCreateQuickSaleOrder = stockMovementModal.type === 'saida' && stockMovementReason === 'venda';
+        const quickSaleOrder = shouldCreateQuickSaleOrder ? {
+          clienteId: 'loja',
+          clienteNome: 'Loja',
+          itens: [{
+            id: product.id,
+            produtoId: product.id,
+            nome: product.nome || 'Produto',
+            preco: unitPrice,
+            quantity,
+            categoria: product.categoria || 'Delivery',
+            subcategoria: product.subcategoria || '',
+            imageUrl: product.imageUrl || '',
+          }],
+          subtotal,
+          desconto: 0,
+          total: subtotal,
+          status: 'Finalizado',
+          origem: 'Manual',
+          categoria: product.categoria || 'Delivery',
+          dataEntrega: '',
+          observacao: 'Venda registrada automaticamente pela movimentação rápida de estoque.',
+          formaPagamento: 'Não informado',
+          cupom: null,
+        } : null;
+
         await updateStock(
-          stockMovementModal.product.id,
+          product.id,
           stockMovementModal.type,
           quantity,
           buildReasonLabel(),
           user,
+          null,
+          quickSaleOrder ? { quickSaleOrder } : {},
         );
         closeStockMovementModal();
       } catch (error) {

@@ -13,6 +13,7 @@ export const updateStock = async (
   reason = 'Movimentação de estoque',
   userInfo = null,
   storeId,
+  options = {},
 ) => {
   const normalizedQuantity = Number(quantity);
 
@@ -56,6 +57,9 @@ export const updateStock = async (
     }
 
     const movementRef = doc(collection(db, 'lojas', storeId, 'kardex'));
+    const quickSaleOrder = options?.quickSaleOrder || null;
+    const quickSaleOrderRef = quickSaleOrder ? doc(collection(db, 'lojas', storeId, 'pedidos')) : null;
+
     transaction.set(movementRef, {
       produtoId: productId,
       tipo: type,
@@ -68,7 +72,17 @@ export const updateStock = async (
       estoqueAnterior: currentQuantity,
       estoquePosterior: newQuantity,
       lojaId: storeId,
+      pedidoId: quickSaleOrderRef?.id || null,
     });
+
+    if (quickSaleOrderRef) {
+      transaction.set(quickSaleOrderRef, {
+        ...quickSaleOrder,
+        lojaId: storeId,
+        estoqueMovimentacaoId: movementRef.id,
+        createdAt: serverTimestamp(),
+      });
+    }
   });
 };
 
