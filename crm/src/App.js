@@ -8033,6 +8033,12 @@ const handleSubmit = async (e) => {
       pagamento_contestado: 'Pagamento contestado',
       cancelado: 'Cancelado'
     };
+    const statusClassMap = {
+      pagamento_confirmado: 'bg-green-100 text-green-700',
+      pagamento_informado: 'bg-orange-100 text-orange-700',
+    };
+
+    const getStatusClassName = (status) => statusClassMap[status] || 'bg-pink-100 text-pink-700';
 
     const addItemToTransfer = () => {
       setFormData((prev) => ({
@@ -8090,15 +8096,26 @@ const handleSubmit = async (e) => {
       return '';
     };
 
-    const isTransferLockedForEdit = (transfer) => ['pagamento_confirmado', 'cancelada'].includes(transfer?.status);
+    const isTransferLockedForEdit = (transfer) => ['pagamento_informado', 'pagamento_confirmado', 'cancelado', 'cancelada'].includes(transfer?.status);
+
+    const isOriginStoreAllowed = (transfer) => {
+      if (!transfer) return false;
+      if (user?.role === ROLE_OWNER) return true;
+      const originId = normalizeStoreId(transfer.lojaOrigemId);
+      return allowedStoreIds.includes(originId);
+    };
 
     const canEditTransfer = (transfer) => {
       if (!user || !transfer) return false;
       if (isTransferLockedForEdit(transfer)) return false;
       if (user.role === ROLE_OWNER) return true;
-      if (user.role === ROLE_MANAGER) return userStoreIds.includes(transfer.lojaOrigemId) || userStoreIds.includes(transfer.lojaDestinoId);
-      if (user.role === ROLE_ATTENDANT) return userStoreIds.includes(transfer.lojaOrigemId) || userStoreIds.includes(transfer.lojaDestinoId);
+      if (user.role === ROLE_MANAGER || user.role === ROLE_ATTENDANT) return isOriginStoreAllowed(transfer);
       return false;
+    };
+
+    const canDeleteTransfer = (transfer) => {
+      if (!user || !transfer) return false;
+      return transfer.status === 'aguardando_conferencia' && isOriginStoreAllowed(transfer);
     };
 
     const startEditingTransfer = (transfer) => {
@@ -8247,15 +8264,41 @@ const handleSubmit = async (e) => {
 
     const canActOnTransfer = (transfer, action) => {
       if (!user || !transfer) return false;
+      if (action === 'editar_remessa') return canEditTransfer(transfer);
+      if (action === 'excluir_remessa') return canDeleteTransfer(transfer);
       if (user.role === ROLE_OWNER) return true;
-      const originAllowed = userStoreIds.includes(transfer.lojaOrigemId);
-      const destinationAllowed = userStoreIds.includes(transfer.lojaDestinoId);
+      const originAllowed = allowedStoreIds.includes(normalizeStoreId(transfer.lojaOrigemId));
+      const destinationAllowed = allowedStoreIds.includes(normalizeStoreId(transfer.lojaDestinoId));
       if (action === 'conferir') return destinationAllowed;
       if (action === 'marcar_pago') return canMarkAsPaid && destinationAllowed;
       if (action === 'confirmar_pagamento') return canConfirmPaymentByRole && originAllowed;
       if (action === 'contestar_pagamento') return canConfirmPaymentByRole && originAllowed;
-      if (action === 'editar_remessa') return canEditTransfer(transfer);
       return originAllowed || destinationAllowed;
+    };
+
+    const deleteTransfer = async (transfer) => {
+      if (!canDeleteTransfer(transfer)) {
+        alert('Você não tem permissão para excluir esta remessa.');
+        return;
+      }
+
+      try {
+        await deleteDoc(doc(db, 'transferenciasEntreLojas', transfer.id));
+        if (viewingTransfer?.id === transfer.id) {
+          setViewingTransfer(null);
+        }
+      } catch (error) {
+        console.error('[EntreLojas] Erro ao excluir remessa:', error);
+        alert(error?.message || 'Não foi possível excluir a remessa.');
+      }
+    };
+
+    const confirmDeleteTransfer = (transfer) => {
+      if (!canDeleteTransfer(transfer)) return;
+      setConfirmDelete({
+        isOpen: true,
+        onConfirm: () => deleteTransfer(transfer)
+      });
     };
 
     const patchTransfer = async (transfer, payload, historyEntry) => {
@@ -8401,7 +8444,7 @@ const handleSubmit = async (e) => {
       { header: 'Itens', key: 'quantidadeTotalItens' },
       { header: 'Repasse', render: (row) => <span className="font-semibold">{formatMoney(row.totalRepasse)}</span> },
       { header: 'Revenda', render: (row) => <span className="font-semibold">{formatMoney(row.totalRevenda)}</span> },
-      { header: 'Status', render: (row) => <span className="px-2 py-1 rounded-full bg-pink-100 text-pink-700 text-xs font-semibold">{statusLabelMap[row.status] || row.status}</span> },
+      { header: 'Status', render: (row) => <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusClassName(row.status)}`}>{statusLabelMap[row.status] || row.status}</span> },
       { header: 'Criada em', render: (row) => getJSDate(row.dataCriacao)?.toLocaleString('pt-BR') || '-' }
     ];
 
@@ -8412,6 +8455,12 @@ const handleSubmit = async (e) => {
         label: (row) => (row.status === 'rascunho' ? 'Editar rascunho' : 'Editar remessa'),
         onClick: (row) => startEditingTransfer(row),
         isVisible: (row) => canActOnTransfer(row, 'editar_remessa')
+      },
+      {
+        icon: Trash2,
+        label: 'Excluir remessa',
+        onClick: (row) => confirmDeleteTransfer(row),
+        isVisible: (row) => canActOnTransfer(row, 'excluir_remessa')
       }
     ];
 
