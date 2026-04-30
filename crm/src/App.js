@@ -475,11 +475,13 @@ const Table = ({ columns, data, actions = [] }) => (
                                 {actions.length > 0 && (
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex justify-end gap-2">
-                                            {visibleActions.map((action, actionIndex) => (
-                                                <button key={actionIndex} onClick={() => action.onClick(row)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title={action.label}>
+                                            {visibleActions.map((action, actionIndex) => {
+                                                const actionLabel = typeof action.label === 'function' ? action.label(row) : action.label;
+                                                return (
+                                                <button key={actionIndex} onClick={() => action.onClick(row)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title={actionLabel}>
                                                     <action.icon className="w-4 h-4 text-gray-600" />
                                                 </button>
-                                            ))}
+                                            )})}
                                         </div>
                                     </td>
                                 )}
@@ -509,12 +511,14 @@ const Table = ({ columns, data, actions = [] }) => (
                     })}
                     {actions.length > 0 && (
                         <div className="flex justify-end gap-2 pt-3 mt-2 border-t border-gray-100">
-                            {visibleActions.map((action, actionIndex) => (
-                                <button key={actionIndex} onClick={() => action.onClick(row)} className="flex items-center gap-2 p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm text-gray-700" title={action.label}>
+                            {visibleActions.map((action, actionIndex) => {
+                                const actionLabel = typeof action.label === 'function' ? action.label(row) : action.label;
+                                return (
+                                <button key={actionIndex} onClick={() => action.onClick(row)} className="flex items-center gap-2 p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm text-gray-700" title={actionLabel}>
                                     <action.icon className="w-4 h-4" />
-                                    <span>{action.label}</span>
+                                    <span>{actionLabel}</span>
                                 </button>
-                            ))}
+                            )})}
                         </div>
                     )}
                 </div>
@@ -8018,12 +8022,14 @@ const handleSubmit = async (e) => {
       return '';
     };
 
+    const isTransferLockedForEdit = (transfer) => ['pagamento_confirmado', 'cancelada'].includes(transfer?.status);
+
     const canEditTransfer = (transfer) => {
       if (!user || !transfer) return false;
-      if (transfer.status !== 'rascunho') return false;
+      if (isTransferLockedForEdit(transfer)) return false;
       if (user.role === ROLE_OWNER) return true;
-      if (user.role === ROLE_MANAGER) return userStoreIds.includes(transfer.lojaOrigemId);
-      if (user.role === ROLE_ATTENDANT) return userStoreIds.includes(transfer.lojaOrigemId);
+      if (user.role === ROLE_MANAGER) return userStoreIds.includes(transfer.lojaOrigemId) || userStoreIds.includes(transfer.lojaDestinoId);
+      if (user.role === ROLE_ATTENDANT) return userStoreIds.includes(transfer.lojaOrigemId) || userStoreIds.includes(transfer.lojaDestinoId);
       return false;
     };
 
@@ -8049,8 +8055,9 @@ const handleSubmit = async (e) => {
     };
 
     const saveTransfer = async (mode = 'rascunho') => {
-      if (isEditingTransfer && (!editingTransfer || editingTransfer.status !== 'rascunho' || !canEditTransfer(editingTransfer))) {
-        setFormError('Você não tem permissão para editar esta remessa.');
+      if (isEditingTransfer && (!editingTransfer || !canEditTransfer(editingTransfer))) {
+        const blockedByStatus = isTransferLockedForEdit(editingTransfer);
+        setFormError(blockedByStatus ? 'Remessa com pagamento confirmado não pode ser editada.' : 'Você não tem permissão para editar esta remessa.');
         return;
       }
       const validationError = validateTransfer();
@@ -8079,7 +8086,9 @@ const handleSubmit = async (e) => {
 
         const origemNome = storeInfoMap[formData.lojaOrigemId]?.nome || formData.lojaOrigemId;
         const destinoNome = storeInfoMap[formData.lojaDestinoId]?.nome || formData.lojaDestinoId;
-        const finalStatus = mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho';
+        const finalStatus = isEditingTransfer
+          ? (mode === 'enviar' && editingTransfer?.status === 'rascunho' ? 'aguardando_conferencia' : (editingTransfer?.status || 'rascunho'))
+          : (mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho');
         const now = serverTimestamp();
         if (isEditingTransfer && editingTransfer?.id) {
           const transferRef = doc(db, 'transferenciasEntreLojas', editingTransfer.id);
@@ -8090,9 +8099,9 @@ const handleSubmit = async (e) => {
             lojaDestinoNome: destinoNome,
             status: finalStatus,
             dataRemessa: formData.dataRemessa || null,
-            dataEnvio: mode === 'enviar' ? now : (editingTransfer.dataEnvio || null),
-            enviadoPorUid: mode === 'enviar' ? (user?.auth?.uid || '') : (editingTransfer.enviadoPorUid || null),
-            enviadoPorNome: mode === 'enviar' ? (user?.name || user?.email || '') : (editingTransfer.enviadoPorNome || null),
+            dataEnvio: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? now : (editingTransfer.dataEnvio || null),
+            enviadoPorUid: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? (user?.auth?.uid || '') : (editingTransfer.enviadoPorUid || null),
+            enviadoPorNome: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? (user?.name || user?.email || '') : (editingTransfer.enviadoPorNome || null),
             observacaoOrigem: formData.observacaoOrigem || '',
             totalRepasse: totals.totalRepasse,
             totalRevenda: totals.totalRevenda,
@@ -8100,12 +8109,16 @@ const handleSubmit = async (e) => {
             itens: itemsPayload,
             storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
             historico: arrayUnion({
-              acao: mode === 'enviar' ? 'enviado_para_conferencia' : 'rascunho_atualizado',
+              acao: editingTransfer?.status === 'rascunho'
+                ? (mode === 'enviar' ? 'enviado_para_conferencia' : 'rascunho_atualizado')
+                : 'remessa_atualizada',
               status: finalStatus,
               data: Timestamp.now(),
               usuarioUid: user?.auth?.uid || '',
               usuarioNome: user?.name || user?.email || '',
-              comentario: mode === 'enviar' ? 'Rascunho enviado para conferência' : 'Rascunho atualizado'
+              comentario: editingTransfer?.status === 'rascunho'
+                ? (mode === 'enviar' ? 'Rascunho enviado para conferência' : 'Rascunho atualizado')
+                : 'Remessa atualizada sem alteração automática de status'
             })
           });
         } else {
@@ -8173,7 +8186,7 @@ const handleSubmit = async (e) => {
       if (action === 'marcar_pago') return canMarkAsPaid && destinationAllowed;
       if (action === 'confirmar_pagamento') return canConfirmPaymentByRole && originAllowed;
       if (action === 'contestar_pagamento') return canConfirmPaymentByRole && originAllowed;
-      if (action === 'editar_rascunho') return canEditTransfer(transfer);
+      if (action === 'editar_remessa') return canEditTransfer(transfer);
       return originAllowed || destinationAllowed;
     };
 
@@ -8305,9 +8318,9 @@ const handleSubmit = async (e) => {
       { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingTransfer(row) },
       {
         icon: Edit,
-        label: 'Editar rascunho',
+        label: (row) => (row.status === 'rascunho' ? 'Editar rascunho' : 'Editar remessa'),
         onClick: (row) => startEditingTransfer(row),
-        isVisible: (row) => row.status === 'rascunho' && canActOnTransfer(row, 'editar_rascunho')
+        isVisible: (row) => canActOnTransfer(row, 'editar_remessa')
       }
     ];
 
@@ -8385,7 +8398,7 @@ const handleSubmit = async (e) => {
                   <option key={store.id} value={store.id}>{store.nome}</option>
                 ))}
               </Select>
-              <Select label="Loja destino" value={formData.lojaDestinoId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
+              <Select label="Loja destino" disabled={isEditingTransfer && editingTransfer?.status !== 'rascunho'} value={formData.lojaDestinoId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
                 <option value="">Selecione</option>
                 {storesForSelect.filter((store) => store.id !== formData.lojaOrigemId).map((store) => (
                   <option key={store.id} value={store.id}>{store.nome}</option>
@@ -8441,8 +8454,15 @@ const handleSubmit = async (e) => {
 
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button>
-              <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
-              <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
+              {(!isEditingTransfer || editingTransfer?.status === 'rascunho') && (
+                <>
+                  <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
+                  <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
+                </>
+              )}
+              {isEditingTransfer && editingTransfer?.status !== 'rascunho' && (
+                <Button disabled={isSavingTransfer} onClick={() => saveTransfer('editar')}>{isSavingTransfer ? 'Salvando...' : 'Salvar Alterações'}</Button>
+              )}
             </div>
           </div>
         </Modal>
