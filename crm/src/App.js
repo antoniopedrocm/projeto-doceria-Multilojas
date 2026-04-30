@@ -7858,23 +7858,59 @@ const handleSubmit = async (e) => {
       if (!user) return undefined;
       const transfersRef = collection(db, 'transferenciasEntreLojas');
 
-      let baseQuery = query(transfersRef, orderBy('dataCriacao', 'desc'), limit(250));
-      if (!canAccessAllTransfers) {
-        if (!userStoreIds.length) {
-          setTransferencias([]);
-          return undefined;
-        }
-        baseQuery = query(transfersRef, where('storeVisibility', 'array-contains-any', userStoreIds.slice(0, 10)), orderBy('dataCriacao', 'desc'), limit(250));
+      if (canAccessAllTransfers) {
+        const baseQuery = query(transfersRef, orderBy('dataCriacao', 'desc'), limit(250));
+        return onSnapshot(baseQuery, (snapshot) => {
+          const rows = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+          setTransferencias(rows);
+        }, (error) => {
+          console.error('[EntreLojas] Erro ao carregar transferências:', error);
+        });
       }
 
-      const unsubscribe = onSnapshot(baseQuery, (snapshot) => {
-        const rows = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-        setTransferencias(rows);
+      if (!userStoreIds.length) {
+        setTransferencias([]);
+        return undefined;
+      }
+
+      const allowedStoreIds = userStoreIds.slice(0, 10);
+      const originQuery = query(transfersRef, where('lojaOrigemId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
+      const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
+
+      const mergeTransfers = (originDocs, destinationDocs) => {
+        const merged = new Map();
+        [...originDocs, ...destinationDocs].forEach((docSnap) => {
+          merged.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+        const sortedRows = Array.from(merged.values()).sort((a, b) => {
+          const dateA = getJSDate(a.dataCriacao)?.getTime() || 0;
+          const dateB = getJSDate(b.dataCriacao)?.getTime() || 0;
+          return dateB - dateA;
+        });
+        setTransferencias(sortedRows.slice(0, 250));
+      };
+
+      let originDocs = [];
+      let destinationDocs = [];
+
+      const unsubscribeOrigin = onSnapshot(originQuery, (snapshot) => {
+        originDocs = snapshot.docs;
+        mergeTransfers(originDocs, destinationDocs);
       }, (error) => {
-        console.error('[EntreLojas] Erro ao carregar transferências:', error);
+        console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
       });
 
-      return unsubscribe;
+      const unsubscribeDestination = onSnapshot(destinationQuery, (snapshot) => {
+        destinationDocs = snapshot.docs;
+        mergeTransfers(originDocs, destinationDocs);
+      }, (error) => {
+        console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
+      });
+
+      return () => {
+        unsubscribeOrigin();
+        unsubscribeDestination();
+      };
     }, [canAccessAllTransfers, user, userStoreIds]);
 
     const storesForSelect = useMemo(
