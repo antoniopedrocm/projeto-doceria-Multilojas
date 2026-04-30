@@ -7846,6 +7846,20 @@ const handleSubmit = async (e) => {
     const isEditingTransfer = !!editingTransfer?.id;
     const canChangeOriginStore = allowedOriginStoreIds.length > 1;
 
+    const DEBUG_ENTRE_LOJAS = false;
+    const entreLojasLog = (...args) => {
+      if (DEBUG_ENTRE_LOJAS) console.log('[EntreLojas][DEBUG]', ...args);
+    };
+
+    const normalizeStoreId = (value) => String(value || '').trim();
+
+    const allowedStoreIds = useMemo(() => Array.from(new Set(userStoreIds.map(normalizeStoreId).filter(Boolean))).slice(0, 10), [userStoreIds]);
+
+    const selectedStoreIdForView = useMemo(() => {
+      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) return null;
+      return normalizeStoreId(currentStoreIdForDisplay);
+    }, [currentStoreIdForDisplay]);
+
     const getDefaultOriginStoreId = useCallback(() => {
       if (!allowedOriginStoreIds.length) return '';
       if (currentStoreIdForDisplay && currentStoreIdForDisplay !== STORE_ALL_KEY && allowedOriginStoreIds.includes(currentStoreIdForDisplay)) {
@@ -7868,12 +7882,21 @@ const handleSubmit = async (e) => {
         });
       }
 
-      if (!userStoreIds.length) {
+      if (!allowedStoreIds.length) {
+        console.warn('[EntreLojas] Usuário sem lojas permitidas para Entre Lojas', { role: user?.role, userStoreIds });
         setTransferencias([]);
         return undefined;
       }
 
-      const allowedStoreIds = userStoreIds.slice(0, 10);
+      entreLojasLog('Contexto de carregamento', {
+        userProfileRole: user?.role,
+        selectedStoreId,
+        currentStoreIdForDisplay,
+        selectedStoreIdForView,
+        allowedStoreIds,
+        allowedOriginStoreIds,
+        availableStores: availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId }))
+      });
       const originQuery = query(transfersRef, where('lojaOrigemId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
       const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', allowedStoreIds), orderBy('dataCriacao', 'desc'), limit(250));
 
@@ -7887,7 +7910,14 @@ const handleSubmit = async (e) => {
           const dateB = getJSDate(b.dataCriacao)?.getTime() || 0;
           return dateB - dateA;
         });
-        setTransferencias(sortedRows.slice(0, 250));
+        const limitedRows = sortedRows.slice(0, 250);
+        entreLojasLog('Merge de transferências', {
+          origem: originDocs.length,
+          destino: destinationDocs.length,
+          totalMesclado: limitedRows.length,
+          transferencias: limitedRows.map((item) => ({ id: item.id, numero: item.numero, lojaOrigemId: item.lojaOrigemId, lojaDestinoId: item.lojaDestinoId, status: item.status }))
+        });
+        setTransferencias(limitedRows);
       };
 
       let originDocs = [];
@@ -7895,6 +7925,7 @@ const handleSubmit = async (e) => {
 
       const unsubscribeOrigin = onSnapshot(originQuery, (snapshot) => {
         originDocs = snapshot.docs;
+        entreLojasLog('Resultado query origem', { quantidade: originDocs.length, ids: originDocs.map((docSnap) => docSnap.id) });
         mergeTransfers(originDocs, destinationDocs);
       }, (error) => {
         console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
@@ -7902,6 +7933,7 @@ const handleSubmit = async (e) => {
 
       const unsubscribeDestination = onSnapshot(destinationQuery, (snapshot) => {
         destinationDocs = snapshot.docs;
+        entreLojasLog('Resultado query destino', { quantidade: destinationDocs.length, ids: destinationDocs.map((docSnap) => docSnap.id) });
         mergeTransfers(originDocs, destinationDocs);
       }, (error) => {
         console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
@@ -7911,7 +7943,7 @@ const handleSubmit = async (e) => {
         unsubscribeOrigin();
         unsubscribeDestination();
       };
-    }, [canAccessAllTransfers, user, userStoreIds]);
+    }, [allowedOriginStoreIds, allowedStoreIds, canAccessAllTransfers, currentStoreIdForDisplay, selectedStoreId, selectedStoreIdForView, user, userStoreIds]);
 
     const storesForSelect = useMemo(
       () => availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId })),
@@ -8310,14 +8342,37 @@ const handleSubmit = async (e) => {
       }
     };
 
+    const canViewTransfer = useCallback((transfer) => {
+      if (canAccessAllTransfers) return true;
+      const originId = normalizeStoreId(transfer?.lojaOrigemId);
+      const destinationId = normalizeStoreId(transfer?.lojaDestinoId);
+      return allowedStoreIds.includes(originId) || allowedStoreIds.includes(destinationId);
+    }, [allowedStoreIds, canAccessAllTransfers]);
+
+    const matchesSelectedStoreView = useCallback((transfer) => {
+      if (!selectedStoreIdForView) return true;
+      const originId = normalizeStoreId(transfer?.lojaOrigemId);
+      const destinationId = normalizeStoreId(transfer?.lojaDestinoId);
+      return originId === selectedStoreIdForView || destinationId === selectedStoreIdForView;
+    }, [selectedStoreIdForView]);
+
     const filteredTransfers = useMemo(() => {
       return (transferencias || []).filter((item) => {
-        if (!canAccessAllTransfers) {
-          const visible = userStoreIds.includes(item.lojaOrigemId) || userStoreIds.includes(item.lojaDestinoId);
-          if (!visible) return false;
+        const originId = normalizeStoreId(item.lojaOrigemId);
+        const destinationId = normalizeStoreId(item.lojaDestinoId);
+
+        if (!canViewTransfer(item)) {
+          entreLojasLog('Remessa removida por canViewTransfer', { id: item.id, originId, destinationId, allowedStoreIds });
+          return false;
         }
-        if (activeTab === 'enviadas' && !(userStoreIds.includes(item.lojaOrigemId) || canAccessAllTransfers)) return false;
-        if (activeTab === 'recebidas' && !(userStoreIds.includes(item.lojaDestinoId) || canAccessAllTransfers)) return false;
+
+        if (!matchesSelectedStoreView(item)) {
+          entreLojasLog('Remessa removida por matchesSelectedStoreView', { id: item.id, originId, destinationId, selectedStoreIdForView });
+          return false;
+        }
+
+        if (activeTab === 'enviadas' && !(originId && (canAccessAllTransfers || allowedStoreIds.includes(originId)))) return false;
+        if (activeTab === 'recebidas' && !(destinationId && (canAccessAllTransfers || allowedStoreIds.includes(destinationId)))) return false;
         if (activeTab === 'aguardando_conferencia' && item.status !== 'aguardando_conferencia') return false;
         if (activeTab === 'aguardando_pagamento' && !['pagamento_informado', 'conferencia_com_divergencia', 'conferencia_sem_divergencia'].includes(item.status)) return false;
         if (statusFilter !== 'todos' && item.status !== statusFilter) return false;
@@ -8328,7 +8383,7 @@ const handleSubmit = async (e) => {
         if (endDateFilter && createdAtDate && createdAtDate > new Date(`${endDateFilter}T23:59:59`)) return false;
         return true;
       });
-    }, [activeTab, canAccessAllTransfers, destinoFilter, endDateFilter, origemFilter, startDateFilter, statusFilter, transferencias, userStoreIds]);
+    }, [activeTab, allowedStoreIds, canAccessAllTransfers, canViewTransfer, destinoFilter, endDateFilter, matchesSelectedStoreView, origemFilter, selectedStoreIdForView, startDateFilter, statusFilter, transferencias]);
 
     const summary = useMemo(() => filteredTransfers.reduce((acc, item) => {
       acc.total += 1;
