@@ -8043,7 +8043,7 @@ const handleSubmit = async (e) => {
     const addItemToTransfer = () => {
       setFormData((prev) => ({
         ...prev,
-        itens: [...prev.itens, { produtoId: '', nome: '', quantidade: 1, valorUnitarioRepasse: '', valorUnitarioRevenda: 0, semCusto: false }]
+        itens: [...prev.itens, { produtoId: '', produtoBusca: '', nome: '', quantidade: 1, valorUnitarioRepasse: '', valorUnitarioRevenda: 0, semCusto: false }]
       }));
     };
 
@@ -8060,6 +8060,7 @@ const handleSubmit = async (e) => {
             return {
               ...item,
               produtoId: value,
+              produtoBusca: selected?.nome || '',
               nome: selected?.nome || '',
               valorUnitarioRepasse: repasseCalculado,
               valorUnitarioRevenda: item.valorUnitarioRevenda || (selected?.preco || 0),
@@ -8068,6 +8069,24 @@ const handleSubmit = async (e) => {
           }
           return { ...item, [field]: value };
         })
+      }));
+    };
+
+    const updateProductSearch = (index, value) => {
+      const search = String(value || '');
+      const selected = productOptions.find((option) => option.nome.toLowerCase() === search.toLowerCase());
+      if (selected) {
+        updateItemField(index, 'produtoId', selected.id);
+        return;
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        itens: prev.itens.map((item, itemIndex) => (
+          itemIndex === index
+            ? { ...item, produtoBusca: search, produtoId: '', nome: '', valorUnitarioRepasse: '', semCusto: false }
+            : item
+        ))
       }));
     };
 
@@ -8129,6 +8148,7 @@ const handleSubmit = async (e) => {
         observacaoOrigem: transfer.observacaoOrigem || '',
         itens: (transfer.itens || []).map((item) => ({
           produtoId: item.produtoId || '',
+          produtoBusca: item.nome || '',
           nome: item.nome || '',
           quantidade: Number(item.quantidade) || 0,
           valorUnitarioRepasse: Number(item.valorUnitarioRepasse) || 0,
@@ -8549,9 +8569,8 @@ const handleSubmit = async (e) => {
             <Textarea label="Observação da origem" value={formData.observacaoOrigem} onChange={(e) => setFormData((prev) => ({ ...prev, observacaoOrigem: e.target.value }))} rows={3} />
 
             <div className="border rounded-xl p-4 space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex items-center">
                 <h3 className="font-semibold text-gray-800">Itens da remessa</h3>
-                <Button size="sm" variant="secondary" onClick={addItemToTransfer}><Plus className="w-4 h-4" /> Adicionar item</Button>
               </div>
               {!formData.itens.length && <p className="text-sm text-gray-500">Nenhum item adicionado.</p>}
               {formData.itens.map((item, index) => {
@@ -8560,10 +8579,16 @@ const handleSubmit = async (e) => {
                 return (
                   <div key={`item-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end border rounded-lg p-3">
                     <div className="md:col-span-4">
-                      <Select label="Produto" value={item.produtoId} onChange={(e) => updateItemField(index, 'produtoId', e.target.value)}>
-                        <option value="">Selecione</option>
-                        {productOptions.map((product) => <option key={product.id} value={product.id}>{product.nome}</option>)}
-                      </Select>
+                      <Input
+                        label="Produto"
+                        list={`produtos-remessa-${index}`}
+                        placeholder="Buscar produto"
+                        value={item.produtoBusca ?? item.nome ?? ''}
+                        onChange={(e) => updateProductSearch(index, e.target.value)}
+                      />
+                      <datalist id={`produtos-remessa-${index}`}>
+                        {productOptions.map((product) => <option key={product.id} value={product.nome} />)}
+                      </datalist>
                     </div>
                     <div className="md:col-span-2"><Input label="Qtd." type="number" min="1" value={item.quantidade} onChange={(e) => updateItemField(index, 'quantidade', e.target.value)} /></div>
                     <div className="md:col-span-2"><Input label="Repasse (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRepasse} onChange={(e) => updateItemField(index, 'valorUnitarioRepasse', e.target.value)} /></div>
@@ -8592,17 +8617,22 @@ const handleSubmit = async (e) => {
 
             {formError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{formError}</div>}
 
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button>
-              {(!isEditingTransfer || editingTransfer?.status === 'rascunho') && (
-                <>
-                  <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
-                  <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
-                </>
-              )}
-              {isEditingTransfer && editingTransfer?.status !== 'rascunho' && (
-                <Button disabled={isSavingTransfer} onClick={() => saveTransfer('editar')}>{isSavingTransfer ? 'Salvando...' : 'Salvar Alterações'}</Button>
-              )}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <Button size="sm" variant="secondary" onClick={addItemToTransfer} className="w-full sm:w-auto">
+                <Plus className="w-4 h-4" /> Adicionar item
+              </Button>
+              <div className="flex flex-col sm:flex-row justify-end gap-2">
+                <Button variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button>
+                {(!isEditingTransfer || editingTransfer?.status === 'rascunho') && (
+                  <>
+                    <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
+                    <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
+                  </>
+                )}
+                {isEditingTransfer && editingTransfer?.status !== 'rascunho' && (
+                  <Button disabled={isSavingTransfer} onClick={() => saveTransfer('editar')}>{isSavingTransfer ? 'Salvando...' : 'Salvar Alterações'}</Button>
+                )}
+              </div>
             </div>
           </div>
         </Modal>
@@ -8617,6 +8647,10 @@ const handleSubmit = async (e) => {
                 <p><strong>Status:</strong> {statusLabelMap[viewingTransfer.status] || viewingTransfer.status}</p>
                 <p><strong>Total repasse:</strong> {formatMoney(viewingTransfer.totalRepasse)}</p>
                 <p><strong>Total revenda:</strong> {formatMoney(viewingTransfer.totalRevenda)}</p>
+              </div>
+              <div className="bg-white border rounded-xl p-4 text-sm">
+                <p className="font-semibold text-gray-800 mb-1">Observação da origem</p>
+                <p className="text-gray-700 whitespace-pre-wrap">{viewingTransfer.observacaoOrigem || 'Sem observação registrada.'}</p>
               </div>
               <div className="space-y-2">
                 <h3 className="font-semibold">Itens</h3>
