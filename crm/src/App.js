@@ -4613,13 +4613,6 @@ function App() {
                 Registrar entrada
               </Button>
               <Button
-                variant="secondary"
-                onClick={() => handleRegisterPoint('saida')}
-                disabled={registerLoading}
-              >
-                Registrar saída
-              </Button>
-              <Button
                 variant="outline"
                 onClick={() => handleRegisterPoint('almoco_inicio')}
                 disabled={registerLoading || !todayRecord?.horaEntrada}
@@ -4632,6 +4625,13 @@ function App() {
                 disabled={registerLoading || !todayRecord?.horaAlmocoSaida}
               >
                 Registrar retorno do almoço
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleRegisterPoint('saida')}
+                disabled={registerLoading}
+              >
+                Registrar saída
               </Button>
             </div>
             {todayRecord && (
