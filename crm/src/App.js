@@ -37,6 +37,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { audioManager } from './utils/AudioManager.js';
 import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
 import { updateStock as updateStockService } from './services/stockService.js';
+import ReceitasList from './components/fornecedores/ReceitasList';
+import ReceitasModal from './components/fornecedores/ReceitasModal';
 
 // --- importação para Android
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -163,6 +165,7 @@ const COLLECTIONS_TO_SYNC = [
   'estoque',
   'kardex',
   'perdasDescarte',
+  'receitas',
   'logs',
   'cupons',
   'pedidos'
@@ -911,6 +914,9 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [selectedEstoqueFornecedor, setSelectedEstoqueFornecedor] = useState('');
 
     const [showPerdaModal, setShowPerdaModal] = useState(false);
+    const [showReceitaModal, setShowReceitaModal] = useState(false);
+    const [editingReceita, setEditingReceita] = useState(null);
+    const [receitaFormData, setReceitaFormData] = useState({});
     const [editingPerda, setEditingPerda] = useState(null);
     const [perdaFormData, setPerdaFormData] = useState({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: '', motivo: 'Vencimento', outroMotivo: '' });
 
@@ -932,6 +938,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
     const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
     const resetPerdaForm = () => setPerdaFormData({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: new Date().toISOString().split('T')[0], motivo: 'Vencimento', outroMotivo: '' });
+    const resetReceitaForm = () => setReceitaFormData({ nome: '', categoria: '', ingredientes: '', modoPreparo: '', tempoPreparo: '', rendimento: '', custoEstimado: '', observacoes: '' });
 
     const openStockMovementModal = (item, type) => {
         setStockMovementModal({ isOpen: true, type, item });
@@ -1178,14 +1185,35 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     };
     const handleDeletePerda = (perda) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('perdasDescarte', perda.id) });
 
+    const handleNewReceita = () => { setEditingReceita(null); resetReceitaForm(); setShowReceitaModal(true); };
+    const handleEditReceita = (receita) => { setEditingReceita(receita); setReceitaFormData({ ...receita }); setShowReceitaModal(true); };
+    const handleDeleteReceita = (receita) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('receitas', receita.id) });
+    const handleReceitaSubmit = async (e) => {
+        e.preventDefault();
+        const requiredFields = ['nome', 'categoria', 'ingredientes', 'modoPreparo', 'tempoPreparo', 'rendimento', 'custoEstimado'];
+        const hasEmpty = requiredFields.some((field) => !String(receitaFormData[field] ?? '').trim());
+        if (hasEmpty) { alert('Preencha todos os campos obrigatórios da receita.'); return; }
+
+        const dataToSave = {
+            ...receitaFormData,
+            tempoPreparo: parseInt(receitaFormData.tempoPreparo || 0, 10),
+            rendimento: parseInt(receitaFormData.rendimento || 0, 10),
+            custoEstimado: parseFloat(receitaFormData.custoEstimado || 0)
+        };
+
+        if (editingReceita) { await updateItem('receitas', editingReceita.id, dataToSave); }
+        else { await addItem('receitas', dataToSave); }
+        setShowReceitaModal(false);
+    };
+
     // UI Rendering
     return (
         <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
             <div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Fornecedores/Estoque</h1><p className="text-gray-600 mt-1">Organize seus parceiros, compras e insumos</p></div>
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-2"><div className="flex space-x-2">
-                {['fornecedores', 'pedidos', 'estoque', 'perdas'].map(tab => (
+                {['fornecedores', 'pedidos', 'estoque', 'receitas', 'perdas'].map(tab => (
                     <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === tab ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
-                        {tab === 'fornecedores' && 'Fornecedores'}{tab === 'pedidos' && 'Pedidos de Compra'}{tab === 'estoque' && 'Estoque'}{tab === 'perdas' && 'Perdas/Descarte'}
+                        {tab === 'fornecedores' && 'Fornecedores'}{tab === 'pedidos' && 'Pedidos de Compra'}{tab === 'estoque' && 'Estoque'}{tab === 'receitas' && 'Receitas'}{tab === 'perdas' && 'Perdas/Descarte'}
                     </button>
                 ))}
             </div></div>
@@ -1268,6 +1296,15 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                     {filteredEstoque.length === 0 && (
                         <div className="px-4 py-6 text-center text-gray-500">Nenhum item encontrado</div>
                     )}
+                </div>
+            )}
+
+            {activeTab === 'receitas' && (
+                <div className="space-y-4">
+                    <div className="flex justify-end">
+                        <Button onClick={handleNewReceita} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Nova Receita</Button>
+                    </div>
+                    <ReceitasList receitas={data.receitas || []} onEdit={handleEditReceita} onDelete={handleDeleteReceita} />
                 </div>
             )}
 
@@ -1388,6 +1425,21 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowEstoqueModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
                 </form>
             </Modal>
+            <ReceitasModal
+                isOpen={showReceitaModal}
+                onClose={() => setShowReceitaModal(false)}
+                onSubmit={handleReceitaSubmit}
+                formData={receitaFormData}
+                setFormData={setReceitaFormData}
+                editingReceita={editingReceita}
+                Modal={Modal}
+                Input={Input}
+                Select={Select}
+                Textarea={Textarea}
+                Button={Button}
+                Save={Save}
+            />
+
             <Modal
                 isOpen={stockMovementModal.isOpen}
                 onClose={closeStockMovementModal}
