@@ -603,40 +603,73 @@
                 <!-- Endereço de Entrega com Mapa -->
                 <div>
                     <h3 class="text-lg font-semibold text-gray-800 mb-3">Endereço de Entrega</h3>
-                    <div id="guest-address-map-container" class="relative">
-                        <!-- O mapa será inserido aqui -->
-                    </div>
-                    <div class="space-y-4 mt-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="guest-address-street" class="block text-sm font-medium text-gray-700 mb-2">Rua *</label>
-                                <input id="guest-address-street" type="text" placeholder="Rua" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
-                            </div>
-                            <div>
-                                <label for="guest-address-number" class="block text-sm font-medium text-gray-700 mb-2">Número/Quadra, Lote *</label>
-                                <input id="guest-address-number" type="text" placeholder="Número/Quadra, Lote" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label for="guest-address-complement" class="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
-                                <input id="guest-address-complement" type="text" placeholder="Apto, Bloco, etc." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                    <div id="guest-address-flow">
+                        <div id="guest-address-step1" class="space-y-3">
+                            <p class="text-sm text-gray-600">Busque seu endereço ou use sua localização atual para começar.</p>
+                            <div id="guest-address-search-container"></div>
+                            <button id="guest-address-location-btn" type="button" class="w-full bg-pink-600 text-white px-3 py-2 rounded-lg font-bold hover:bg-pink-700 transition-colors">
+                                <i class="fa-solid fa-location-crosshairs mr-2"></i> Minha localização
+                            </button>
+                        </div>
+
+                        <div id="guest-address-step2" class="space-y-3 hidden">
+                            <p class="text-sm text-gray-600">Mova o mapa para ajustar o pino no local da entrega.</p>
+                            <div id="guest-address-map-container" class="relative"></div>
+                            <p id="guest-map-warning" class="hidden text-sm text-red-600 font-medium">Confirme o local para calcular o frete.</p>
+                            <div class="flex gap-2">
+                                <button id="guest-address-step2-confirm-btn" type="button" class="flex-1 bg-green-500 text-white py-2 rounded-lg font-bold hover:bg-green-600 transition-colors">Confirmar local</button>
+                                <button id="guest-address-step2-back-btn" type="button" class="bg-gray-500 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-600 transition-colors">Voltar</button>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <label for="guest-address-neighborhood" class="block text-sm font-medium text-gray-700 mb-2">Bairro *</label>
-                                <input id="guest-address-neighborhood" type="text" placeholder="Bairro" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+
+                        <div id="guest-address-step3" class="space-y-4 mt-4 hidden">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="guest-address-street" class="block text-sm font-medium text-gray-700 mb-2">Rua *</label>
+                                    <input id="guest-address-street" type="text" placeholder="Rua" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                                <div>
+                                    <label for="guest-address-number" class="block text-sm font-medium text-gray-700 mb-2">Número/Quadra, Lote *</label>
+                                    <input id="guest-address-number" type="text" placeholder="Número/Quadra, Lote" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label for="guest-address-complement" class="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
+                                    <input id="guest-address-complement" type="text" placeholder="Apto, Bloco, etc." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label for="guest-address-reference" class="block text-sm font-medium text-gray-700 mb-2">Referência</label>
+                                    <input id="guest-address-reference" type="text" placeholder="Ponto de referência" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label for="guest-address-neighborhood" class="block text-sm font-medium text-gray-700 mb-2">Bairro *</label>
+                                    <input id="guest-address-neighborhood" type="text" placeholder="Bairro" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                                <div>
+                                    <label for="guest-address-city" class="block text-sm font-medium text-gray-700 mb-2">Cidade *</label>
+                                    <input id="guest-address-city" type="text" placeholder="Cidade" value="Goiânia" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
+                                <div>
+                                    <label for="guest-address-zip" class="block text-sm font-medium text-gray-700 mb-2">CEP</label>
+                                    <input id="guest-address-zip" type="text" placeholder="CEP" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                </div>
                             </div>
                             <div>
-                                <label for="guest-address-city" class="block text-sm font-medium text-gray-700 mb-2">Cidade *</label>
-                                <input id="guest-address-city" type="text" placeholder="Cidade" value="Goiânia" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                                <label for="guest-address-nickname" class="block text-sm font-medium text-gray-700 mb-2">Apelido do endereço *</label>
+                                <input id="guest-address-nickname" type="text" placeholder="Como você chama este endereço? (Ex: Casa, Trabalho)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
                             </div>
-                            <div>
-                                <label for="guest-address-zip" class="block text-sm font-medium text-gray-700 mb-2">CEP</label>
-                                <input id="guest-address-zip" type="text" placeholder="CEP" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            <div class="flex items-center gap-4">
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input id="guest-address-no-number" type="checkbox" class="rounded border-gray-300 text-pink-600 focus:ring-pink-500">
+                                    Sem número
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input id="guest-address-frequent-location" type="checkbox" class="rounded border-gray-300 text-pink-600 focus:ring-pink-500">
+                                    Localização frequente
+                                </label>
                             </div>
-                        </div>
-                            <label for="guest-address-nickname" class="block text-sm font-medium text-gray-700 mb-2">Apelido do endereço *</label>
-                            <input id="guest-address-nickname" type="text" placeholder="Como você chama este endereço? (Ex: Casa, Trabalho)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors">
+                            <button id="guest-address-step3-back-btn" type="button" class="bg-gray-500 text-white py-2 px-4 rounded-lg font-bold hover:bg-gray-600 transition-colors">Voltar ao mapa</button>
                         </div>
                     </div>
                     <input id="guest-address-full" type="hidden"> <!-- Campo oculto para endereço completo -->
@@ -703,6 +736,12 @@
           const CONFIG_DOC_ID = 'config';
           const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
           const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
+          const STATIC_FRETE_FALLBACK = Object.freeze({
+                valorPorKm: 0,
+                taxaMinima: 0,
+                raioMaximoKm: 10,
+                cidadeBase: 'Goiânia'
+          });
 
           // Variável global para armazenar os dados de frete
           window.dadosFrete = null;
@@ -729,10 +768,31 @@
                         window.dadosFrete = fallbackSnap.data();
                         console.warn("⚠️ Usando fallback padrão de frete:", window.dadosFrete);
                   } else {
-                        console.error("❌ Documento 'frete' não encontrado");
+                        window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+                        console.warn("⚠️ Documento 'frete' não encontrado. Usando fallback estático local.");
                   }
                 } catch (error) {
-                  console.error("Erro ao carregar frete:", error);
+                  const errorCode = String(error?.code || '').toLowerCase();
+                  const isPermissionDenied = errorCode.includes('permission-denied') || String(error?.message || '').toLowerCase().includes('insufficient permissions');
+
+                  if (isPermissionDenied) {
+                        // Ajuda no diagnóstico: revela em qual projeto o app está inicializado.
+                        const currentProjectId = db?.app?.options?.projectId || 'desconhecido';
+                        console.error(`❌ Sem permissão para ler frete no projeto '${currentProjectId}'. Verifique regras implantadas e projectId/apiKey.`, error);
+
+                        // Recuperação: evita quebra total do checkout carregando valores locais.
+                        window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+
+                        if (typeof window.showToast === 'function') {
+                              window.showToast('Não foi possível carregar o frete online agora. Usando valores padrão temporários.', true);
+                        } else {
+                              alert('Não foi possível carregar o frete online agora. Usando valores padrão temporários.');
+                        }
+                        return;
+                  }
+
+                  window.dadosFrete = { ...STATIC_FRETE_FALLBACK };
+                  console.error("Erro ao carregar frete. Aplicando fallback estático.", error);
                 }
           }
 
@@ -1191,6 +1251,15 @@
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
         const CHECKOUT_STORAGE_KEY = 'checkoutState_v1';
         let addressStep = Number.isInteger(window.addressFlowState?.currentStep) ? window.addressFlowState.currentStep : 1;
+        const createInitialGuestAddressFlowState = () => ({
+            currentStep: 1,
+            locationConfirmed: false,
+            formData: {},
+            autocompleteSelection: ''
+        });
+        window.guestAddressFlowState = window.guestAddressFlowState || createInitialGuestAddressFlowState();
+        window.guestAddressStep = Number.isInteger(window.guestAddressFlowState?.currentStep) ? window.guestAddressFlowState.currentStep : 1;
+        window.guestManualAddressLocationConfirmed = !!window.guestAddressFlowState?.locationConfirmed;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
@@ -1352,6 +1421,10 @@
             }
         }
 
+        window.mapCriticalCheckoutError = mapCriticalCheckoutError;
+        window.setCheckoutBlockingIssue = setCheckoutBlockingIssue;
+        window.clearCheckoutBlockingIssue = clearCheckoutBlockingIssue;
+
         function ensureCheckoutNotBlocked() {
             if (!checkoutBlockingIssue) return;
             const message = checkoutBlockingIssue.message || 'Há uma pendência de conexão/sessão. Tente novamente.';
@@ -1403,6 +1476,8 @@
                     cart,
                     pendingOrderDetails,
                     guestCurrentLatLng: window.guestCurrentLatLng || null,
+                    guestAddressFlowState: window.guestAddressFlowState || createInitialGuestAddressFlowState(),
+                    guestManualAddressLocationConfirmed: !!window.guestManualAddressLocationConfirmed,
                     valorFrete: Number.isFinite(window.valorFrete) ? window.valorFrete : 0,
                     addressStep: Number.isInteger(window.addressFlowState?.currentStep)
                         ? window.addressFlowState.currentStep
@@ -1425,6 +1500,11 @@
                     ? savedState.pendingOrderDetails
                     : {};
                 window.guestCurrentLatLng = savedState?.guestCurrentLatLng || null;
+                window.guestAddressFlowState = (savedState?.guestAddressFlowState && typeof savedState.guestAddressFlowState === 'object')
+                    ? { ...createInitialGuestAddressFlowState(), ...savedState.guestAddressFlowState }
+                    : createInitialGuestAddressFlowState();
+                window.guestManualAddressLocationConfirmed = !!savedState?.guestManualAddressLocationConfirmed || !!window.guestAddressFlowState?.locationConfirmed;
+                window.guestAddressStep = Number.isInteger(window.guestAddressFlowState?.currentStep) ? window.guestAddressFlowState.currentStep : 1;
                 window.valorFrete = Number.isFinite(savedState?.valorFrete) ? savedState.valorFrete : 0;
                 addressStep = Number.isInteger(savedState?.addressStep) ? savedState.addressStep : 1;
                 if (window.addressFlowState) {
@@ -1544,19 +1624,19 @@
         }
 
         function renderMenu() {
-            const festaProducts = allProducts.filter(p => p.categoria === 'Festa');
+            const deliveryProducts = allProducts.filter(p => p.categoria === 'Delivery');
 
-            if (festaProducts.length === 0) {
+            if (deliveryProducts.length === 0) {
                 productList.innerHTML = `
                     <div class="text-center py-16">
                         <i class="fas fa-exclamation-triangle text-4xl text-yellow-500 mb-4"></i>
-                        <p class="text-gray-600 text-lg">Nenhum produto disponível para festa no momento.</p>
+                        <p class="text-gray-600 text-lg">Nenhum produto disponível para delivery no momento.</p>
                     </div>
                 `;
                 return;
             }
 
-            const productsBySubcategory = festaProducts.reduce((acc, product) => {
+            const productsBySubcategory = deliveryProducts.reduce((acc, product) => {
                 const sub = product.subcategoria || 'Outros';
                 if (!acc[sub]) acc[sub] = [];
                 acc[sub].push(product);
@@ -1898,16 +1978,14 @@
             continueGuestButton.addEventListener('click', () => {
                 identificationModal.classList.add('hidden');
                 guestCheckoutModal.classList.remove('hidden');
-                window.valorFrete = 0;
-                window.guestCurrentLatLng = null;
-                persistCheckoutState();
+                window.initGuestAddressFlow?.();
+                window.showGuestAddressStep?.(window.guestAddressFlowState?.currentStep || 1);
                 updateGuestSummary();
-                setTimeout(window.initGuestAddressMap, 300);
+                setTimeout(() => window.initGuestAddressMap?.(window.guestCurrentLatLng), 300);
             });
 
             closeGuestCheckoutModal.addEventListener('click', () => {
                 guestCheckoutModal.classList.add('hidden');
-                window.guestCurrentLatLng = null;
                 persistCheckoutState();
             });
 
@@ -1966,6 +2044,28 @@
 
             sendWhatsappButton.addEventListener('click', handleGuestOrder);
             confirmOrderButton.addEventListener('click', handlePlatformOrder);
+            document.getElementById('guest-address-step2-confirm-btn')?.addEventListener('click', async () => {
+                const normalizedLatLng = window.normalizeGuestLatLng?.(window.guestCurrentLatLng);
+                if (!normalizedLatLng) {
+                    showToast('Confirme uma localização válida no mapa antes de continuar.', true);
+                    window.showGuestMapWarning?.('Confirme o local para calcular o frete.');
+                    return;
+                }
+                window.guestManualAddressLocationConfirmed = true;
+                window.clearGuestMapWarning?.();
+                window.guestAddressFlowState = window.guestAddressFlowState || {};
+                window.guestAddressFlowState.locationConfirmed = true;
+                window.syncGuestAddressFlowState?.({ locationConfirmed: true, currentStep: 2 });
+                try {
+                    await window.updateGuestShippingAndSummary(normalizedLatLng);
+                } finally {
+                    window.showGuestAddressStep?.(3);
+                    window.syncGuestAddressFlowState?.({ locationConfirmed: true, currentStep: 3 });
+                    window.persistCheckoutState?.();
+                }
+            });
+            document.getElementById('guest-address-step2-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(1));
+            document.getElementById('guest-address-step3-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(2));
 
             closeConfirmationButton.addEventListener('click', () => {
                 confirmationModal.classList.add('hidden');
@@ -1978,46 +2078,6 @@
 
             if (paymentVerifyCupomButton) paymentVerifyCupomButton.addEventListener('click', () => handleVerifyCupom('payment'));
 
-            ['guest-address-street', 'guest-address-number', 'guest-address-neighborhood', 'guest-address-city'].forEach(id => {
-                const input = document.getElementById(id);
-                if (input) {
-                    input.addEventListener('blur', async () => {
-                        const street = document.getElementById('guest-address-street').value.trim();
-						const number = document.getElementById('guest-address-number').value.trim();
-                        const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
-                        const city = document.getElementById('guest-address-city').value.trim() || 'Goiânia';
-
-                        if (street && number && neighborhood && city) {
-                            const fullAddressForGeocode = `${street}, ${number}, ${neighborhood}, ${city}`;
-
-                            try {
-                                await window.aguardarGoogleMaps();
-                                const geocoder = new google.maps.Geocoder();
-                                geocoder.geocode({ address: fullAddressForGeocode }, (results, status) => {
-                                    if (status === 'OK' && results[0]) {
-                                        const location = results[0].geometry.location;
-                                        const latlng = { lat: location.lat(), lng: location.lng() };
-                                        fillGuestAddressFields(results[0]);
-                                        window.guestCurrentLatLng = latlng;
-                                        persistCheckoutState();
-                                        window.updateGuestShippingAndSummary(latlng);
-                                    } else {
-                                        console.warn('Não foi possível geocodificar o endereço digitado:', status);
-                                        showToast('Endereço não encontrado para cálculo. Tente mover o pino no mapa.', true);
-                                    }
-                                });
-                            } catch (error) {
-                                console.error('Erro ao geocodificar endereço do visitante:', error);
-                            }
-                        } else {
-                            window.guestCurrentLatLng = null;
-                            window.valorFrete = 0;
-                            persistCheckoutState();
-                            updateGuestSummary();
-                        }
-                    });
-                }
-            });
         }
 
         async function showNewAddressSection() {
@@ -2127,11 +2187,9 @@
             const addressText = addressParts.join(', ');
 
             try {
-                const { db, doc, updateDoc, arrayUnion } = await import('./firebaseClientConfig.js');
                 if (!currentClient?.id) {
                     throw new Error('Cliente não identificado para atualizar endereço.');
                 }
-                const clientDocRef = doc(db, ...storePath('clientes', currentClient.id));
 
                 const lat = parseFloat(window.currentLatLng.lat);
                 const lng = parseFloat(window.currentLatLng.lng);
@@ -2154,9 +2212,12 @@
                     criadoEm: new Date().toISOString()
                 };
 
-                await updateDoc(clientDocRef, {
-                    enderecos: arrayUnion(newAddress),
-                    lojaId: STORE_ID
+                const functions = getFunctions(app, 'us-central1');
+                const addClientAddress = httpsCallable(functions, 'addClientAddress');
+                await addClientAddress({
+                    clientId: currentClient.id,
+                    lojaId: STORE_ID,
+                    address: newAddress
                 });
 
                 currentClient.enderecos = Array.isArray(currentClient.enderecos)
@@ -2358,18 +2419,29 @@
                 document.getElementById('customer-modal-error').classList.add('hidden');
 
                 try {
-                    const { db, doc, updateDoc } = await import('./firebaseClientConfig.js');
-                    const clientRef = doc(db, ...storePath('clientes', client.id));
-                    await updateDoc(clientRef, { nome: newName, aniversario: newBirthdate });
+                    const { updateClientProfile, normalizeCallableError } = await import('./firebaseClientConfig.js');
+                    const response = await updateClientProfile({
+                        lojaId: STORE_ID,
+                        clientId: client.id,
+                        nome: newName,
+                        aniversario: newBirthdate,
+                    });
 
-                    currentClient.nome = newName;
-                    currentClient.aniversario = newBirthdate;
+                    const payload = response?.data || {};
+                    const updatedClient = payload?.client || {};
+
+                    currentClient = {
+                        ...currentClient,
+                        ...updatedClient,
+                        id: payload?.clientId || client.id,
+                    };
 
                     showToast('Dados atualizados com sucesso!');
                     modal.classList.add('hidden');
                     openAddressManagementModal(currentClient); // Reopen address modal with updated name
                 } catch (error) {
-                    console.error("Erro ao atualizar cliente:", error);
+                    const callableError = normalizeCallableError?.(error) || error;
+                    console.error("Erro ao atualizar cliente:", callableError);
                     showToast('Erro ao atualizar dados.', true);
                 }
             };
@@ -2457,8 +2529,6 @@
             searchPhoneButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Buscando...';
 
             try {
-                const firebaseClient = await import('./firebaseClientConfig.js');
-                const { db, doc, getDoc } = firebaseClient;
                 const functions = getFunctions(app, 'us-central1');
                 const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
                 const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
@@ -2470,12 +2540,11 @@
                     throw new Error('Resposta inválida da busca de cliente.');
                 }
 
-                const clientSnap = await getDoc(doc(db, 'clientes', clientId));
-                if (!clientSnap.exists()) {
-                    throw new Error('Cadastro do cliente não está disponível.');
+                if (!client || typeof client !== 'object') {
+                    throw new Error('Dados do cliente não retornados pela função.');
                 }
 
-                currentClient = { id: clientId, ...clientSnap.data() };
+                currentClient = { id: clientId, ...client };
                 console.log('✅ Cliente identificado:', {
                     id: clientId,
                     nomeAbreviado: client?.nomeAbreviado || currentClient.nome,
@@ -2560,6 +2629,9 @@
                         const shippingValue = document.getElementById('guest-shipping');
                         if (window.valorFrete > 0) {
                                 shippingValue.textContent = `R$ ${window.valorFrete.toFixed(2)}`;
+                                shippingRow.classList.remove('hidden');
+                        } else if (window.guestCurrentLatLng && !window.guestManualAddressLocationConfirmed) {
+                                shippingValue.textContent = 'Confirme o local para calcular o frete.';
                                 shippingRow.classList.remove('hidden');
                         } else if (window.guestCurrentLatLng) {
                                 shippingValue.textContent = 'R$ 0,00';
@@ -2657,30 +2729,49 @@
             persistCheckoutState();
         }
 
-		async function handleGuestOrder() {
+        async function handleGuestOrder() {
             const name = guestNameInput.value.trim();
             const phone = guestPhoneInput.value.trim();
             const paymentMethod = guestPaymentMethodSelect.value;
             const street = document.getElementById('guest-address-street').value.trim();
-            const number = document.getElementById('guest-address-number').value.trim();
+            const numberInputValue = document.getElementById('guest-address-number').value.trim();
+            const noNumber = document.getElementById('guest-address-no-number')?.checked || false;
+            const number = noNumber ? 'S/N' : numberInputValue;
             const complement = document.getElementById('guest-address-complement').value.trim();
+            const reference = document.getElementById('guest-address-reference')?.value.trim() || '';
             const neighborhood = document.getElementById('guest-address-neighborhood').value.trim();
             const city = document.getElementById('guest-address-city').value.trim();
             const zip = document.getElementById('guest-address-zip').value.trim();
             const nickname = document.getElementById('guest-address-nickname').value.trim();
+            const guestStep3Visible = !document.getElementById('guest-address-step3')?.classList.contains('hidden');
 
-            if (!name || !phone || !paymentMethod || !street || !number || !neighborhood || !city || !nickname) {
+            if (!guestStep3Visible) {
+                showToast('Confirme o local para avançar ao preenchimento do endereço.', true);
+                window.showGuestAddressStep?.(2);
+                window.showGuestMapWarning?.('Confirme o local para calcular o frete.');
+                return;
+            }
+
+            if (!name || !phone || !paymentMethod || !street || (!noNumber && !numberInputValue) || !neighborhood || !city || !nickname) {
                 showToast('Preencha todos os campos obrigatórios (*).', true);
                 return;
             }
 
-
-            if (!window.guestCurrentLatLng || typeof window.guestCurrentLatLng.lat === 'undefined' || typeof window.guestCurrentLatLng.lng === 'undefined') {
-                showToast('Confirme a localização no mapa antes de finalizar.', true);
+            if (!window.guestManualAddressLocationConfirmed) {
+                showToast('É preciso confirmar o local no mapa antes de finalizar.', true);
+                window.showGuestMapWarning?.('É preciso confirmar o local no mapa antes de finalizar.');
+                window.showGuestAddressStep?.(2);
                 return;
             }
 
-            let fullAddress = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
+            if (!window.guestCurrentLatLng || typeof window.guestCurrentLatLng.lat === 'undefined' || typeof window.guestCurrentLatLng.lng === 'undefined') {
+                showToast('Confirme a localização no mapa antes de finalizar.', true);
+                window.showGuestMapWarning?.('Confirme o local para calcular o frete.');
+                window.showGuestAddressStep?.(2);
+                return;
+            }
+
+            let fullAddress = `${street}${number ? ', ' + number : ''}${complement ? ' - ' + complement : ''}${reference ? ' - Ref: ' + reference : ''}${neighborhood ? ', ' + neighborhood : ''}${city ? ', ' + city : ''}${zip ? ' - CEP: ' + zip : ''}`;
             if (nickname) fullAddress += ` (${nickname})`;
 
             document.getElementById('guest-address-full').value = fullAddress;
@@ -2830,7 +2921,103 @@
 
 	<script>
 	// ==================== CÁLCULO DE FRETE E MAPA PARA VISITANTES ====================
-    let guestMap, guestMarker, guestGeocoder, guestPlaceAutocomplete;
+    let guestMap, guestGeocoder, guestPlaceAutocomplete, guestMapIdleListener;
+
+    function createInitialGuestAddressFlowState() {
+        return {
+            currentStep: 1,
+            locationConfirmed: false,
+            formData: {},
+            autocompleteSelection: ''
+        };
+    }
+
+    function snapshotGuestAddressFormData() {
+        return {
+            street: document.getElementById('guest-address-street')?.value || '',
+            number: document.getElementById('guest-address-number')?.value || '',
+            complement: document.getElementById('guest-address-complement')?.value || '',
+            reference: document.getElementById('guest-address-reference')?.value || '',
+            neighborhood: document.getElementById('guest-address-neighborhood')?.value || '',
+            city: document.getElementById('guest-address-city')?.value || 'Goiânia',
+            zip: document.getElementById('guest-address-zip')?.value || '',
+            nickname: document.getElementById('guest-address-nickname')?.value || '',
+            noNumber: document.getElementById('guest-address-no-number')?.checked || false,
+            frequentLocation: document.getElementById('guest-address-frequent-location')?.checked || false
+        };
+    }
+
+    function applyGuestAddressFormData(data = {}) {
+        const city = data.city || 'Goiânia';
+        const mapping = {
+            'guest-address-street': data.street || '',
+            'guest-address-number': data.number || '',
+            'guest-address-complement': data.complement || '',
+            'guest-address-reference': data.reference || '',
+            'guest-address-neighborhood': data.neighborhood || '',
+            'guest-address-city': city,
+            'guest-address-zip': data.zip || '',
+            'guest-address-nickname': data.nickname || ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const input = document.getElementById(id);
+            if (input && input.value !== value) input.value = value;
+        });
+        const noNumberCheckbox = document.getElementById('guest-address-no-number');
+        const numberInput = document.getElementById('guest-address-number');
+        if (noNumberCheckbox) {
+            noNumberCheckbox.checked = !!data.noNumber;
+        }
+        if (numberInput) {
+            const shouldDisableNumber = !!noNumberCheckbox?.checked;
+            numberInput.disabled = shouldDisableNumber;
+            if (shouldDisableNumber && !numberInput.value) numberInput.value = 'S/N';
+        }
+        const frequentLocationCheckbox = document.getElementById('guest-address-frequent-location');
+        if (frequentLocationCheckbox) {
+            frequentLocationCheckbox.checked = !!data.frequentLocation;
+        }
+    }
+
+    function syncGuestAddressFlowState(nextState = {}) {
+        window.guestAddressFlowState = window.guestAddressFlowState || createInitialGuestAddressFlowState();
+        Object.assign(window.guestAddressFlowState, nextState);
+        window.guestAddressFlowState.formData = snapshotGuestAddressFormData();
+        window.guestAddressFlowState.locationConfirmed = !!window.guestManualAddressLocationConfirmed;
+        if (guestPlaceAutocomplete?.value) {
+            window.guestAddressFlowState.autocompleteSelection = guestPlaceAutocomplete.value;
+        }
+        window.guestAddressStep = window.guestAddressFlowState.currentStep || 1;
+        window.persistCheckoutState?.();
+    }
+    window.syncGuestAddressFlowState = syncGuestAddressFlowState;
+
+    function showGuestMapWarning(message = 'Confirme o local para calcular o frete.') {
+        const warning = document.getElementById('guest-map-warning');
+        if (!warning) return;
+        warning.textContent = message;
+        warning.classList.remove('hidden');
+    }
+
+    function clearGuestMapWarning() {
+        const warning = document.getElementById('guest-map-warning');
+        if (!warning) return;
+        warning.classList.add('hidden');
+    }
+
+    function showGuestAddressStep(step = 1) {
+        const normalized = Number.isInteger(step) ? step : 1;
+        ['guest-address-step1', 'guest-address-step2', 'guest-address-step3'].forEach((id, index) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.toggle('hidden', index !== normalized - 1);
+        });
+        window.guestAddressStep = normalized;
+        syncGuestAddressFlowState({ currentStep: normalized });
+    }
+    window.showGuestAddressStep = showGuestAddressStep;
+    window.showGuestMapWarning = showGuestMapWarning;
+    window.clearGuestMapWarning = clearGuestMapWarning;
 
     function normalizeGuestLatLng(latlng) {
         try {
@@ -2852,6 +3039,7 @@
         }
         return null;
     }
+    window.normalizeGuestLatLng = normalizeGuestLatLng;
 
     async function updateGuestShippingAndSummary(latlng) {
         const normalizedLatLng = normalizeGuestLatLng(latlng);
@@ -2877,11 +3065,12 @@
             window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
             window.persistCheckoutState?.();
             window.showToast(`Frete: R$ ${window.valorFrete.toFixed(2)}`);
-            clearCheckoutBlockingIssue('frete');
+            window.clearCheckoutBlockingIssue?.('frete');
         } catch (error) {
             console.error('Falha ao calcular frete para visitante:', error);
-            const friendlyMessage = mapCriticalCheckoutError(error, 'Não foi possível calcular o frete para este endereço.');
-            setCheckoutBlockingIssue('frete', friendlyMessage);
+            const fallbackMessage = 'Não foi possível calcular o frete para este endereço.';
+            const friendlyMessage = window.mapCriticalCheckoutError?.(error, fallbackMessage) || error?.message || fallbackMessage;
+            window.setCheckoutBlockingIssue?.('frete', friendlyMessage);
             window.showToast(friendlyMessage, true);
             window.valorFrete = 0;
             window.persistCheckoutState?.();
@@ -2928,6 +3117,7 @@
 
         const fullInput = document.getElementById('guest-address-full');
         if (fullInput) fullInput.value = formattedAddress || fullInput.value || '';
+        syncGuestAddressFlowState();
     }
 
     function reverseGeocodeGuest(latlng) {
@@ -2942,79 +3132,165 @@
         }
 
         guestGeocoder.geocode({ location: normalizedLatLng }, (results, status) => {
-		if (status === 'OK' && results[0]) {
+		    if (status === 'OK' && results[0]) {
                 fillGuestAddressFields(results[0]);
+                window.guestCurrentLatLng = normalizedLatLng;
+                window.guestManualAddressLocationConfirmed = false;
+                showGuestMapWarning('Mova o mapa para ajustar o pino no local da entrega.');
+                syncGuestAddressFlowState({ locationConfirmed: false });
             }
-            updateGuestShippingAndSummary(normalizedLatLng);
         });
     }
 
-    window.initGuestAddressMap = async function() {
-        const addressMapContainer = document.getElementById('guest-address-map-container');
-        if (addressMapContainer.dataset.initialized) return;
-        addressMapContainer.innerHTML = '';
+    async function initGuestAddressStep1Search() {
+        const searchContainer = document.getElementById('guest-address-search-container');
+        const locationBtn = document.getElementById('guest-address-location-btn');
+        if (!searchContainer) return;
+        await window.aguardarGoogleMaps?.();
 
-        try {
-            const defaultCenter = { lat: -16.644661430463806, lng: -49.324890665224544 };
-            guestGeocoder = new google.maps.Geocoder();
-
-            const { Map } = await google.maps.importLibrary("maps");
-            const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
-
-            const mapDiv = document.createElement('div');
-            mapDiv.style.cssText = 'height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem;';
-            mapDiv.style.touchAction = 'none';
-
-            guestMap = new Map(mapDiv, { center: defaultCenter, zoom: 14, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
-            guestMarker = new AdvancedMarkerElement({ map: guestMap, position: defaultCenter, gmpDraggable: true });
-			const guestStoreInfoWindow = new google.maps.InfoWindow({
-                content: '<div style="font-weight:600;color:#db2777;font-size:0.95rem;">Ana Guimarães doceria</div>',
-                disableAutoPan: true,
-            });
-            guestStoreInfoWindow.open({ anchor: guestMarker, map: guestMap });
-            guestMarker.addListener('dragend', () => reverseGeocodeGuest(guestMarker.position));
-            guestMarker.addListener('dragstart', () => guestStoreInfoWindow.close());
-			guestPlaceAutocomplete = new google.maps.places.PlaceAutocompleteElement();
-            guestPlaceAutocomplete.className = 'w-full mb-2 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500';
+        if (!guestPlaceAutocomplete) {
+            await google.maps.importLibrary("places");
+            guestPlaceAutocomplete = new google.maps.places.PlaceAutocompleteElement();
+            guestPlaceAutocomplete.className = 'w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500';
             guestPlaceAutocomplete.setAttribute('placeholder', 'Digite o endereço para entrega...');
-
             guestPlaceAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
                 const place = placePrediction.toPlace();
                 await place.fetchFields({ fields: ['location', 'formattedAddress', 'addressComponents'] });
-                if (place.location) {
-                    const newPosition = { lat: place.location.lat(), lng: place.location.lng() };
-                    guestMap.setCenter(newPosition);
-                    guestMap.setZoom(18);
-                    guestStoreInfoWindow.close();
-                    guestMarker.position = newPosition;
-                    fillGuestAddressFields(place);
-                    updateGuestShippingAndSummary(newPosition);
-                }
+                if (!place.location) return;
+                const coords = { lat: place.location.lat(), lng: place.location.lng() };
+                fillGuestAddressFields(place);
+                window.guestCurrentLatLng = coords;
+                window.guestManualAddressLocationConfirmed = false;
+                syncGuestAddressFlowState({ currentStep: 2, locationConfirmed: false });
+                showGuestAddressStep(2);
+                await window.initGuestAddressMap(coords);
+                showGuestMapWarning('Mova o mapa para ajustar o pino no local da entrega.');
             });
+        }
 
-            const locationBtn = document.createElement('button');
-            locationBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs mr-2"></i> Usar minha localização';
-            locationBtn.className = 'w-full bg-pink-600 text-white px-3 py-2 rounded-lg font-bold mb-2 hover:bg-pink-700 transition-colors';
-            locationBtn.type = 'button';
-            locationBtn.onclick = () => {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(pos => {
-                        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                        guestMap.panTo(coords);
-                        guestMap.setZoom(17);
-                                                guestStoreInfoWindow.close();
-                        guestMarker.position = coords;
-                        reverseGeocodeGuest(coords);
-                    });
-                }
-            };
+        if (guestPlaceAutocomplete && !searchContainer.contains(guestPlaceAutocomplete)) {
+            searchContainer.append(guestPlaceAutocomplete);
+        }
+        if (guestPlaceAutocomplete && window.guestAddressFlowState?.autocompleteSelection && !guestPlaceAutocomplete.value) {
+            guestPlaceAutocomplete.value = window.guestAddressFlowState.autocompleteSelection;
+        }
+        if (locationBtn && !locationBtn.dataset.boundGuestLocation) {
+            locationBtn.dataset.boundGuestLocation = 'true';
+            locationBtn.addEventListener('click', useCurrentLocationForGuestAddress);
+        }
+    }
 
-            addressMapContainer.append(guestPlaceAutocomplete, locationBtn, mapDiv);
-            addressMapContainer.dataset.initialized = 'true';
+    async function useCurrentLocationForGuestAddress() {
+        if (!navigator.geolocation) {
+            showToast('Geolocalização não suportada.', true);
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            window.guestCurrentLatLng = coords;
+            window.guestManualAddressLocationConfirmed = false;
+            syncGuestAddressFlowState({ currentStep: 2, locationConfirmed: false });
+            showGuestAddressStep(2);
+            await window.initGuestAddressMap(coords);
+            reverseGeocodeGuest(coords);
+            showGuestMapWarning('Mova o mapa para ajustar o pino no local da entrega.');
+        }, (err) => showToast(`Não foi possível obter localização: ${err.message}`, true));
+    }
+
+    window.initGuestAddressMap = async function(initialCoords) {
+        const addressMapContainer = document.getElementById('guest-address-map-container');
+        if (!addressMapContainer) return;
+
+        try {
+            const defaultCenter = normalizeGuestLatLng(initialCoords) || window.guestCurrentLatLng || { lat: -16.644661430463806, lng: -49.324890665224544 };
+            guestGeocoder = new google.maps.Geocoder();
+
+            const { Map } = await google.maps.importLibrary("maps");
+            let mapShell = addressMapContainer.querySelector('div[data-guest-map-shell="true"]');
+            let mapDiv = addressMapContainer.querySelector('div[data-guest-map="true"]');
+            if (!mapShell || !mapDiv) {
+                mapShell = document.createElement('div');
+                mapShell.dataset.guestMapShell = 'true';
+                mapShell.style.cssText = 'position:relative; height:300px; width:100%; border-radius:0.5rem; margin-top:0.75rem; overflow:hidden;';
+
+                mapDiv = document.createElement('div');
+                mapDiv.dataset.guestMap = 'true';
+                mapDiv.style.cssText = 'height:100%; width:100%;';
+                mapDiv.style.touchAction = 'none';
+
+                const centerPin = document.createElement('div');
+                centerPin.style.cssText = 'position:absolute; left:50%; top:50%; transform:translate(-50%, -100%); z-index:9999; pointer-events:none; width:28px; height:28px;';
+                centerPin.innerHTML = '<div style="width:26px;height:26px;background:#ef4444;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 3px 8px rgba(0,0,0,.4);position:relative;"><div style="width:9px;height:9px;background:#fff;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(45deg);"></div></div>';
+
+                mapShell.append(mapDiv, centerPin);
+                addressMapContainer.innerHTML = '';
+                addressMapContainer.append(mapShell);
+            }
+
+            if (!guestMap) {
+                guestMap = new Map(mapDiv, { center: defaultCenter, zoom: 17, mapId: 'DEMO_MAP_ID', gestureHandling: 'greedy' });
+                if (guestMapIdleListener) google.maps.event.removeListener(guestMapIdleListener);
+                guestMapIdleListener = guestMap.addListener('idle', () => {
+                    const center = guestMap.getCenter();
+                    if (!center) return;
+                    reverseGeocodeGuest({ lat: center.lat(), lng: center.lng() });
+                });
+            } else {
+                guestMap.setCenter(defaultCenter);
+                guestMap.setZoom(17);
+            }
+
+            reverseGeocodeGuest(defaultCenter);
         } catch (error) {
             console.error("Erro ao inicializar mapa do visitante:", error);
             addressMapContainer.innerHTML = `<div class="bg-red-50 p-4 text-red-700 rounded-lg">Erro ao carregar o mapa.</div>`;
         }
+    }
+
+    window.initGuestAddressFlow = async function() {
+        window.guestAddressFlowState = window.guestAddressFlowState || createInitialGuestAddressFlowState();
+        applyGuestAddressFormData(window.guestAddressFlowState.formData || {});
+        window.guestManualAddressLocationConfirmed = !!window.guestAddressFlowState.locationConfirmed;
+        try {
+            await initGuestAddressStep1Search();
+        } catch (error) {
+            console.error('Falha ao iniciar busca de endereço do visitante:', error);
+        }
+        const step = window.guestAddressFlowState.currentStep || 1;
+        showGuestAddressStep(step);
+        if (step >= 2 && normalizeGuestLatLng(window.guestCurrentLatLng)) {
+            await window.initGuestAddressMap(window.guestCurrentLatLng);
+        }
+        if (!window.guestManualAddressLocationConfirmed) {
+            showGuestMapWarning('Confirme o local para calcular o frete.');
+        } else {
+            clearGuestMapWarning();
+        }
+    };
+
+    ['guest-address-street', 'guest-address-number', 'guest-address-complement', 'guest-address-reference', 'guest-address-neighborhood', 'guest-address-city', 'guest-address-zip', 'guest-address-nickname', 'guest-address-no-number', 'guest-address-frequent-location', 'guest-name', 'guest-phone', 'guest-payment-method']
+        .forEach((id) => {
+            const input = document.getElementById(id);
+            if (!input || input.dataset.boundGuestState) return;
+            input.dataset.boundGuestState = 'true';
+            input.addEventListener('input', () => syncGuestAddressFlowState());
+            input.addEventListener('change', () => syncGuestAddressFlowState());
+        });
+
+    const guestNoNumberCheckbox = document.getElementById('guest-address-no-number');
+    const guestNumberInput = document.getElementById('guest-address-number');
+    if (guestNoNumberCheckbox && guestNumberInput && !guestNoNumberCheckbox.dataset.boundGuestNoNumber) {
+        guestNoNumberCheckbox.dataset.boundGuestNoNumber = 'true';
+        guestNoNumberCheckbox.addEventListener('change', () => {
+            const checked = guestNoNumberCheckbox.checked;
+            guestNumberInput.disabled = checked;
+            if (checked) {
+                guestNumberInput.value = 'S/N';
+            } else if (guestNumberInput.value === 'S/N') {
+                guestNumberInput.value = '';
+            }
+            syncGuestAddressFlowState();
+        });
     }
 	// ==================== CÁLCULO DE FRETE - VERSÃO ÚNICA ====================
 
