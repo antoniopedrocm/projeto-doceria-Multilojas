@@ -27,17 +27,27 @@ import {
 const envVar = (key) => process.env[key] || import.meta.env?.[key] || '';
 
 const GOOGLE_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
+const DEFAULT_FIREBASE_STORAGE_BUCKET = 'ana-guimaraes.firebasestorage.app';
+const LEGACY_FIREBASE_STORAGE_BUCKET = 'ana-guimaraes.appspot.com';
+
+const normalizeStorageBucket = (bucket) => {
+  const normalizedBucket = String(bucket || '').trim().replace(/^gs:\/\//i, '');
+  if (!normalizedBucket || normalizedBucket === LEGACY_FIREBASE_STORAGE_BUCKET) {
+    return DEFAULT_FIREBASE_STORAGE_BUCKET;
+  }
+
+  return normalizedBucket;
+};
 
 const firebaseConfig = {
   apiKey: envVar('REACT_APP_FIREBASE_API_KEY') || GOOGLE_API_KEY,
   authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') ||
     'ana-guimaraes.firebaseapp.com',
   projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
-  // Use the default Firebase bucket (*.appspot.com) in SDK config.
-  // The firebasestorage.app domain is only for public/download URLs and
-  // breaks Firebase Storage SDK operations when used as storageBucket.
-  storageBucket:
-    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || 'ana-guimaraes.appspot.com',
+  // Keep old env files from pointing uploads at the retired appspot bucket.
+  storageBucket: normalizeStorageBucket(
+    envVar('REACT_APP_FIREBASE_STORAGE_BUCKET') || DEFAULT_FIREBASE_STORAGE_BUCKET
+  ),
   messagingSenderId:
     envVar('REACT_APP_FIREBASE_MESSAGING_SENDER_ID') || '847824537421',
   appId:

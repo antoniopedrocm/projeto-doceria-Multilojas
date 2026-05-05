@@ -23,7 +23,7 @@ const firebaseConfig = {
   apiKey: GOOGLE_API_KEY,
   authDomain: 'ana-guimaraes.firebaseapp.com',
   projectId: 'ana-guimaraes',
-  storageBucket: 'ana-guimaraes.appspot.com',
+  storageBucket: 'ana-guimaraes.firebasestorage.app',
   messagingSenderId: '847824537421',
   appId: '1:847824537421:web:75861057fd6f998ee49904',
   measurementId: 'G-F8BVTNLEW7'
