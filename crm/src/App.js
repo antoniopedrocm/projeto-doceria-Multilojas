@@ -154,6 +154,117 @@ const getDefaultStoreHoursConfig = () => ({
   }
 });
 
+const DEBUG_CACHE_SYNC = (() => {
+  if (typeof window !== 'undefined') {
+    try {
+      return window.DEBUG_CACHE_SYNC === true || window.localStorage?.getItem('DEBUG_CACHE_SYNC') === 'true';
+    } catch (error) {
+      return window.DEBUG_CACHE_SYNC === true;
+    }
+  }
+
+  return process.env.REACT_APP_DEBUG_CACHE_SYNC === 'true';
+})();
+
+const debugCacheSync = (...args) => {
+  if (DEBUG_CACHE_SYNC) {
+    console.debug('[CacheSync]', ...args);
+  }
+};
+
+const parseTimeToMinutes = (value) => {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return (hours * 60) + minutes;
+};
+
+const getNowInTimeZone = (timezone, now = new Date()) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || DEFAULT_STORE_TIMEZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const weekdayRaw = parts.find((part) => part.type === 'weekday')?.value?.toLowerCase() || 'sun';
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+  const weekdayMap = { sun: 'sun', mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat' };
+  const weekday = weekdayMap[weekdayRaw.slice(0, 3)] || 'sun';
+
+  return { weekday, minutes: (hour * 60) + minute };
+};
+
+const shouldEnforceStoreOpenState = (storeConfig = {}) => {
+  const overrideMode = storeConfig?.manualOverride?.mode || 'auto';
+  if (overrideMode === 'force_open' || overrideMode === 'force_closed') return true;
+
+  const schedule = storeConfig?.schedule || {};
+  return Object.values(schedule).some((dayConfig) => dayConfig?.enabled);
+};
+
+const isStoreOpenNow = (storeConfig = {}, now = new Date()) => {
+  const overrideMode = storeConfig?.manualOverride?.mode || 'auto';
+  if (overrideMode === 'force_open') return true;
+  if (overrideMode === 'force_closed') return false;
+  if (!shouldEnforceStoreOpenState(storeConfig)) return true;
+
+  const timezone = storeConfig?.timezone || DEFAULT_STORE_TIMEZONE;
+  const schedule = storeConfig?.schedule || {};
+  const { weekday, minutes } = getNowInTimeZone(timezone, now);
+  const todayConfig = schedule[weekday];
+  if (!todayConfig || !todayConfig.enabled) return false;
+
+  const openMinutes = parseTimeToMinutes(todayConfig.open);
+  const closeMinutes = parseTimeToMinutes(todayConfig.close);
+  if (openMinutes === null || closeMinutes === null) return false;
+  if (closeMinutes <= openMinutes) return false;
+
+  return minutes >= openMinutes && minutes < closeMinutes;
+};
+
+const roundCurrency = (value) => Number((Number(value || 0)).toFixed(2));
+
+const getOrderItemProductId = (item) => item?.produtoId || item?.productId || item?.id || null;
+
+const getOrderItemQuantity = (item) => {
+  const parsed = Number(item?.quantity ?? item?.quantidade ?? 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const getClientPrimaryAddressText = (cliente = {}) => {
+  if (typeof cliente.endereco === 'string' && cliente.endereco.trim()) {
+    return cliente.endereco.trim();
+  }
+
+  const firstAddress = Array.isArray(cliente.enderecos) ? cliente.enderecos[0] : null;
+  if (!firstAddress) return '';
+  if (typeof firstAddress === 'string') return firstAddress;
+  if (firstAddress.enderecoCompleto) return firstAddress.enderecoCompleto;
+
+  return [
+    firstAddress.rua,
+    firstAddress.numero,
+    firstAddress.complemento,
+    firstAddress.bairro,
+    firstAddress.cidade,
+    firstAddress.cep,
+  ].filter(Boolean).join(', ');
+};
+
+const isProductInactive = (product = {}) => {
+  const status = product.status || 'Ativo';
+  return product.ativo === false || status === 'Inativo' || status !== 'Ativo';
+};
+
 const COLLECTIONS_TO_SYNC = [
   'produtos',
   'subcategorias',
@@ -2481,6 +2592,7 @@ function App() {
   const stopAlarmFnRef = useRef(null);
   const snoozeTimerRef = useRef(null);
   const isSnoozedRef = useRef(false);
+  const isAlarmPlayingRef = useRef(false);
   const initialDataLoaded = useRef(false);
   const storeCollectionsDataRef = useRef({});
   const clientesDataRef = useRef([]);
@@ -2961,6 +3073,10 @@ function App() {
     isSnoozedRef.current = isAlarmSnoozed;
   }, [isAlarmSnoozed]);
 
+  useEffect(() => {
+    isAlarmPlayingRef.current = isAlarmPlaying;
+  }, [isAlarmPlaying]);
+
   // --- Refs para estabilizar callbacks ---
   const playAlarmRef = useRef(playAlarm);
   useEffect(() => {
@@ -3127,6 +3243,12 @@ function App() {
           let pendingInitial = (storeIds.length * COLLECTIONS_TO_SYNC.length) + 1;
           const unsubscribes = [];
 
+          debugCacheSync('Iniciando listeners por loja', { storeIds, uid: userId });
+          setData(getInitialDataState());
+          setPendingOrders([]);
+          clientesDataRef.current = [];
+          storeCollectionsDataRef.current = {};
+
           const markInitialLoaded = () => {
                 if (pendingInitial > 0) {
                       pendingInitial -= 1;
@@ -3186,7 +3308,7 @@ function App() {
                       {
                             __listenerOptions: true,
                             operation: 'sync-clientes',
-                            route: currentPage,
+                            route: 'app-sync',
                             uid: userId
                       }
                 );
@@ -3235,7 +3357,7 @@ function App() {
                                                       && !change.doc.metadata?.hasPendingWrites
                                           );
 
-                                          if (newPendingOrdersDetected && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlaying && !isSnoozedRef.current) {
+                                          if (newPendingOrdersDetected && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlayingRef.current && !isSnoozedRef.current) {
                                                 console.log('[App.js] Novo pedido pendente detectado pelo listener!');
                                                 setHasNewPendingOrders(true);
 
@@ -3263,7 +3385,7 @@ function App() {
                                                 })();
                                           } else if (newPendingOrdersDetected && isSnoozedRef.current) {
                                                 console.log('[App.js] Alarme em modo soneca, não tocando agora.');
-                                          } else if (newPendingOrdersDetected && isAlarmPlaying) {
+                                          } else if (newPendingOrdersDetected && isAlarmPlayingRef.current) {
                                                 console.log('[App.js] Alarme já está tocando, não iniciando novo.');
                                           }
                                     }
@@ -3334,7 +3456,7 @@ function App() {
                                                 {
                                                       __listenerOptions: true,
                                                       operation: `sync-${collectionName}-legacy`,
-                                                      route: currentPage,
+                                                      route: 'app-sync',
                                                       uid: userId
                                                 }
                                           );
@@ -3348,7 +3470,7 @@ function App() {
                               {
                                     __listenerOptions: true,
                                     operation: `sync-${collectionName}`,
-                                    route: currentPage,
+                                    route: 'app-sync',
                                     uid: userId
                               }
                         );
@@ -3363,9 +3485,10 @@ function App() {
           return () => {
                 isMounted = false;
                 unsubscribes.forEach(unsubscribe => unsubscribe());
+                debugCacheSync('Listeners por loja encerrados', { storeIds, uid: userId });
                 initialDataLoaded.current = false;
           };
-        }, [user, isAlarmPlaying, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm, currentPage, userId]);
+        }, [user, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm, userId]);
     // EFFECT PARA PARAR ALARME QUANDO NÃO HÁ MAIS PEDIDOS PENDENTES
     useEffect(() => {
         if (isGeneralViewSelected) {
@@ -7249,6 +7372,7 @@ const effectiveStoreName = useMemo(() => {
     const [editingOrder, setEditingOrder] = useState(null);
     const [isSavingOrder, setIsSavingOrder] = useState(false);
     const [saveOrderError, setSaveOrderError] = useState('');
+    const [orderSyncNotice, setOrderSyncNotice] = useState('');
     const [formData, setFormData] = useState({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
     const [viewingOrder, setViewingOrder] = useState(null);
             const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
@@ -7325,9 +7449,458 @@ const effectiveStoreName = useMemo(() => {
         return dateB - dateA; // Mais recentes primeiro
     }), [pedidosComNomes, searchTerm, startDateFilter, endDateFilter, statusFilter]);
 
+    const calculateOrderSubtotal = (items = []) => roundCurrency(
+        items.reduce((sum, item) => sum + ((Number(item.preco) || 0) * getOrderItemQuantity(item)), 0)
+    );
+
+    const calculateOrderDiscount = (order, subtotal) => {
+        const couponDiscount = Number(order?.cupom?.valorDesconto || 0);
+        const manualDiscount = Number(order?.desconto || 0);
+        const discount = couponDiscount > 0 ? couponDiscount : manualDiscount;
+        if (!Number.isFinite(discount) || discount <= 0) return 0;
+        return roundCurrency(Math.min(discount, subtotal));
+    };
+
+    const buildOrderWithTotals = (order, items = order.itens || []) => {
+        const subtotal = calculateOrderSubtotal(items);
+        const desconto = calculateOrderDiscount({ ...order, itens: items }, subtotal);
+        return {
+            ...order,
+            itens: items,
+            subtotal,
+            desconto,
+            total: roundCurrency(subtotal - desconto),
+            cupom: order.cupom ? { ...order.cupom, valorDesconto: desconto } : null
+        };
+    };
+
+    const mapOrderItemsByProduct = (items = []) => {
+        const grouped = new Map();
+
+        items.forEach((item) => {
+            const productId = getOrderItemProductId(item);
+            if (!productId) {
+                console.error('[Stock][Pedidos] Item sem identificador de produto. Item ignorado.', item);
+                return;
+            }
+
+            const quantity = getOrderItemQuantity(item);
+            if (quantity <= 0) return;
+
+            grouped.set(productId, (grouped.get(productId) || 0) + quantity);
+        });
+
+        return grouped;
+    };
+
+    const calculateOrderStockDelta = (oldItems = [], newItems = []) => {
+        const oldMap = mapOrderItemsByProduct(oldItems);
+        const newMap = mapOrderItemsByProduct(newItems);
+        const productIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+        const delta = {};
+
+        productIds.forEach((productId) => {
+            const oldQty = oldMap.get(productId) || 0;
+            const newQty = newMap.get(productId) || 0;
+            const diff = newQty - oldQty;
+            if (diff !== 0) {
+                delta[productId] = diff;
+            }
+        });
+
+        return delta;
+    };
+
+    const resolveOrderStoreId = (orderData = {}) => (
+        editingOrder?.lojaId ||
+        orderData?.lojaId ||
+        resolveActiveStoreForWrite()
+    );
+
+    const isFinalizedStatus = (status) => status === 'Finalizado';
+
+    const getCouponDocRefForOrder = async (storeId, cupom) => {
+        if (!cupom?.codigo && !cupom?.id) return null;
+
+        if (cupom.id) {
+            return getStoreDocRef(storeId, 'cupons', cupom.id);
+        }
+
+        const couponCode = String(cupom.codigo || '').trim().toUpperCase();
+        if (!couponCode) return null;
+
+        const primarySnap = await getDocs(query(
+            getStoreCollectionRef(storeId, 'cupons'),
+            where('codigo', '==', couponCode),
+            limit(1)
+        ));
+
+        if (!primarySnap.empty) return primarySnap.docs[0].ref;
+
+        const legacySnap = await getDocs(query(
+            getStoreCollectionRef(storeId, 'cupons', true),
+            where('codigo', '==', couponCode),
+            limit(1)
+        ));
+
+        return legacySnap.empty ? null : legacySnap.docs[0].ref;
+    };
+
+    const validateCouponSnapshot = (cupomSnap, cupom, subtotal) => {
+        if (!cupom) return { cupom: null, desconto: 0 };
+        if (!cupomSnap?.exists()) {
+            throw new Error('O cupom informado não existe mais. Remova o cupom e tente novamente.');
+        }
+
+        const couponCode = String(cupom.codigo || '').trim().toUpperCase();
+        const couponData = cupomSnap.data() || {};
+        const savedCode = String(couponData.codigo || couponCode).trim().toUpperCase();
+
+        if (couponCode && savedCode !== couponCode) {
+            throw new Error('O cupom informado foi alterado. Revise o desconto antes de salvar.');
+        }
+
+        if (couponData.status !== 'Ativo') {
+            throw new Error('O cupom informado não está ativo.');
+        }
+
+        const usosAtuais = Number(couponData.usos || 0);
+        const limiteUso = Number(couponData.limiteUso || 0);
+        if (limiteUso > 0 && usosAtuais >= limiteUso) {
+            throw new Error('O cupom informado atingiu o limite de usos.');
+        }
+
+        const valorMinimo = Number(couponData.valorMinimo || 0);
+        if (valorMinimo > 0 && subtotal < valorMinimo) {
+            throw new Error(`O pedido mínimo para este cupom é R$ ${valorMinimo.toFixed(2)}.`);
+        }
+
+        const rawValue = Number(couponData.valor || 0);
+        const valorDesconto = couponData.tipoDesconto === 'percentual'
+            ? roundCurrency((subtotal * rawValue) / 100)
+            : roundCurrency(rawValue);
+
+        return {
+            cupom: {
+                id: cupomSnap.id,
+                codigo: savedCode,
+                tipoDesconto: couponData.tipoDesconto || cupom.tipoDesconto || 'valor',
+                valor: rawValue,
+                valorDesconto
+            },
+            desconto: valorDesconto
+        };
+    };
+
+    const buildFreshItemsFromProductSnaps = (items = [], productSnapMap = new Map(), changes = []) => (
+        items.map((item) => {
+            const productId = getOrderItemProductId(item);
+            const quantity = getOrderItemQuantity(item);
+            if (!productId || quantity <= 0) {
+                throw new Error('Há um item inválido no pedido. Remova-o e tente novamente.');
+            }
+
+            const productSnap = productSnapMap.get(productId);
+            if (!productSnap?.exists()) {
+                throw new Error(`O produto ${item.nome || productId} não existe mais.`);
+            }
+
+            const product = { id: productSnap.id, ...productSnap.data() };
+            if (isProductInactive(product)) {
+                throw new Error(`O produto ${product.nome || item.nome || productId} está inativo.`);
+            }
+
+            const currentStock = Number(product.estoque);
+            if (Number.isFinite(currentStock) && currentStock < quantity) {
+                throw new Error(`Estoque insuficiente para ${product.nome || item.nome || productId}. Disponível: ${currentStock}.`);
+            }
+
+            const currentPrice = roundCurrency(product.preco || 0);
+            if (!Number.isFinite(currentPrice) || currentPrice < 0) {
+                throw new Error(`Preço inválido para ${product.nome || item.nome || productId}.`);
+            }
+
+            const previousPrice = roundCurrency(item.preco || 0);
+            if (currentPrice !== previousPrice) {
+                changes.push(`${product.nome || item.nome || productId}: preço atualizado de R$ ${previousPrice.toFixed(2)} para R$ ${currentPrice.toFixed(2)}.`);
+            }
+
+            if ((product.nome || '') && product.nome !== item.nome) {
+                changes.push(`${item.nome || productId}: nome atualizado para ${product.nome}.`);
+            }
+
+            if (Number.isFinite(currentStock) && Number(item.estoque) !== currentStock) {
+                changes.push(`${product.nome || item.nome || productId}: estoque atual ${currentStock}.`);
+            }
+
+            return {
+                ...item,
+                id: productId,
+                produtoId: productId,
+                nome: product.nome || item.nome || 'Produto',
+                preco: currentPrice,
+                quantity,
+                categoria: product.categoria || item.categoria || '',
+                subcategoria: product.subcategoria || item.subcategoria || '',
+                imageUrl: product.imageUrl || item.imageUrl || '',
+                estoque: Number.isFinite(currentStock) ? currentStock : item.estoque
+            };
+        })
+    );
+
+    const reloadOrderCriticalData = async (orderData, storeId) => {
+        if (!storeId) throw new Error('Selecione uma loja para salvar o pedido.');
+        if (!orderData.clienteId) throw new Error('Selecione um cliente antes de salvar o pedido.');
+        if (!Array.isArray(orderData.itens) || orderData.itens.length === 0) {
+            throw new Error('Adicione ao menos um produto ao pedido.');
+        }
+
+        const productIds = Array.from(new Set(orderData.itens.map(getOrderItemProductId).filter(Boolean)));
+        const productRefs = productIds.map((productId) => getStoreDocRef(storeId, 'produtos', productId));
+        const couponRef = await getCouponDocRefForOrder(storeId, orderData.cupom);
+
+        const [configSnap, clientSnap, productSnaps, couponSnap] = await Promise.all([
+            getDoc(getStoreConfigDocRef(storeId)),
+            getDoc(getStoreDocRef(storeId, 'clientes', orderData.clienteId)),
+            Promise.all(productRefs.map((productRef) => getDoc(productRef))),
+            couponRef ? getDoc(couponRef) : Promise.resolve(null)
+        ]);
+
+        const storeConfig = configSnap.exists() ? (configSnap.data() || {}) : {};
+        if (!isStoreOpenNow(storeConfig)) {
+            throw new Error('A loja está fechada no momento. Revise o status de funcionamento antes de salvar o pedido.');
+        }
+
+        if (!clientSnap.exists()) {
+            throw new Error('O cliente selecionado não existe mais. Selecione o cliente novamente.');
+        }
+
+        const changes = [];
+        const productSnapMap = new Map(productSnaps.map((snap) => [snap.id, snap]));
+        const freshItems = buildFreshItemsFromProductSnaps(orderData.itens, productSnapMap, changes);
+        const subtotal = calculateOrderSubtotal(freshItems);
+        const couponValidation = validateCouponSnapshot(couponSnap, orderData.cupom, subtotal);
+        const latestClient = { id: clientSnap.id, ...clientSnap.data() };
+        const latestClientName = latestClient.nome || orderData.clienteNome || 'Cliente';
+        const latestClientAddress = getClientPrimaryAddressText(latestClient);
+
+        if (latestClientName !== orderData.clienteNome) {
+            changes.push(`Cliente atualizado para ${latestClientName}.`);
+        }
+
+        if (latestClientAddress && latestClientAddress !== orderData.clienteEndereco) {
+            changes.push('Endereço do cliente atualizado com o cadastro mais recente.');
+        }
+
+        const manualDiscount = orderData.cupom ? 0 : Number(orderData.desconto || 0);
+        if (!orderData.cupom && manualDiscount > subtotal) {
+            changes.push('Desconto manual ajustado para não ultrapassar o subtotal atual.');
+        }
+
+        const desconto = orderData.cupom
+            ? couponValidation.desconto
+            : roundCurrency(Math.min(Math.max(manualDiscount, 0), subtotal));
+
+        return {
+            orderData: {
+                ...orderData,
+                lojaId: storeId,
+                clienteId: latestClient.id,
+                clienteNome: latestClientName,
+                telefone: latestClient.telefone || orderData.telefone || '',
+                clienteEndereco: latestClientAddress || orderData.clienteEndereco || '',
+                itens: freshItems,
+                subtotal,
+                desconto,
+                total: roundCurrency(subtotal - desconto),
+                cupom: couponValidation.cupom
+            },
+            changes
+        };
+    };
+
+    const persistOrderWithTransaction = async (orderData, storeId) => {
+        const currentAuthUser = await ensureAuthenticatedUserForWrite();
+        const orderRef = editingOrder ? getStoreDocRef(storeId, 'pedidos', editingOrder.id) : doc(getStoreCollectionRef(storeId, 'pedidos'));
+        const orderId = orderRef.id;
+
+        await runTransaction(db, async (transaction) => {
+            const configSnap = await transaction.get(getStoreConfigDocRef(storeId));
+            const storeConfig = configSnap.exists() ? (configSnap.data() || {}) : {};
+            if (!isStoreOpenNow(storeConfig)) {
+                throw new Error('A loja fechou antes do salvamento. Revise o status de funcionamento e tente novamente.');
+            }
+
+            let previousOrder = null;
+            if (editingOrder) {
+                const orderSnap = await transaction.get(orderRef);
+                if (!orderSnap.exists()) {
+                    throw new Error('Este pedido não existe mais. Atualize a lista e tente novamente.');
+                }
+                previousOrder = { id: orderSnap.id, ...orderSnap.data() };
+            }
+
+            const productIds = Array.from(new Set(orderData.itens.map(getOrderItemProductId).filter(Boolean)));
+            const productSnapMap = new Map();
+            for (const productId of productIds) {
+                const productSnap = await transaction.get(getStoreDocRef(storeId, 'produtos', productId));
+                productSnapMap.set(productId, productSnap);
+            }
+
+            const clientSnap = await transaction.get(getStoreDocRef(storeId, 'clientes', orderData.clienteId));
+            if (!clientSnap.exists()) {
+                throw new Error('O cliente selecionado não existe mais. Selecione o cliente novamente.');
+            }
+
+            let couponSnap = null;
+            if (orderData.cupom?.id) {
+                couponSnap = await transaction.get(getStoreDocRef(storeId, 'cupons', orderData.cupom.id));
+            }
+
+            const transactionChanges = [];
+            const freshItems = buildFreshItemsFromProductSnaps(orderData.itens, productSnapMap, transactionChanges);
+            if (transactionChanges.some((message) => message.includes('preço atualizado') || message.includes('nome atualizado'))) {
+                throw new Error('Os dados de produtos mudaram durante o salvamento. Revise o pedido e tente novamente.');
+            }
+
+            const subtotal = calculateOrderSubtotal(freshItems);
+            const couponValidation = validateCouponSnapshot(couponSnap, orderData.cupom, subtotal);
+            const latestClient = { id: clientSnap.id, ...clientSnap.data() };
+            const finalOrderData = {
+                ...orderData,
+                lojaId: storeId,
+                clienteId: latestClient.id,
+                clienteNome: latestClient.nome || orderData.clienteNome || 'Cliente',
+                telefone: latestClient.telefone || orderData.telefone || '',
+                clienteEndereco: getClientPrimaryAddressText(latestClient) || orderData.clienteEndereco || '',
+                itens: freshItems,
+                subtotal,
+                desconto: orderData.cupom
+                    ? couponValidation.desconto
+                    : roundCurrency(Math.min(Math.max(Number(orderData.desconto || 0), 0), subtotal)),
+                cupom: couponValidation.cupom,
+                updatedAt: serverTimestamp()
+            };
+            finalOrderData.total = roundCurrency(finalOrderData.subtotal - finalOrderData.desconto);
+
+            const wasFinalized = isFinalizedStatus(previousOrder?.status);
+            const isNowFinalized = isFinalizedStatus(finalOrderData.status);
+            let stockDelta = {};
+
+            if (!previousOrder && isNowFinalized) {
+                stockDelta = calculateOrderStockDelta([], finalOrderData.itens || []);
+            } else if (previousOrder && !wasFinalized && isNowFinalized) {
+                stockDelta = calculateOrderStockDelta([], finalOrderData.itens || []);
+            } else if (previousOrder && wasFinalized && !isNowFinalized) {
+                stockDelta = calculateOrderStockDelta(previousOrder.itens || [], []);
+            } else if (previousOrder && wasFinalized && isNowFinalized) {
+                stockDelta = calculateOrderStockDelta(previousOrder.itens || [], finalOrderData.itens || []);
+            }
+
+            Object.entries(stockDelta).forEach(([productId, delta]) => {
+                if (delta === 0) return;
+                const productSnap = productSnapMap.get(productId);
+                const productData = productSnap?.data() || {};
+                const currentStock = Number(productData.estoque ?? 0);
+                const nextStock = currentStock - delta;
+
+                if (!Number.isFinite(currentStock)) {
+                    throw new Error(`Estoque inválido para ${productData.nome || productId}.`);
+                }
+
+                if (nextStock < 0) {
+                    throw new Error(`Estoque insuficiente para ${productData.nome || productId}. Disponível: ${currentStock}.`);
+                }
+
+                transaction.update(getStoreDocRef(storeId, 'produtos', productId), {
+                    estoque: nextStock,
+                    updatedAt: serverTimestamp()
+                });
+            });
+
+            if (editingOrder) {
+                transaction.update(orderRef, finalOrderData);
+            } else {
+                transaction.set(orderRef, {
+                    ...finalOrderData,
+                    createdAt: serverTimestamp()
+                });
+            }
+
+            transaction.set(doc(getStoreCollectionRef(storeId, 'logs')), {
+                action: editingOrder ? 'Pedido atualizado com revalidação' : 'Novo pedido criado com revalidação',
+                details: `ID: ${orderId}`,
+                userEmail: currentAuthUser.email || user?.auth?.email || 'N/A',
+                timestamp: serverTimestamp(),
+                lojaId: storeId
+            });
+        });
+
+        await waitForPendingWrites(db);
+        debugCacheSync('Pedido salvo após revalidação transacional', { orderId, storeId });
+        return orderId;
+    };
+
+    const reconcileOpenOrderWithLiveProducts = useCallback((items = []) => {
+        const changes = [];
+        const productMap = new Map((data.produtos || []).map((product) => [product.id, product]));
+        const nextItems = items.map((item) => {
+            const productId = getOrderItemProductId(item);
+            const latestProduct = productMap.get(productId);
+            if (!latestProduct || isProductInactive(latestProduct)) return item;
+
+            const currentPrice = roundCurrency(latestProduct.preco || 0);
+            const previousPrice = roundCurrency(item.preco || 0);
+            const currentStock = Number(latestProduct.estoque);
+            let changed = false;
+            const nextItem = {
+                ...item,
+                id: productId,
+                produtoId: productId,
+                nome: latestProduct.nome || item.nome,
+                preco: currentPrice,
+                categoria: latestProduct.categoria || item.categoria,
+                subcategoria: latestProduct.subcategoria || item.subcategoria,
+                imageUrl: latestProduct.imageUrl || item.imageUrl || '',
+                estoque: Number.isFinite(currentStock) ? currentStock : item.estoque
+            };
+
+            if (currentPrice !== previousPrice) {
+                changes.push(`${latestProduct.nome || item.nome}: preço atualizado para R$ ${currentPrice.toFixed(2)}.`);
+                changed = true;
+            }
+
+            if ((latestProduct.nome || '') && latestProduct.nome !== item.nome) {
+                changes.push(`${item.nome || productId}: nome atualizado para ${latestProduct.nome}.`);
+                changed = true;
+            }
+
+            if (Number.isFinite(currentStock) && currentStock < getOrderItemQuantity(item)) {
+                changes.push(`${latestProduct.nome || item.nome}: estoque atual menor que a quantidade no pedido.`);
+            }
+
+            return changed ? nextItem : item;
+        });
+
+        return { nextItems, changes };
+    }, [data.produtos]);
+
+    useEffect(() => {
+        if (!showModal || !formData.itens.length) return;
+
+        const { nextItems, changes } = reconcileOpenOrderWithLiveProducts(formData.itens);
+        if (!changes.length) return;
+
+        setFormData(prev => buildOrderWithTotals(prev, nextItems));
+        const message = `Atualizamos o pedido com dados recentes: ${changes.slice(0, 3).join(' ')}`;
+        setOrderSyncNotice(message);
+        debugCacheSync('Pedido aberto reconciliado com snapshot de produtos', { changes });
+    }, [showModal, formData.itens, reconcileOpenOrderWithLiveProducts]);
+
     const resetForm = () => {
         setEditingOrder(null);
         setSaveOrderError('');
+        setOrderSyncNotice('');
         setFormData({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
         setDescontoValor('');
         setDescontoPercentual('');
@@ -7357,22 +7930,16 @@ const effectiveStoreName = useMemo(() => {
                   item.id === produto.id ? { ...item, quantity: item.quantity + 1 } : item
               );
           } else {
-              newItens = [...prev.itens, { ...produto, quantity: 1 }];
+              newItens = [...prev.itens, { ...produto, id: produto.id, produtoId: produto.id, quantity: 1 }];
           }
-          const newSubtotal = newItens.reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
-          const currentDiscount = prev.cupom?.valorDesconto || prev.desconto || 0;
-          const newTotal = newSubtotal - currentDiscount;
-          return { ...prev, itens: newItens, subtotal: newSubtotal, total: newTotal };
+          return buildOrderWithTotals(prev, newItens);
       });
     };
 
     const handleRemoveItemFromOrder = (produtoId) => {
         setFormData(prev => {
             const newItens = prev.itens.filter(item => item.id !== produtoId);
-            const newSubtotal = newItens.reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
-             const currentDiscount = prev.cupom?.valorDesconto || prev.desconto || 0;
-            const newTotal = newSubtotal - currentDiscount;
-            return { ...prev, itens: newItens, subtotal: newSubtotal, total: newTotal };
+            return buildOrderWithTotals(prev, newItens);
         });
     };
     
@@ -7419,133 +7986,36 @@ const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSavingOrder(true);
     setSaveOrderError('');
+    setOrderSyncNotice('');
     console.log('[Sales][Create] Iniciando tentativa de criar pedido pelo modal.', {
         isEditing: Boolean(editingOrder),
         authCurrentUserUid: auth.currentUser?.uid || null,
         authStateUserUid: user?.auth?.uid || null
     });
-    // Garante que clienteNome seja definido mesmo se não for encontrado
-    const clienteSelecionado = data.clientes.find(c => c.id === formData.clienteId);
-    const orderData = { 
-        ...formData, 
-        clienteNome: clienteSelecionado ? clienteSelecionado.nome : 'Cliente não selecionado' 
-    };
 
     try {
-        const resolveOrderStoreId = () => (
-            editingOrder?.lojaId ||
-            orderData?.lojaId ||
-            resolveActiveStoreForWrite()
-        );
+        const clienteSelecionado = data.clientes.find(c => c.id === formData.clienteId);
+        const initialOrderData = buildOrderWithTotals({
+            ...formData,
+            clienteNome: clienteSelecionado ? clienteSelecionado.nome : formData.clienteNome
+        });
+        const storeId = resolveOrderStoreId(initialOrderData);
+        const { orderData: refreshedOrderData, changes } = await reloadOrderCriticalData(initialOrderData, storeId);
 
-        const isFinalizedStatus = (status) => status === 'Finalizado';
-
-        const getOrderItemProductId = (item) => item?.produtoId || item?.productId || item?.id || null;
-
-        const getOrderItemQuantity = (item) => {
-            const parsed = Number(item?.quantity ?? item?.quantidade ?? 0);
-            return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-        };
-
-        const mapOrderItemsByProduct = (items = []) => {
-            const grouped = new Map();
-
-            items.forEach((item) => {
-                const productId = getOrderItemProductId(item);
-                if (!productId) {
-                    console.error('[Stock][Pedidos] Item sem identificador de produto. Item ignorado.', item);
-                    return;
-                }
-
-                const quantity = getOrderItemQuantity(item);
-                if (quantity <= 0) return;
-
-                grouped.set(productId, (grouped.get(productId) || 0) + quantity);
-            });
-
-            return grouped;
-        };
-
-        const calculateOrderStockDelta = (oldItems = [], newItems = []) => {
-            const oldMap = mapOrderItemsByProduct(oldItems);
-            const newMap = mapOrderItemsByProduct(newItems);
-            const productIds = new Set([...oldMap.keys(), ...newMap.keys()]);
-            const delta = {};
-
-            productIds.forEach((productId) => {
-                const oldQty = oldMap.get(productId) || 0;
-                const newQty = newMap.get(productId) || 0;
-                const diff = newQty - oldQty;
-                if (diff !== 0) {
-                    delta[productId] = diff;
-                }
-            });
-
-            return delta;
-        };
-
-        const applyStockDelta = async (deltaByProduct = {}, storeId) => {
-            const entries = Object.entries(deltaByProduct).filter(([, delta]) => delta !== 0);
-            if (entries.length === 0) return;
-
-            await runTransaction(db, async (transaction) => {
-                for (const [productId, delta] of entries) {
-                    if (!productId) {
-                        console.error('[Stock][Pedidos] Produto sem ID ao aplicar delta. Item ignorado.');
-                        continue;
-                    }
-
-                    const productRef = getStoreDocRef(storeId, 'produtos', productId);
-                    const productSnap = await transaction.get(productRef);
-
-                    if (!productSnap.exists()) {
-                        console.error(`[Stock][Pedidos] Produto ${productId} não encontrado em lojas/${storeId}/produtos. Delta ignorado.`);
-                        continue;
-                    }
-
-                    const currentStockRaw = Number(productSnap.data()?.estoque ?? 0);
-                    const currentStock = Number.isFinite(currentStockRaw) ? currentStockRaw : 0;
-                    const nextStock = currentStock - delta;
-
-                    if (nextStock < 0) {
-                        throw new Error(`Estoque insuficiente para o produto ${productSnap.data()?.nome || productId}.`);
-                    }
-
-                    transaction.update(productRef, {
-                        estoque: nextStock,
-                        updatedAt: serverTimestamp()
-                    });
-                }
-            });
-        };
-
-        if (editingOrder) {
-            const { id, ...updateData } = orderData;
-            await updateItem('pedidos', editingOrder.id, updateData);
-
-            const storeId = resolveOrderStoreId();
-            const wasFinalized = isFinalizedStatus(editingOrder.status);
-            const isNowFinalized = isFinalizedStatus(orderData.status);
-            let stockDelta = {};
-
-            if (!wasFinalized && isNowFinalized) {
-                stockDelta = calculateOrderStockDelta([], orderData.itens || []);
-            } else if (wasFinalized && !isNowFinalized) {
-                stockDelta = calculateOrderStockDelta(editingOrder.itens || [], []);
-            } else if (wasFinalized && isNowFinalized) {
-                stockDelta = calculateOrderStockDelta(editingOrder.itens || [], orderData.itens || []);
-            }
-
-            await applyStockDelta(stockDelta, storeId);
-        } else {
-            await addItem('pedidos', orderData);
-
-            if (isFinalizedStatus(orderData.status)) {
-                const stockDelta = calculateOrderStockDelta([], orderData.itens || []);
-                await applyStockDelta(stockDelta, resolveOrderStoreId());
-            }
+        if (changes.length) {
+            const message = `Dados atualizados antes de salvar: ${changes.slice(0, 4).join(' ')} Revise o pedido e clique em salvar novamente.`;
+            setFormData(prev => ({
+                ...prev,
+                ...refreshedOrderData,
+                dataEntrega: refreshedOrderData.dataEntrega || prev.dataEntrega || ''
+            }));
+            setOrderSyncNotice(message);
+            setSaveOrderError('Revise as alterações aplicadas automaticamente e confirme o salvamento novamente.');
+            debugCacheSync('Salvamento de pedido pausado para confirmação do usuário', { storeId, changes });
+            return;
         }
 
+        await persistOrderWithTransaction(refreshedOrderData, storeId);
         setShowModal(false);
         resetForm();
     } catch (error) {
@@ -7637,7 +8107,7 @@ const handleSubmit = async (e) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <Select label="Cliente" value={formData.clienteId} onChange={(e) => setFormData({...formData, clienteId: e.target.value})} required><option value="">Selecione um cliente</option>{data.clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
                         <Select label="Status" value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} required><option>Pendente</option><option>Em Produção</option><option>Pronto para Entrega</option><option>Finalizado</option><option>Cancelado</option></Select>
-                        <Select label="Categoria do Pedido" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value, itens: [], total: 0})} required>
+                        <Select label="Categoria do Pedido" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value, itens: [], subtotal: 0, desconto: 0, total: 0, cupom: null})} required>
                             <option value="Delivery">Delivery</option>
                             <option value="Festa">Festa</option>
                         </Select>
@@ -7700,6 +8170,12 @@ const handleSubmit = async (e) => {
                             <Button variant="secondary" onClick={handleApplyDiscount} className="w-full">Aplicar desconto</Button>
                         </div>
                     </div>
+
+                    {orderSyncNotice && (
+                        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+                            {orderSyncNotice}
+                        </div>
+                    )}
 
                     {saveOrderError && (
                         <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">

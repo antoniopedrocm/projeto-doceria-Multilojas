@@ -1264,6 +1264,8 @@
         window.valorFrete = 0;
                 window.guestCurrentLatLng = null;
         let storeConfig = {};
+        let storeConfigListenerUnsubscribe = null;
+        let productListenerUnsubscribe = null;
         let storeIsOpenNow = true;
         let checkoutBlockingIssue = null;
 
@@ -1335,13 +1337,8 @@
             try {
                 console.log(`🚀 Inicializando aplicação (${reason})...`);
                 await fetchStoreConfig();
-                const { db, doc, onSnapshot } = await import('./firebaseClientConfig.js');
-                onSnapshot(doc(db, ...storeConfigDocPath()), (snap) => {
-                    if (!snap.exists()) return;
-                    storeConfig = snap.data() || {};
-                    syncStoreAvailabilityStatus();
-                });
-                await fetchProducts();
+                await listenToStoreConfig();
+                await listenToProducts();
                 setupEventListeners();
                 renderCart();
                 console.log("✅ Aplicação inicializada com sucesso!");
@@ -1445,6 +1442,8 @@
                 throw new Error(message);
             }
 
+            await revalidateCartProductsBeforeSubmit();
+
             if (appliedCupom) {
                 const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
                 try {
@@ -1473,7 +1472,16 @@
         function persistCheckoutState() {
             try {
                 const checkoutState = {
-                    cart,
+                    storeId: STORE_ID,
+                    savedAt: Date.now(),
+                    cart: cart.map(item => ({
+                        id: item.id || item.produtoId,
+                        produtoId: item.produtoId || item.id,
+                        nome: item.nome,
+                        preco: Number(item.preco || 0),
+                        quantity: Number(item.quantity || 0),
+                        updatedFromFirestoreAt: item.updatedFromFirestoreAt || null
+                    })),
                     pendingOrderDetails,
                     guestCurrentLatLng: window.guestCurrentLatLng || null,
                     guestAddressFlowState: window.guestAddressFlowState || createInitialGuestAddressFlowState(),
@@ -1495,7 +1503,23 @@
                 if (!rawState) return;
 
                 const savedState = JSON.parse(rawState);
-                cart = Array.isArray(savedState?.cart) ? savedState.cart : [];
+                if (savedState?.storeId && savedState.storeId !== STORE_ID) {
+                    clearCheckoutState();
+                    return;
+                }
+
+                cart = Array.isArray(savedState?.cart)
+                    ? savedState.cart
+                        .map(item => ({
+                            id: item.id || item.produtoId,
+                            produtoId: item.produtoId || item.id,
+                            nome: item.nome,
+                            preco: Number(item.preco || 0),
+                            quantity: Number(item.quantity || 0),
+                            updatedFromFirestoreAt: item.updatedFromFirestoreAt || null
+                        }))
+                        .filter(item => item.id && item.quantity > 0)
+                    : [];
                 pendingOrderDetails = (savedState?.pendingOrderDetails && typeof savedState.pendingOrderDetails === 'object')
                     ? savedState.pendingOrderDetails
                     : {};
@@ -1579,48 +1603,190 @@
             }
         }
 
-        async function fetchProducts() {
-            try {
-                console.log("🔄 Buscando produtos do Firebase...");
+        function normalizeActiveProducts(products = []) {
+            return products.filter((product) => {
+                const status = product.status || 'Ativo';
+                const isExplicitlyInactive = product.ativo === false || status === 'Inativo';
 
-                const { db, collection, getDocs } = await import('./firebaseClientConfig.js');
+                return !isExplicitlyInactive && status === 'Ativo';
+            });
+        }
 
-                const productsSnapshot = await getDocs(collection(db, ...storePath("produtos")));
-                const products = productsSnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+        function findLatestProductForCartItem(item) {
+            const productId = item?.id || item?.produtoId;
+            return allProducts.find(product => product.id === productId) || null;
+        }
 
-                allProducts = products.filter((product) => {
-                    const status = product.status || 'Ativo';
-                    const isExplicitlyInactive = product.ativo === false || status === 'Inativo';
+        function reconcileCartWithLatestProducts({ notify = false } = {}) {
+            if (!cart.length) return false;
 
-                    return !isExplicitlyInactive && status === 'Ativo';
-                });
+            let changed = false;
+            const messages = [];
+            const nextCart = [];
 
-                console.log(`✅ ${allProducts.length} produtos carregados`);
+            cart.forEach((item) => {
+                const latestProduct = findLatestProductForCartItem(item);
+                const productLabel = item.nome || item.id || 'produto';
 
-                if (allProducts.length === 0) {
-                    throw new Error('Nenhum produto encontrado');
+                if (!latestProduct) {
+                    changed = true;
+                    messages.push(`${productLabel} saiu do cardápio e foi removido do carrinho.`);
+                    return;
                 }
 
-                renderMenu();
+                const requestedQuantity = Number(item.quantity || 0);
+                const currentStock = Number(latestProduct.estoque);
+                if (Number.isFinite(currentStock) && currentStock <= 0) {
+                    changed = true;
+                    messages.push(`${latestProduct.nome || productLabel} está sem estoque e foi removido do carrinho.`);
+                    return;
+                }
 
-            } catch (error) {
-                console.error("❌ Erro ao buscar produtos:", error);
-                loadingMessage.innerHTML = `
-                    <div class="text-center">
-                        <p class="text-red-500 text-lg font-bold mb-2">Erro ao carregar o cardápio</p>
-                        <p class="text-gray-600 text-sm">${error.message}</p>
-                        <button onclick="location.reload()" class="mt-4 bg-pink-600 text-white px-4 py-2 rounded-lg hover:bg-pink-700">
-                            Tentar Novamente
-                        </button>
-                    </div>
-                `;
-                showToast("Erro ao buscar produtos: " + error.message, true);
-            } finally {
-                loadingMessage.style.display = 'none';
+                let nextQuantity = requestedQuantity;
+                if (Number.isFinite(currentStock) && requestedQuantity > currentStock) {
+                    nextQuantity = currentStock;
+                    changed = true;
+                    messages.push(`${latestProduct.nome || productLabel} teve a quantidade ajustada ao estoque atual (${currentStock}).`);
+                }
+
+                if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
+                    changed = true;
+                    return;
+                }
+
+                const latestPrice = Number(latestProduct.preco || 0);
+                const previousPrice = Number(item.preco || 0);
+                if (Math.abs(latestPrice - previousPrice) > 0.009) {
+                    changed = true;
+                    messages.push(`${latestProduct.nome || productLabel} teve o preço atualizado para R$ ${latestPrice.toFixed(2)}.`);
+                }
+
+                if ((latestProduct.nome || '') && latestProduct.nome !== item.nome) {
+                    changed = true;
+                    messages.push(`${productLabel} foi atualizado para ${latestProduct.nome}.`);
+                }
+
+                nextCart.push({
+                    id: latestProduct.id,
+                    produtoId: latestProduct.id,
+                    nome: latestProduct.nome || item.nome,
+                    preco: latestPrice,
+                    quantity: nextQuantity,
+                    updatedFromFirestoreAt: Date.now()
+                });
+            });
+
+            if (!changed) return false;
+
+            cart = nextCart;
+            if (appliedCupom) {
+                appliedCupom = null;
+                messages.push('Cupom removido para revalidar o desconto com o carrinho atualizado.');
+                [paymentCupomInput].filter(Boolean).forEach(input => { input.value = ''; input.disabled = false; });
+                [paymentVerifyCupomButton].filter(Boolean).forEach(btn => { btn.textContent = 'Aplicar'; btn.classList.replace('bg-red-600', 'bg-gray-600'); });
+                [paymentCupomMessage].filter(Boolean).forEach(msg => { msg.textContent = ''; });
+                clearCheckoutBlockingIssue('cupom');
             }
+
+            renderCart();
+            updateAllSummaries();
+            persistCheckoutState();
+
+            if (notify && messages.length) {
+                showToast(messages.slice(0, 2).join(' '), true);
+            }
+
+            return true;
+        }
+
+        function applyLatestProducts(products, { notifyCartChanges = false } = {}) {
+            allProducts = normalizeActiveProducts(products);
+            console.log(`✅ ${allProducts.length} produtos sincronizados`);
+            const cartChanged = reconcileCartWithLatestProducts({ notify: notifyCartChanges });
+            renderMenu();
+            if (!cartChanged) {
+                renderCart();
+            }
+            loadingMessage.style.display = 'none';
+            return cartChanged;
+        }
+
+        async function listenToStoreConfig() {
+            const { db, doc, onSnapshot } = await import('./firebaseClientConfig.js');
+            if (storeConfigListenerUnsubscribe) storeConfigListenerUnsubscribe();
+
+            storeConfigListenerUnsubscribe = onSnapshot(doc(db, ...storeConfigDocPath()), (snap) => {
+                if (!snap.exists()) return;
+                storeConfig = snap.data() || {};
+                syncStoreAvailabilityStatus();
+            }, (error) => {
+                console.error('Erro ao sincronizar configurações da loja:', error);
+            });
+        }
+
+        async function listenToProducts() {
+            const { db, collection, onSnapshot } = await import('./firebaseClientConfig.js');
+            if (productListenerUnsubscribe) productListenerUnsubscribe();
+
+            return new Promise((resolve, reject) => {
+                let initialResolved = false;
+                productListenerUnsubscribe = onSnapshot(collection(db, ...storePath("produtos")), (snapshot) => {
+                    const products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    applyLatestProducts(products, { notifyCartChanges: initialResolved });
+
+                    if (!initialResolved) {
+                        initialResolved = true;
+                        resolve();
+                    }
+                }, (error) => {
+                    console.error("❌ Erro ao sincronizar produtos:", error);
+                    loadingMessage.innerHTML = `
+                        <div class="text-center">
+                            <p class="text-red-500 text-lg font-bold mb-2">Erro ao carregar o cardápio</p>
+                            <p class="text-gray-600 text-sm">${error.message}</p>
+                            <button onclick="location.reload()" class="mt-4 bg-pink-600 text-white px-4 py-2 rounded-lg hover:bg-pink-700">
+                                Tentar Novamente
+                            </button>
+                        </div>
+                    `;
+                    showToast("Erro ao sincronizar produtos: " + error.message, true);
+                    if (!initialResolved) {
+                        initialResolved = true;
+                        reject(error);
+                    }
+                });
+            });
+        }
+
+        async function fetchProducts() {
+            try {
+                console.log("🔄 Revalidando produtos do Firebase...");
+                const { db, collection, getDocs } = await import('./firebaseClientConfig.js');
+                const productsSnapshot = await getDocs(collection(db, ...storePath("produtos")));
+                const products = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                return applyLatestProducts(products, { notifyCartChanges: false });
+            } catch (error) {
+                console.error("❌ Erro ao revalidar produtos:", error);
+                throw error;
+            }
+        }
+
+        async function revalidateCartProductsBeforeSubmit() {
+            const changed = await fetchProducts();
+            if (cart.length === 0) {
+                const message = 'Seu carrinho ficou vazio após atualizar o cardápio. Adicione os produtos novamente.';
+                setCheckoutBlockingIssue('produtos', message);
+                throw new Error(message);
+            }
+
+            if (changed) {
+                const message = 'Atualizamos preço, estoque ou disponibilidade do carrinho. Revise os itens e confirme novamente.';
+                setCheckoutBlockingIssue('produtos', message);
+                showToast(message, true);
+                throw new Error(message);
+            }
+
+            clearCheckoutBlockingIssue('produtos');
         }
 
         function renderMenu() {

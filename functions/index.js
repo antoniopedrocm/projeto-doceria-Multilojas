@@ -615,27 +615,100 @@ app.put("/clientes/:id", async (req, res) => {
 app.post("/pedidos", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
+
+  const itens = Array.isArray(req.body?.itens) ? req.body.itens : [];
+  if (!itens.length) {
+    return res.status(400).json({ok: false, message: 'Adicione ao menos um item ao pedido.'});
+  }
+
   try {
-    const storeConfigSnap = await getStoreConfigDoc(lojaId).get();
-    const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
+    const orderId = await db.runTransaction(async (transaction) => {
+      const storeConfigSnap = await transaction.get(getStoreConfigDoc(lojaId));
+      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
 
-    if (!isStoreOpenNow(storeConfig)) {
-      return res.status(403).json({
-        code: 'STORE_CLOSED',
-        message: 'A loja está fechada no momento. Volte em nosso horário de atendimento.',
+      if (!isStoreOpenNow(storeConfig)) {
+        throw createHttpError(
+          403,
+          'A loja está fechada no momento. Volte em nosso horário de atendimento.',
+          'STORE_CLOSED',
+        );
+      }
+
+      const validatedItems = [];
+      let calculatedSubtotal = 0;
+
+      for (const item of itens) {
+        const produtoId = item?.produtoId || item?.id;
+        const quantity = Number(item?.quantity || item?.quantidade || 0);
+        if (!produtoId || !Number.isFinite(quantity) || quantity <= 0) {
+          throw createHttpError(400, 'Item de pedido inválido.');
+        }
+
+        const productRef = db.collection('lojas').doc(lojaId).collection('produtos').doc(String(produtoId));
+        const productSnap = await transaction.get(productRef);
+        if (!productSnap.exists) {
+          throw createHttpError(404, `Produto ${produtoId} não encontrado.`);
+        }
+
+        const productData = productSnap.data() || {};
+        const productStatus = productData.status || 'Ativo';
+        if (productData.ativo === false || productStatus !== 'Ativo') {
+          throw createHttpError(409, `Produto ${productData.nome || produtoId} não está disponível.`, 'PRODUCT_UNAVAILABLE');
+        }
+
+        if (typeof productData.estoque === 'number' && productData.estoque < quantity) {
+          throw createHttpError(409, `Estoque insuficiente para ${productData.nome || produtoId}.`, 'OUT_OF_STOCK');
+        }
+
+        const currentPrice = Number(productData.preco || 0);
+        if (!Number.isFinite(currentPrice) || currentPrice < 0) {
+          throw createHttpError(409, `Preço inválido para ${productData.nome || produtoId}.`, 'PRODUCT_PRICE_INVALID');
+        }
+
+        const clientPrice = Number(item?.preco || 0);
+        if (Number.isFinite(clientPrice) && Math.abs(clientPrice - currentPrice) > 0.009) {
+          throw createHttpError(
+            409,
+            `O preço de ${productData.nome || produtoId} mudou. Revise o pedido antes de salvar.`,
+            'PRICE_CHANGED',
+          );
+        }
+
+        calculatedSubtotal += currentPrice * quantity;
+        validatedItems.push({
+          produtoId: String(produtoId),
+          nome: productData.nome || item?.nome || '',
+          quantity,
+          preco: Number(currentPrice.toFixed(2)),
+        });
+      }
+
+      const subtotalFinal = Number(calculatedSubtotal.toFixed(2));
+      const descontoFinal = Math.min(Math.max(Number(req.body?.desconto || 0), 0), subtotalFinal);
+      const valorFreteFinal = Number(req.body?.valorFrete || req.body?.frete || 0);
+      const totalFinal = Number((subtotalFinal - descontoFinal + (Number.isFinite(valorFreteFinal) ? valorFreteFinal : 0)).toFixed(2));
+
+      const orderRef = db.collection("lojas").doc(lojaId).collection("pedidos").doc();
+      transaction.set(orderRef, {
+        ...req.body,
+        lojaId,
+        itens: validatedItems,
+        subtotal: subtotalFinal,
+        desconto: descontoFinal,
+        total: totalFinal,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-    }
 
-    const newOrder = {
-      ...req.body,
-      lojaId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    const docRef = await db.collection("lojas").doc(lojaId).collection("pedidos").add(newOrder);
-    res.status(201).json({id: docRef.id});
+      return orderRef.id;
+    });
+
+    res.status(201).json({id: orderId});
   } catch (error) {
     logger.error("Erro ao criar pedido:", error);
-    res.status(500).send("Erro ao criar pedido.");
+    const statusCode = Number(error?.httpStatus) || 500;
+    const payload = {ok: false, message: error?.message || 'Erro ao criar pedido.'};
+    if (error?.code) payload.code = error.code;
+    res.status(statusCode).json(payload);
   }
 });
 
@@ -676,6 +749,9 @@ app.post("/checkout/confirmar", async (req, res) => {
       }
 
       const stockUpdates = [];
+      const validatedItems = [];
+      let calculatedSubtotal = 0;
+
       for (const item of itens) {
         const produtoId = item?.produtoId || item?.id;
         const quantity = Number(item?.quantity || 0);
@@ -691,6 +767,25 @@ app.post("/checkout/confirmar", async (req, res) => {
         }
 
         const productData = productSnap.data() || {};
+        const productStatus = productData.status || 'Ativo';
+        if (productData.ativo === false || productStatus !== 'Ativo') {
+          throw createHttpError(409, `Produto ${productData.nome || produtoId} não está disponível.`, 'PRODUCT_UNAVAILABLE');
+        }
+
+        const currentPrice = Number(productData.preco || 0);
+        if (!Number.isFinite(currentPrice) || currentPrice < 0) {
+          throw createHttpError(409, `Preço inválido para ${productData.nome || produtoId}.`, 'PRODUCT_PRICE_INVALID');
+        }
+
+        const clientPrice = Number(item?.preco || 0);
+        if (Number.isFinite(clientPrice) && Math.abs(clientPrice - currentPrice) > 0.009) {
+          throw createHttpError(
+            409,
+            `O preço de ${productData.nome || produtoId} mudou. Revise o carrinho antes de confirmar.`,
+            'PRICE_CHANGED',
+          );
+        }
+
         if (typeof productData.estoque === 'number') {
           const newStock = productData.estoque - quantity;
           if (newStock < 0) {
@@ -698,6 +793,27 @@ app.post("/checkout/confirmar", async (req, res) => {
           }
           stockUpdates.push({ref: productRef, newStock});
         }
+
+        calculatedSubtotal += currentPrice * quantity;
+        validatedItems.push({
+          produtoId: String(produtoId),
+          nome: productData.nome || item?.nome || '',
+          quantity,
+          preco: Number(currentPrice.toFixed(2)),
+        });
+      }
+
+      const subtotalFinal = Number(calculatedSubtotal.toFixed(2));
+      if (!Number.isFinite(subtotalFinal) || subtotalFinal <= 0) {
+        throw createHttpError(400, 'Subtotal do pedido inválido.');
+      }
+
+      if (Math.abs(subtotal - subtotalFinal) > 0.009) {
+        throw createHttpError(
+          409,
+          'O subtotal mudou porque produtos foram atualizados. Revise o carrinho antes de confirmar.',
+          'CART_CHANGED',
+        );
       }
 
       let cupomDocRef = null;
@@ -741,12 +857,12 @@ app.post("/checkout/confirmar", async (req, res) => {
         }
 
         const valorMinimo = Number(cupomData.valorMinimo || 0);
-        if (valorMinimo > 0 && subtotal < valorMinimo) {
+        if (valorMinimo > 0 && subtotalFinal < valorMinimo) {
           throw createHttpError(400, `O pedido mínimo para este cupom é de R$ ${valorMinimo.toFixed(2)}.`);
         }
 
         if (cupomData.tipoDesconto === 'percentual') {
-          valorDesconto = Number(((subtotal * Number(cupomData.valor || 0)) / 100).toFixed(2));
+          valorDesconto = Number(((subtotalFinal * Number(cupomData.valor || 0)) / 100).toFixed(2));
         } else {
           valorDesconto = Number(Number(cupomData.valor || 0).toFixed(2));
         }
@@ -755,7 +871,7 @@ app.post("/checkout/confirmar", async (req, res) => {
       }
 
       const descontoFinal = cupomDocRef ? valorDesconto : 0;
-      const total = Number((subtotal - descontoFinal + valorFrete).toFixed(2));
+      const total = Number((subtotalFinal - descontoFinal + valorFrete).toFixed(2));
       if (!Number.isFinite(total) || total < 0) {
         throw createHttpError(400, 'Totais do pedido inválidos.');
       }
@@ -775,13 +891,8 @@ app.post("/checkout/confirmar", async (req, res) => {
         clienteEndereco: cliente.endereco || '',
         telefone: cliente.telefone,
         formaPagamento: pagamento.forma || pagamento.formaPagamento || '',
-        itens: itens.map((item) => ({
-          produtoId: item?.produtoId || item?.id,
-          nome: item?.nome || '',
-          quantity: Number(item?.quantity || 0),
-          preco: Number(item?.preco || 0),
-        })),
-        subtotal,
+        itens: validatedItems,
+        subtotal: subtotalFinal,
         desconto: descontoFinal,
         valorFrete,
         total,
