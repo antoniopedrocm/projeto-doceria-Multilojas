@@ -8398,6 +8398,7 @@ const handleSubmit = async (e) => {
     const [editingTransfer, setEditingTransfer] = useState(null);
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
     const [formError, setFormError] = useState('');
+    const [transferSyncNotice, setTransferSyncNotice] = useState('');
     const [repasseConfigPercentual, setRepasseConfigPercentual] = useState(0);
     const [actionComment, setActionComment] = useState('');
     const [formData, setFormData] = useState({
@@ -8407,6 +8408,7 @@ const handleSubmit = async (e) => {
       observacaoOrigem: '',
       itens: []
     });
+    const selectedStoreForCleanupRef = useRef(null);
 
     const userStoreIds = useMemo(() => {
       if (!user) return [];
@@ -8428,14 +8430,21 @@ const handleSubmit = async (e) => {
     const isEditingTransfer = !!editingTransfer?.id;
     const canChangeOriginStore = allowedOriginStoreIds.length > 1;
 
-    const DEBUG_ENTRE_LOJAS = false;
+    const DEBUG_ENTRE_LOJAS_SYNC = false;
     const entreLojasLog = (...args) => {
-      if (DEBUG_ENTRE_LOJAS) console.log('[EntreLojas][DEBUG]', ...args);
+      if (DEBUG_ENTRE_LOJAS_SYNC) console.log('[EntreLojas][DEBUG]', ...args);
     };
 
     const normalizeStoreId = (value) => String(value || '').trim();
+    const chunkArray = (items = [], size = 10) => {
+      const chunks = [];
+      for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+      }
+      return chunks;
+    };
 
-    const allowedStoreIds = useMemo(() => Array.from(new Set(userStoreIds.map(normalizeStoreId).filter(Boolean))).slice(0, 10), [userStoreIds]);
+    const allowedStoreIds = useMemo(() => Array.from(new Set(userStoreIds.map(normalizeStoreId).filter(Boolean))), [userStoreIds]);
 
     const selectedStoreIdForView = useMemo(() => {
       if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) return null;
@@ -8451,17 +8460,41 @@ const handleSubmit = async (e) => {
     }, [allowedOriginStoreIds, currentStoreIdForDisplay]);
 
     useEffect(() => {
-      if (!user) return undefined;
+      if (!user) {
+        setTransferencias([]);
+        return undefined;
+      }
+
       const transfersRef = collection(db, 'transferenciasEntreLojas');
+      let isActive = true;
+      const unsubscribes = [];
+
+      entreLojasLog('Contexto de carregamento', {
+        usuarioUid: user?.auth?.uid || null,
+        role: user?.role,
+        selectedStoreId,
+        currentStoreIdForDisplay,
+        selectedStoreIdForView,
+        allowedStoreIds,
+        allowedOriginStoreIds,
+        availableStores: availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId }))
+      });
 
       if (canAccessAllTransfers) {
         const baseQuery = query(transfersRef, orderBy('dataCriacao', 'desc'), limit(250));
-        return onSnapshot(baseQuery, (snapshot) => {
+        const unsubscribe = onSnapshot(baseQuery, (snapshot) => {
+          if (!isActive) return;
           const rows = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+          entreLojasLog('Resultado query admin/dono', { quantidadeFinal: rows.length });
           setTransferencias(rows);
         }, (error) => {
           console.error('[EntreLojas] Erro ao carregar transferências:', error);
         });
+
+        return () => {
+          isActive = false;
+          unsubscribe();
+        };
       }
 
       if (!allowedStoreIds.length) {
@@ -8470,93 +8503,124 @@ const handleSubmit = async (e) => {
         return undefined;
       }
 
-      entreLojasLog('Contexto de carregamento', {
-        userProfileRole: user?.role,
-        selectedStoreId,
-        currentStoreIdForDisplay,
-        selectedStoreIdForView,
-        allowedStoreIds,
-        allowedOriginStoreIds,
-        availableStores: availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId }))
-      });
-      const originQuery = query(transfersRef, where('lojaOrigemId', 'in', allowedStoreIds), limit(250));
-      const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', allowedStoreIds), limit(250));
+      const originDocsByChunk = new Map();
+      const destinationDocsByChunk = new Map();
+      const allowedStoreChunks = chunkArray(allowedStoreIds, 10);
 
-      const mergeTransfers = (originDocs, destinationDocs) => {
+      const mergeTransfers = () => {
+        if (!isActive) return;
+
+        const originDocs = Array.from(originDocsByChunk.values()).flat();
+        const destinationDocs = Array.from(destinationDocsByChunk.values()).flat();
         const merged = new Map();
+
         [...originDocs, ...destinationDocs].forEach((docSnap) => {
           merged.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
         });
+
         const sortedRows = Array.from(merged.values()).sort((a, b) => {
           const dateA = getJSDate(a.dataCriacao)?.getTime() || 0;
           const dateB = getJSDate(b.dataCriacao)?.getTime() || 0;
           return dateB - dateA;
         });
         const limitedRows = sortedRows.slice(0, 250);
+
         entreLojasLog('Merge de transferências', {
-          origem: originDocs.length,
-          destino: destinationDocs.length,
-          totalMesclado: limitedRows.length,
-          transferencias: limitedRows.map((item) => ({ id: item.id, numero: item.numero, lojaOrigemId: item.lojaOrigemId, lojaDestinoId: item.lojaDestinoId, status: item.status }))
+          quantidadeOrigem: originDocs.length,
+          quantidadeDestino: destinationDocs.length,
+          quantidadeFinal: limitedRows.length,
+          chunks: allowedStoreChunks.length,
+          transferencias: limitedRows.map((item) => ({
+            id: item.id,
+            numero: item.numero,
+            lojaOrigemId: item.lojaOrigemId,
+            lojaDestinoId: item.lojaDestinoId,
+            status: item.status
+          }))
         });
+
         setTransferencias(limitedRows);
       };
 
-      let originDocs = [];
-      let destinationDocs = [];
+      allowedStoreChunks.forEach((storeChunk, chunkIndex) => {
+        const originQuery = query(transfersRef, where('lojaOrigemId', 'in', storeChunk), limit(250));
+        const destinationQuery = query(transfersRef, where('lojaDestinoId', 'in', storeChunk), limit(250));
 
-      const unsubscribeOrigin = onSnapshot(originQuery, (snapshot) => {
-        originDocs = snapshot.docs;
-        entreLojasLog('Resultado query origem', { quantidade: originDocs.length, ids: originDocs.map((docSnap) => docSnap.id) });
-        mergeTransfers(originDocs, destinationDocs);
-      }, (error) => {
-        console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
-      });
+        const unsubscribeOrigin = onSnapshot(originQuery, (snapshot) => {
+          originDocsByChunk.set(chunkIndex, snapshot.docs);
+          entreLojasLog('Resultado query origem', {
+            chunkIndex,
+            lojas: storeChunk,
+            quantidade: snapshot.docs.length,
+            ids: snapshot.docs.map((docSnap) => docSnap.id)
+          });
+          mergeTransfers();
+        }, (error) => {
+          console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
+        });
 
-      const unsubscribeDestination = onSnapshot(destinationQuery, (snapshot) => {
-        destinationDocs = snapshot.docs;
-        entreLojasLog('Resultado query destino', { quantidade: destinationDocs.length, ids: destinationDocs.map((docSnap) => docSnap.id) });
-        mergeTransfers(originDocs, destinationDocs);
-      }, (error) => {
-        console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
+        const unsubscribeDestination = onSnapshot(destinationQuery, (snapshot) => {
+          destinationDocsByChunk.set(chunkIndex, snapshot.docs);
+          entreLojasLog('Resultado query destino', {
+            chunkIndex,
+            lojas: storeChunk,
+            quantidade: snapshot.docs.length,
+            ids: snapshot.docs.map((docSnap) => docSnap.id)
+          });
+          mergeTransfers();
+        }, (error) => {
+          console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
+        });
+
+        unsubscribes.push(unsubscribeOrigin, unsubscribeDestination);
       });
 
       return () => {
-        unsubscribeOrigin();
-        unsubscribeDestination();
+        isActive = false;
+        unsubscribes.forEach((unsubscribe) => unsubscribe());
       };
-    }, [allowedOriginStoreIds, allowedStoreIds, canAccessAllTransfers, currentStoreIdForDisplay, selectedStoreId, selectedStoreIdForView, user, userStoreIds]);
+    }, [allowedOriginStoreIds, allowedStoreIds, availableStores, canAccessAllTransfers, currentStoreIdForDisplay, selectedStoreId, selectedStoreIdForView, storeInfoMap, user, userStoreIds]);
 
     const storesForSelect = useMemo(
       () => availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId })),
       [availableStores, storeInfoMap]
     );
 
-    const productOptions = useMemo(() => (data.produtos || []).map((item) => ({
-      id: item.id,
-      nome: item.nome || item.descricao || 'Produto sem nome',
-      preco: Number(item.preco || item.precoVenda || item.valor || 0),
-      custo: [item.custo, item.precoCusto, item.valorCusto, item.custoUnitario, item.precoCompra]
-        .map((value) => Number(value))
-        .find((value) => Number.isFinite(value) && value >= 0)
-    })), [data.produtos]);
+    const productOptions = useMemo(() => {
+      const originStoreId = normalizeStoreId(formData.lojaOrigemId);
+
+      return (data.produtos || [])
+        .filter((item) => {
+          if (isProductInactive(item)) return false;
+          const productStoreId = normalizeStoreId(item.lojaId);
+          return !originStoreId || !productStoreId || productStoreId === originStoreId;
+        })
+        .map((item) => ({
+          id: item.id,
+          lojaId: item.lojaId || originStoreId || null,
+          nome: item.nome || item.descricao || 'Produto sem nome',
+          preco: Number(item.preco || item.precoVenda || item.valor || 0),
+          custo: [item.custo, item.precoCusto, item.valorCusto, item.custoUnitario, item.precoCompra]
+            .map((value) => Number(value))
+            .find((value) => Number.isFinite(value) && value >= 0)
+        }));
+    }, [data.produtos, formData.lojaOrigemId]);
 
     useEffect(() => {
       if (!formData.lojaOrigemId) {
         setRepasseConfigPercentual(0);
-        return;
+        return undefined;
       }
-      const fetchRepasseConfig = async () => {
-        try {
-          const configSnap = await getDoc(getStoreConfigDocRef(formData.lojaOrigemId));
-          const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
-          setRepasseConfigPercentual(Number.isFinite(percentual) && percentual >= 0 ? percentual : 0);
-        } catch (error) {
-          console.error('[EntreLojas] Erro ao carregar percentual de repasse:', error);
-          setRepasseConfigPercentual(0);
-        }
-      };
-      fetchRepasseConfig();
+
+      const unsubscribe = onSnapshot(getStoreConfigDocRef(formData.lojaOrigemId), (configSnap) => {
+        const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
+        setRepasseConfigPercentual(Number.isFinite(percentual) && percentual >= 0 ? percentual : 0);
+      }, (error) => {
+        console.error('[EntreLojas] Erro ao sincronizar percentual de repasse:', error);
+        setRepasseConfigPercentual(0);
+      });
+
+      return () => unsubscribe();
     }, [formData.lojaOrigemId]);
 
     const computeTotals = useCallback((items = []) => {
@@ -8573,6 +8637,7 @@ const handleSubmit = async (e) => {
 
     const resetForm = () => {
       setFormError('');
+      setTransferSyncNotice('');
       setEditingTransfer(null);
       setFormData({
         lojaOrigemId: getDefaultOriginStoreId(),
@@ -8582,6 +8647,25 @@ const handleSubmit = async (e) => {
         itens: []
       });
     };
+
+    useEffect(() => {
+      if (selectedStoreForCleanupRef.current === selectedStoreIdForView) return;
+      selectedStoreForCleanupRef.current = selectedStoreIdForView;
+      if (!showModal && !viewingTransfer) return;
+      setShowModal(false);
+      setViewingTransfer(null);
+      setActionComment('');
+      setFormError('');
+      setTransferSyncNotice('');
+      setEditingTransfer(null);
+      setFormData({
+        lojaOrigemId: getDefaultOriginStoreId(),
+        lojaDestinoId: '',
+        dataRemessa: new Date().toISOString().slice(0, 10),
+        observacaoOrigem: '',
+        itens: []
+      });
+    }, [getDefaultOriginStoreId, selectedStoreIdForView, showModal, viewingTransfer]);
 
     useEffect(() => {
       if (!showModal || isEditingTransfer) return;
@@ -8603,6 +8687,19 @@ const handleSubmit = async (e) => {
       resetForm();
       setShowModal(true);
     };
+
+    useEffect(() => {
+      if (!viewingTransfer?.id) return;
+      const latestTransfer = (transferencias || []).find((item) => item.id === viewingTransfer.id);
+      if (!latestTransfer) {
+        setViewingTransfer(null);
+        setActionComment('');
+        return;
+      }
+      if (latestTransfer !== viewingTransfer) {
+        setViewingTransfer(latestTransfer);
+      }
+    }, [transferencias, viewingTransfer]);
 
     const formatMoney = (value) => `R$ ${(Number(value) || 0).toFixed(2)}`;
     const statusLabelMap = {
@@ -8697,6 +8794,160 @@ const handleSubmit = async (e) => {
       return '';
     };
 
+    const readStoreSnapshotOrThrow = async (storeId, label) => {
+      if (!storeId) throw new Error(`Loja ${label} inválida.`);
+      const storeSnap = await getDoc(doc(db, 'lojas', storeId));
+      if (!storeSnap.exists()) {
+        throw new Error(`A loja ${label} não existe mais ou você não tem permissão para acessá-la.`);
+      }
+      return storeSnap;
+    };
+
+    const extractProductCost = (productData = {}) => (
+      [productData.custo, productData.precoCusto, productData.valorCusto, productData.custoUnitario, productData.precoCompra]
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0)
+    );
+
+    const buildValidatedTransferPayload = async (mode = 'rascunho') => {
+      const origemId = normalizeStoreId(formData.lojaOrigemId);
+      const destinoId = normalizeStoreId(formData.lojaDestinoId);
+      const changes = [];
+
+      if (!canAccessAllTransfers && (!allowedStoreIds.includes(origemId) || !allowedStoreIds.includes(destinoId))) {
+        throw new Error('Você não tem permissão para esta loja de origem ou destino.');
+      }
+
+      if (!allowedOriginStoreIds.includes(origemId)) {
+        throw new Error(isEditingTransfer ? 'Você não pode editar remessa para essa loja de origem.' : 'Você não pode criar remessa para essa loja de origem.');
+      }
+
+      if (origemId === destinoId) {
+        throw new Error('A loja destino deve ser diferente da loja origem.');
+      }
+
+      const [origemSnap, destinoSnap, configSnap, currentTransferSnap, productSnaps] = await Promise.all([
+        readStoreSnapshotOrThrow(origemId, 'origem'),
+        readStoreSnapshotOrThrow(destinoId, 'destino'),
+        getDoc(getStoreConfigDocRef(origemId)),
+        isEditingTransfer && editingTransfer?.id
+          ? getDoc(doc(db, 'transferenciasEntreLojas', editingTransfer.id))
+          : Promise.resolve(null),
+        Promise.all((formData.itens || []).map((item) => getDoc(getStoreDocRef(origemId, 'produtos', item.produtoId))))
+      ]);
+
+      if (isEditingTransfer) {
+        if (!currentTransferSnap?.exists()) {
+          throw new Error('Esta remessa não existe mais. Atualize a lista e tente novamente.');
+        }
+
+        const latestTransfer = { id: currentTransferSnap.id, ...currentTransferSnap.data() };
+        if (!canEditTransfer(latestTransfer)) {
+          throw new Error(isTransferLockedForEdit(latestTransfer) ? 'Remessa bloqueada para edição.' : 'Você não tem permissão para editar esta remessa.');
+        }
+      }
+
+      const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
+      const percentualAtual = Number.isFinite(percentual) && percentual >= 0 ? percentual : 0;
+      if (percentualAtual !== repasseConfigPercentual) {
+        changes.push(`Percentual de repasse atualizado para ${percentualAtual.toFixed(2)}%.`);
+      }
+
+      const formItems = [];
+      const itemsPayload = (formData.itens || []).map((item, index) => {
+        const productSnap = productSnaps[index];
+        if (!item.produtoId || !productSnap?.exists()) {
+          throw new Error(`Produto inválido no item ${index + 1}.`);
+        }
+
+        const product = { id: productSnap.id, ...productSnap.data() };
+        if (isProductInactive(product)) {
+          throw new Error(`O produto ${product.nome || item.nome || item.produtoId} está inativo.`);
+        }
+
+        const quantidade = Number(item.quantidade);
+        if (!Number.isFinite(quantidade) || quantidade <= 0) {
+          throw new Error(`Quantidade inválida para ${product.nome || item.nome || item.produtoId}.`);
+        }
+
+        const custoAtual = extractProductCost(product);
+        const precoAtual = Number(product.preco || product.precoVenda || product.valor || 0);
+        if (!Number.isFinite(precoAtual) || precoAtual < 0) {
+          throw new Error(`Preço de revenda inválido para ${product.nome || item.nome || item.produtoId}.`);
+        }
+
+        const repasseAtual = Number.isFinite(custoAtual)
+          ? Number((custoAtual * (1 + (percentualAtual / 100))).toFixed(2))
+          : Number(item.valorUnitarioRepasse || 0);
+        const revendaAtual = Number(precoAtual.toFixed(2));
+
+        if (!Number.isFinite(repasseAtual) || repasseAtual < 0) {
+          throw new Error(`Valor de repasse inválido para ${product.nome || item.nome || item.produtoId}.`);
+        }
+
+        const valorFormRepasse = Number(item.valorUnitarioRepasse || 0);
+        const valorFormRevenda = Number(item.valorUnitarioRevenda || 0);
+        if (Math.abs(valorFormRepasse - repasseAtual) > 0.009) {
+          changes.push(`${product.nome || item.nome}: repasse atualizado para ${formatMoney(repasseAtual)}.`);
+        }
+        if (Math.abs(valorFormRevenda - revendaAtual) > 0.009) {
+          changes.push(`${product.nome || item.nome}: revenda atualizada para ${formatMoney(revendaAtual)}.`);
+        }
+        if ((product.nome || '') && product.nome !== item.nome) {
+          changes.push(`${item.nome || item.produtoId}: nome atualizado para ${product.nome}.`);
+        }
+
+        formItems.push({
+          ...item,
+          produtoId: product.id,
+          produtoBusca: product.nome || item.produtoBusca || '',
+          nome: product.nome || item.nome || 'Produto',
+          quantidade,
+          valorUnitarioRepasse: repasseAtual,
+          valorUnitarioRevenda: revendaAtual,
+          semCusto: !Number.isFinite(custoAtual)
+        });
+
+        return {
+          produtoId: product.id,
+          nome: product.nome || item.nome || 'Produto',
+          quantidade,
+          valorUnitarioRepasse: repasseAtual,
+          valorUnitarioRevenda: revendaAtual,
+          totalRepasse: Number((quantidade * repasseAtual).toFixed(2)),
+          totalRevenda: Number((quantidade * revendaAtual).toFixed(2))
+        };
+      });
+
+      const totals = computeTotals(itemsPayload);
+      const finalStatus = isEditingTransfer
+        ? (mode === 'enviar' && editingTransfer?.status === 'rascunho' ? 'aguardando_conferencia' : (editingTransfer?.status || 'rascunho'))
+        : (mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho');
+      const origemNome = storeInfoMap[origemId]?.nome || origemSnap.data()?.nome || origemId;
+      const destinoNome = storeInfoMap[destinoId]?.nome || destinoSnap.data()?.nome || destinoId;
+
+      return {
+        changes,
+        formItems,
+        percentualAtual,
+        payload: {
+          lojaOrigemId: origemId,
+          lojaOrigemNome: origemNome,
+          lojaDestinoId: destinoId,
+          lojaDestinoNome: destinoNome,
+          status: finalStatus,
+          dataRemessa: formData.dataRemessa || null,
+          observacaoOrigem: formData.observacaoOrigem || '',
+          totalRepasse: totals.totalRepasse,
+          totalRevenda: totals.totalRevenda,
+          quantidadeTotalItens: totals.quantidadeTotalItens,
+          itens: itemsPayload,
+          storeVisibility: Array.from(new Set([origemId, destinoId])),
+          percentualRepasseAplicado: percentualAtual
+        }
+      };
+    };
+
     const isTransferLockedForEdit = (transfer) => ['pagamento_informado', 'pagamento_confirmado', 'cancelado', 'cancelada'].includes(transfer?.status);
 
     const isOriginStoreAllowed = (transfer) => {
@@ -8754,52 +9005,38 @@ const handleSubmit = async (e) => {
       }
       setIsSavingTransfer(true);
       setFormError('');
+      setTransferSyncNotice('');
       try {
-        const totals = computeTotals(formData.itens);
-        const itemsPayload = formData.itens.map((item) => {
-          const quantidade = Number(item.quantidade) || 0;
-          const valorUnitarioRepasse = Number(item.valorUnitarioRepasse) || 0;
-          const valorUnitarioRevenda = Number(item.valorUnitarioRevenda) || 0;
-          return {
-            produtoId: item.produtoId,
-            nome: item.nome,
-            quantidade,
-            valorUnitarioRepasse,
-            valorUnitarioRevenda,
-            totalRepasse: quantidade * valorUnitarioRepasse,
-            totalRevenda: quantidade * valorUnitarioRevenda
-          };
-        });
+        const validated = await buildValidatedTransferPayload(mode);
 
-        const origemNome = storeInfoMap[formData.lojaOrigemId]?.nome || formData.lojaOrigemId;
-        const destinoNome = storeInfoMap[formData.lojaDestinoId]?.nome || formData.lojaDestinoId;
-        const finalStatus = isEditingTransfer
-          ? (mode === 'enviar' && editingTransfer?.status === 'rascunho' ? 'aguardando_conferencia' : (editingTransfer?.status || 'rascunho'))
-          : (mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho');
+        if (validated.changes.length) {
+          setRepasseConfigPercentual(validated.percentualAtual);
+          setFormData((prev) => ({
+            ...prev,
+            itens: validated.formItems
+          }));
+          const notice = `Dados atualizados antes de salvar: ${validated.changes.slice(0, 4).join(' ')} Revise a remessa e clique em salvar novamente.`;
+          setTransferSyncNotice(notice);
+          setFormError('Revise as alterações aplicadas automaticamente e confirme o salvamento novamente.');
+          entreLojasLog('Salvamento pausado para confirmação', { changes: validated.changes });
+          return;
+        }
+
+        const { payload } = validated;
         const now = serverTimestamp();
         if (isEditingTransfer && editingTransfer?.id) {
           const transferRef = doc(db, 'transferenciasEntreLojas', editingTransfer.id);
           await updateDoc(transferRef, {
-            lojaOrigemId: formData.lojaOrigemId,
-            lojaOrigemNome: origemNome,
-            lojaDestinoId: formData.lojaDestinoId,
-            lojaDestinoNome: destinoNome,
-            status: finalStatus,
-            dataRemessa: formData.dataRemessa || null,
+            ...payload,
             dataEnvio: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? now : (editingTransfer.dataEnvio || null),
             enviadoPorUid: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? (user?.auth?.uid || '') : (editingTransfer.enviadoPorUid || null),
             enviadoPorNome: mode === 'enviar' && editingTransfer?.status === 'rascunho' ? (user?.name || user?.email || '') : (editingTransfer.enviadoPorNome || null),
-            observacaoOrigem: formData.observacaoOrigem || '',
-            totalRepasse: totals.totalRepasse,
-            totalRevenda: totals.totalRevenda,
-            quantidadeTotalItens: totals.quantidadeTotalItens,
-            itens: itemsPayload,
-            storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
+            dataAtualizacao: now,
             historico: arrayUnion({
               acao: editingTransfer?.status === 'rascunho'
                 ? (mode === 'enviar' ? 'enviado_para_conferencia' : 'rascunho_atualizado')
                 : 'remessa_atualizada',
-              status: finalStatus,
+              status: payload.status,
               data: Timestamp.now(),
               usuarioUid: user?.auth?.uid || '',
               usuarioNome: user?.name || user?.email || '',
@@ -8811,13 +9048,8 @@ const handleSubmit = async (e) => {
         } else {
           await addDoc(collection(db, 'transferenciasEntreLojas'), {
             numero: Date.now(),
-            lojaOrigemId: formData.lojaOrigemId,
-            lojaOrigemNome: origemNome,
-            lojaDestinoId: formData.lojaDestinoId,
-            lojaDestinoNome: destinoNome,
-            status: finalStatus,
+            ...payload,
             dataCriacao: now,
-            dataRemessa: formData.dataRemessa || null,
             dataEnvio: mode === 'enviar' ? now : null,
             dataConferencia: null,
             dataPagamentoInformado: null,
@@ -8832,20 +9064,14 @@ const handleSubmit = async (e) => {
             pagamentoInformadoPorNome: null,
             pagamentoConfirmadoPorUid: null,
             pagamentoConfirmadoPorNome: null,
-            observacaoOrigem: formData.observacaoOrigem || '',
             observacaoDestino: '',
             observacaoPagamento: '',
             formaPagamento: '',
             dataPagamento: null,
-            totalRepasse: totals.totalRepasse,
-            totalRevenda: totals.totalRevenda,
-            quantidadeTotalItens: totals.quantidadeTotalItens,
-            itens: itemsPayload,
             stockIntegration: { enabled: false, status: 'pendente' },
-            storeVisibility: Array.from(new Set([formData.lojaOrigemId, formData.lojaDestinoId])),
             historico: [{
               acao: mode === 'enviar' ? 'remessa_enviada' : 'remessa_criada',
-              status: finalStatus,
+              status: payload.status,
               data: Timestamp.now(),
               usuarioUid: user?.auth?.uid || '',
               usuarioNome: user?.name || user?.email || '',
@@ -8868,6 +9094,10 @@ const handleSubmit = async (e) => {
       if (!user || !transfer) return false;
       if (action === 'editar_remessa') return canEditTransfer(transfer);
       if (action === 'excluir_remessa') return canDeleteTransfer(transfer);
+      if (action === 'cancelar') {
+        const originAllowed = user.role === ROLE_OWNER || allowedStoreIds.includes(normalizeStoreId(transfer.lojaOrigemId));
+        return originAllowed && !['pagamento_confirmado', 'cancelado', 'cancelada'].includes(transfer.status);
+      }
       if (user.role === ROLE_OWNER) return true;
       const originAllowed = allowedStoreIds.includes(normalizeStoreId(transfer.lojaOrigemId));
       const destinationAllowed = allowedStoreIds.includes(normalizeStoreId(transfer.lojaDestinoId));
@@ -8907,6 +9137,7 @@ const handleSubmit = async (e) => {
       const transferRef = doc(db, 'transferenciasEntreLojas', transfer.id);
       await updateDoc(transferRef, {
         ...payload,
+        dataAtualizacao: serverTimestamp(),
         historico: arrayUnion({
           ...historyEntry,
           data: Timestamp.now(),
@@ -8980,6 +9211,19 @@ const handleSubmit = async (e) => {
             comentario: actionComment || 'Pagamento contestado pela loja origem'
           });
         }
+        if (action === 'cancelar' && canActOnTransfer(transfer, 'cancelar')) {
+          await patchTransfer(transfer, {
+            status: 'cancelado',
+            dataCancelamento: serverTimestamp(),
+            canceladoPorUid: user?.auth?.uid || '',
+            canceladoPorNome: user?.name || user?.email || '',
+            observacaoCancelamento: actionComment || ''
+          }, {
+            acao: 'remessa_cancelada',
+            status: 'cancelado',
+            comentario: actionComment || 'Remessa cancelada pela loja origem'
+          });
+        }
         setActionComment('');
       } catch (error) {
         console.error('[EntreLojas] Erro ao executar ação:', error);
@@ -9016,10 +9260,24 @@ const handleSubmit = async (e) => {
           return false;
         }
 
-        if (activeTab === 'enviadas' && !(originId && (canAccessAllTransfers || allowedStoreIds.includes(originId)))) return false;
-        if (activeTab === 'recebidas' && !(destinationId && (canAccessAllTransfers || allowedStoreIds.includes(destinationId)))) return false;
+        const sentInCurrentView = selectedStoreIdForView
+          ? originId === selectedStoreIdForView
+          : Boolean(originId && (canAccessAllTransfers || allowedStoreIds.includes(originId)));
+        const receivedInCurrentView = selectedStoreIdForView
+          ? destinationId === selectedStoreIdForView
+          : Boolean(destinationId && (canAccessAllTransfers || allowedStoreIds.includes(destinationId)));
+
+        if (activeTab === 'enviadas' && !sentInCurrentView) {
+          entreLojasLog('Remessa removida por aba enviadas', { id: item.id, originId, selectedStoreIdForView });
+          return false;
+        }
+        if (activeTab === 'recebidas' && !receivedInCurrentView) {
+          entreLojasLog('Remessa removida por aba recebidas', { id: item.id, destinationId, selectedStoreIdForView });
+          return false;
+        }
         if (activeTab === 'aguardando_conferencia' && item.status !== 'aguardando_conferencia') return false;
         if (activeTab === 'aguardando_pagamento' && !['pagamento_informado', 'conferencia_com_divergencia', 'conferencia_sem_divergencia'].includes(item.status)) return false;
+        if (activeTab === 'historico' && !['pagamento_confirmado', 'pagamento_contestado', 'cancelado', 'cancelada'].includes(item.status)) return false;
         if (statusFilter !== 'todos' && item.status !== statusFilter) return false;
         if (origemFilter !== 'todos' && item.lojaOrigemId !== origemFilter) return false;
         if (destinoFilter !== 'todos' && item.lojaDestinoId !== destinoFilter) return false;
@@ -9029,6 +9287,18 @@ const handleSubmit = async (e) => {
         return true;
       });
     }, [activeTab, allowedStoreIds, canAccessAllTransfers, canViewTransfer, destinoFilter, endDateFilter, matchesSelectedStoreView, origemFilter, selectedStoreIdForView, startDateFilter, statusFilter, transferencias]);
+
+    useEffect(() => {
+      entreLojasLog('Resultado após filtros', {
+        activeTab,
+        selectedStoreIdForView,
+        quantidadeBase: transferencias.length,
+        quantidadeFiltrada: filteredTransfers.length,
+        statusFilter,
+        origemFilter,
+        destinoFilter
+      });
+    }, [activeTab, destinoFilter, filteredTransfers.length, origemFilter, selectedStoreIdForView, statusFilter, transferencias.length]);
 
     const summary = useMemo(() => filteredTransfers.reduce((acc, item) => {
       acc.total += 1;
@@ -9133,7 +9403,16 @@ const handleSubmit = async (e) => {
                 label="Loja origem"
                 value={formData.lojaOrigemId}
                 disabled={!canChangeOriginStore}
-                onChange={(e) => setFormData((prev) => ({ ...prev, lojaOrigemId: e.target.value }))}
+                onChange={(e) => {
+                  const nextOriginId = e.target.value;
+                  setTransferSyncNotice('');
+                  setFormData((prev) => ({
+                    ...prev,
+                    lojaOrigemId: nextOriginId,
+                    lojaDestinoId: prev.lojaDestinoId === nextOriginId ? '' : prev.lojaDestinoId,
+                    itens: []
+                  }));
+                }}
               >
                 <option value="">Selecione</option>
                 {storesForSelect.filter((store) => allowedOriginStoreIds.includes(store.id)).map((store) => (
@@ -9197,6 +9476,9 @@ const handleSubmit = async (e) => {
               </div>
             </div>
 
+            {transferSyncNotice && (
+              <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">{transferSyncNotice}</div>
+            )}
             {formError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{formError}</div>}
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -9268,6 +9550,9 @@ const handleSubmit = async (e) => {
                 )}
                 {viewingTransfer.status === 'pagamento_informado' && canActOnTransfer(viewingTransfer, 'contestar_pagamento') && (
                   <Button variant="danger" onClick={() => handleTransferAction(viewingTransfer, 'contestar_pagamento')}>Contestar pagamento</Button>
+                )}
+                {canActOnTransfer(viewingTransfer, 'cancelar') && (
+                  <Button variant="danger" onClick={() => handleTransferAction(viewingTransfer, 'cancelar')}>Cancelar remessa</Button>
                 )}
               </div>
               <div className="space-y-2">
