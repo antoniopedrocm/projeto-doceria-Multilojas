@@ -8406,6 +8406,7 @@ const handleSubmit = async (e) => {
     const [viewingClosing, setViewingClosing] = useState(null);
     const [viewingTransfer, setViewingTransfer] = useState(null);
     const [editingTransfer, setEditingTransfer] = useState(null);
+    const [editingClosing, setEditingClosing] = useState(null);
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
     const [isSavingClosing, setIsSavingClosing] = useState(false);
     const [formError, setFormError] = useState('');
@@ -8462,6 +8463,7 @@ const handleSubmit = async (e) => {
     const canMarkAsPaid = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
     const canConfirmPaymentByRole = user?.role === ROLE_OWNER || user?.role === ROLE_MANAGER;
     const isEditingTransfer = !!editingTransfer?.id;
+    const isEditingClosing = !!editingClosing?.id;
     const canChangeOriginStore = allowedOriginStoreIds.length > 1;
 
     const DEBUG_ENTRE_LOJAS_SYNC = false;
@@ -8847,6 +8849,7 @@ const handleSubmit = async (e) => {
       setTransferSyncNotice('');
       setClosingSyncNotice('');
       setEditingTransfer(null);
+      setEditingClosing(null);
       setFormData({
         lojaOrigemId: getDefaultOriginStoreId(),
         lojaDestinoId: '',
@@ -8884,13 +8887,32 @@ const handleSubmit = async (e) => {
     const resetClosingForm = () => {
       setClosingFormError('');
       setClosingSyncNotice('');
+      setEditingClosing(null);
       setClosingFormData(getDefaultClosingFormData());
     };
 
     const openNewClosingModal = () => {
+      setEditingClosing(null);
       setClosingFormData(getDefaultClosingFormData());
       setClosingFormError('');
       setClosingSyncNotice('');
+      setShowClosingModal(true);
+    };
+
+    const startEditingClosing = (closing) => {
+      if (!canEditClosing(closing)) return;
+      setClosingFormError('');
+      setClosingSyncNotice('');
+      setEditingClosing(closing);
+      setClosingFormData({
+        nome: closing.nome || '',
+        lojaOrigemId: closing.lojaOrigemId || '',
+        lojaDestinoId: closing.lojaDestinoId || '',
+        periodoInicio: closing.periodoInicio || new Date().toISOString().slice(0, 10),
+        periodoFim: closing.periodoFim || closing.periodoInicio || new Date().toISOString().slice(0, 10),
+        observacaoOrigem: closing.observacaoOrigem || '',
+        observacaoDestino: closing.observacaoDestino || ''
+      });
       setShowClosingModal(true);
     };
 
@@ -9267,7 +9289,7 @@ const handleSubmit = async (e) => {
 
     const canDeleteTransfer = (transfer) => {
       if (!user || !transfer) return false;
-      return transfer.status === 'aguardando_conferencia' && isOriginStoreAllowed(transfer);
+      return ['rascunho', 'aguardando_conferencia'].includes(transfer.status) && isOriginStoreAllowed(transfer);
     };
 
     const recalculateClosingTotals = async (fechamentoId) => {
@@ -9660,6 +9682,12 @@ const handleSubmit = async (e) => {
       if (user.role === ROLE_OWNER) return true;
       return user.role === ROLE_MANAGER && (isStoreAllowedForUser(closing.lojaOrigemId) || isStoreAllowedForUser(closing.lojaDestinoId));
     };
+    const canDeleteClosing = (closing) => {
+      if (!user || !closing) return false;
+      if (!['aberto', 'cancelado'].includes(closing.status)) return false;
+      if (user.role === ROLE_OWNER) return true;
+      return user.role === ROLE_MANAGER && (isStoreAllowedForUser(closing.lojaOrigemId) || isStoreAllowedForUser(closing.lojaDestinoId));
+    };
     const canCreateTransferInClosing = (closing) => {
       if (!user || !closing || closing.status !== 'aberto') return false;
       if (!canViewClosing(closing)) return false;
@@ -9703,7 +9731,11 @@ const handleSubmit = async (e) => {
       const start = parseLocalDate(closingFormData.periodoInicio);
       const end = parseLocalDate(closingFormData.periodoFim);
       if (!start || !end || start > end) return 'Informe um período válido para o fechamento.';
-      if (!canCreateClosing()) return 'Você não tem permissão para criar fechamentos.';
+      if (isEditingClosing) {
+        if (!canEditClosing(editingClosing)) return 'Você não tem permissão para editar este fechamento.';
+      } else if (!canCreateClosing()) {
+        return 'Você não tem permissão para criar fechamentos.';
+      }
       if (!canAccessAllTransfers && !isStoreAllowedForUser(origemId) && !isStoreAllowedForUser(destinoId)) {
         return 'Você não tem permissão para criar fechamento para estas lojas.';
       }
@@ -9729,6 +9761,55 @@ const handleSubmit = async (e) => {
           readStoreSnapshotOrThrow(destinoId, 'destino')
         ]);
         const start = parseLocalDate(closingFormData.periodoInicio);
+        const origemNome = storeInfoMap[origemId]?.nome || origemSnap.data()?.nome || origemId;
+        const destinoNome = storeInfoMap[destinoId]?.nome || destinoSnap.data()?.nome || destinoId;
+
+        if (isEditingClosing && editingClosing?.id) {
+          const closingRef = doc(db, 'fechamentosEntreLojas', editingClosing.id);
+          const closingSnap = await getDoc(closingRef);
+          if (!closingSnap.exists()) throw new Error('Este fechamento não existe mais.');
+
+          const latestClosing = { id: closingSnap.id, ...closingSnap.data() };
+          if (!canEditClosing(latestClosing)) throw new Error('Este fechamento não está aberto para edição.');
+          const hasLinkedTransfers = (latestClosing.remessaIds || []).length > 0;
+          if (hasLinkedTransfers && (latestClosing.lojaOrigemId !== origemId || latestClosing.lojaDestinoId !== destinoId)) {
+            throw new Error('Não é possível trocar origem ou destino de um fechamento que já possui remessas.');
+          }
+
+          const batch = writeBatch(db);
+          batch.update(closingRef, {
+            nome: closingFormData.nome,
+            competenciaAno: start.getFullYear(),
+            competenciaMes: start.getMonth() + 1,
+            semanaMes: computeWeekOfMonth(start),
+            periodoInicio: closingFormData.periodoInicio,
+            periodoFim: closingFormData.periodoFim,
+            lojaOrigemId: origemId,
+            lojaOrigemNome: origemNome,
+            lojaDestinoId: destinoId,
+            lojaDestinoNome: destinoNome,
+            observacaoOrigem: closingFormData.observacaoOrigem || '',
+            observacaoDestino: closingFormData.observacaoDestino || '',
+            storeVisibility: Array.from(new Set([origemId, destinoId])),
+            dataAtualizacao: serverTimestamp(),
+            historico: arrayUnion(buildClosingHistoryEntry('fechamento_atualizado', latestClosing.status || 'aberto', 'Fechamento atualizado'))
+          });
+
+          (latestClosing.remessaIds || []).filter(Boolean).forEach((transferId) => {
+            batch.update(doc(db, 'transferenciasEntreLojas', transferId), {
+              fechamentoNome: closingFormData.nome,
+              fechamentoStatus: latestClosing.status || 'aberto',
+              dataAtualizacao: serverTimestamp()
+            });
+          });
+
+          await batch.commit();
+          setShowClosingModal(false);
+          resetClosingForm();
+          setModuleTab('fechamentos');
+          return;
+        }
+
         const numero = Date.now();
         const payload = {
           numero,
@@ -9739,9 +9820,9 @@ const handleSubmit = async (e) => {
           periodoInicio: closingFormData.periodoInicio,
           periodoFim: closingFormData.periodoFim,
           lojaOrigemId: origemId,
-          lojaOrigemNome: storeInfoMap[origemId]?.nome || origemSnap.data()?.nome || origemId,
+          lojaOrigemNome: origemNome,
           lojaDestinoId: destinoId,
-          lojaDestinoNome: storeInfoMap[destinoId]?.nome || destinoSnap.data()?.nome || destinoId,
+          lojaDestinoNome: destinoNome,
           status: 'aberto',
           remessaIds: [],
           quantidadeRemessas: 0,
@@ -9787,6 +9868,67 @@ const handleSubmit = async (e) => {
       } finally {
         setIsSavingClosing(false);
       }
+    };
+
+    const deleteClosing = async (closing) => {
+      if (!canDeleteClosing(closing)) {
+        alert('Você não tem permissão para excluir este fechamento.');
+        return;
+      }
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const closingRef = doc(db, 'fechamentosEntreLojas', closing.id);
+          const closingSnap = await transaction.get(closingRef);
+          if (!closingSnap.exists()) return;
+
+          const latestClosing = { id: closingSnap.id, ...closingSnap.data() };
+          if (!canDeleteClosing(latestClosing)) {
+            throw new Error('Este fechamento não pode mais ser excluído.');
+          }
+
+          const transferRefs = Array.from(new Set((latestClosing.remessaIds || []).filter(Boolean)))
+            .map((transferId) => doc(db, 'transferenciasEntreLojas', transferId));
+          const transferSnaps = [];
+          for (const transferRef of transferRefs) {
+            transferSnaps.push(await transaction.get(transferRef));
+          }
+
+          transferSnaps.filter((transferSnap) => transferSnap.exists()).forEach((transferSnap) => {
+            transaction.update(transferSnap.ref, {
+              fechamentoId: null,
+              fechamentoNome: '',
+              fechamentoStatus: '',
+              dataAtualizacao: serverTimestamp(),
+              historico: arrayUnion({
+                acao: 'fechamento_excluido',
+                status: transferSnap.data().status || '',
+                data: Timestamp.now(),
+                usuarioUid: user?.auth?.uid || '',
+                usuarioNome: user?.name || user?.email || '',
+                comentario: `Fechamento ${latestClosing.nome || latestClosing.id} excluído`
+              })
+            });
+          });
+
+          transaction.delete(closingRef);
+        });
+
+        if (viewingClosing?.id === closing.id) {
+          setViewingClosing(null);
+        }
+      } catch (error) {
+        console.error('[EntreLojas] Erro ao excluir fechamento:', error);
+        alert(error?.message || 'Não foi possível excluir o fechamento.');
+      }
+    };
+
+    const confirmDeleteClosing = (closing) => {
+      if (!canDeleteClosing(closing)) return;
+      setConfirmDelete({
+        isOpen: true,
+        onConfirm: () => deleteClosing(closing)
+      });
     };
 
     const moveTransferToClosing = async (transfer, closing) => {
@@ -10258,10 +10400,23 @@ const handleSubmit = async (e) => {
     ];
 
     const closingActions = [
-      { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingClosing(row) }
+      { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingClosing(row) },
+      {
+        icon: Edit,
+        label: 'Editar fechamento',
+        onClick: (row) => startEditingClosing(row),
+        isVisible: (row) => canEditClosing(row)
+      },
+      {
+        icon: Trash2,
+        label: 'Excluir fechamento',
+        onClick: (row) => confirmDeleteClosing(row),
+        isVisible: (row) => canDeleteClosing(row)
+      }
     ];
 
     const transferTotals = computeTotals(formData.itens);
+    const editingClosingHasTransfers = isEditingClosing && (editingClosing?.remessaIds || []).length > 0;
 
     return (
       <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
@@ -10492,7 +10647,7 @@ const handleSubmit = async (e) => {
         <Modal
           isOpen={showClosingModal}
           onClose={() => { setShowClosingModal(false); resetClosingForm(); }}
-          title="Novo Fechamento entre Lojas"
+          title={isEditingClosing ? 'Editar Fechamento entre Lojas' : 'Novo Fechamento entre Lojas'}
           size="lg"
         >
           <div className="space-y-4">
@@ -10500,6 +10655,7 @@ const handleSubmit = async (e) => {
               <Select
                 label="Loja origem"
                 value={closingFormData.lojaOrigemId}
+                disabled={editingClosingHasTransfers}
                 onChange={(e) => {
                   const nextOriginId = e.target.value;
                   setClosingFormData((prev) => ({
@@ -10514,7 +10670,7 @@ const handleSubmit = async (e) => {
                   <option key={store.id} value={store.id}>{store.nome}</option>
                 ))}
               </Select>
-              <Select label="Loja destino" value={closingFormData.lojaDestinoId} onChange={(e) => setClosingFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
+              <Select label="Loja destino" disabled={editingClosingHasTransfers} value={closingFormData.lojaDestinoId} onChange={(e) => setClosingFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
                 <option value="">Selecione</option>
                 {storesForSelect.filter((store) => store.id !== closingFormData.lojaOrigemId).map((store) => (
                   <option key={store.id} value={store.id}>{store.nome}</option>
@@ -10556,7 +10712,7 @@ const handleSubmit = async (e) => {
             {closingFormError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{closingFormError}</div>}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => { setShowClosingModal(false); resetClosingForm(); }}>Cancelar</Button>
-              <Button disabled={isSavingClosing} onClick={saveClosing}>{isSavingClosing ? 'Salvando...' : 'Criar fechamento'}</Button>
+              <Button disabled={isSavingClosing} onClick={saveClosing}>{isSavingClosing ? 'Salvando...' : (isEditingClosing ? 'Salvar alterações' : 'Criar fechamento')}</Button>
             </div>
           </div>
         </Modal>
