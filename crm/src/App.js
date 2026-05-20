@@ -10671,6 +10671,15 @@ const handleSubmit = async (e) => {
     ];
 
     const transferTotals = computeTotals(formData.itens);
+    const zeroRepasseItems = (formData.itens || [])
+      .map((item, index) => {
+        const hasProduct = Boolean(item.produtoId || item.nome || item.produtoBusca);
+        const repasseValue = Number(String(item.valorUnitarioRepasse ?? '').replace(',', '.'));
+        return hasProduct && Number.isFinite(repasseValue) && repasseValue === 0
+          ? (item.nome || item.produtoBusca || `Item ${index + 1}`)
+          : null;
+      })
+      .filter(Boolean);
     const editingClosingHasTransfers = isEditingClosing && (editingClosing?.remessaIds || []).length > 0;
 
     return (
@@ -10835,6 +10844,8 @@ const handleSubmit = async (e) => {
               {formData.itens.map((item, index) => {
                 const totalRepasse = (Number(item.quantidade) || 0) * (Number(item.valorUnitarioRepasse) || 0);
                 const totalRevenda = (Number(item.quantidade) || 0) * (Number(item.valorUnitarioRevenda) || 0);
+                const hasZeroRepasse = Boolean(item.produtoId || item.nome || item.produtoBusca)
+                  && Number(String(item.valorUnitarioRepasse ?? '').replace(',', '.')) === 0;
                 return (
                   <div key={`item-${index}`} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end border rounded-lg p-3">
                     <div className="md:col-span-4">
@@ -10850,7 +10861,7 @@ const handleSubmit = async (e) => {
                       </datalist>
                     </div>
                     <div className="md:col-span-2"><Input label="Qtd." type="number" min="1" value={item.quantidade} onChange={(e) => updateItemField(index, 'quantidade', e.target.value)} /></div>
-                    <div className="md:col-span-2"><Input label="Repasse (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRepasse} onChange={(e) => updateItemField(index, 'valorUnitarioRepasse', e.target.value)} /></div>
+                    <div className="md:col-span-2"><Input label="Repasse (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRepasse} error={hasZeroRepasse ? 'Repasse R$ 0,00.' : ''} onChange={(e) => updateItemField(index, 'valorUnitarioRepasse', e.target.value)} /></div>
                     <div className="md:col-span-2"><Input label="Revenda (R$)" type="number" min="0" step="0.01" value={item.valorUnitarioRevenda} onChange={(e) => updateItemField(index, 'valorUnitarioRevenda', e.target.value)} /></div>
                     <div className="md:col-span-1 text-xs text-gray-700">
                       <p>Repasse</p>
@@ -10872,6 +10883,11 @@ const handleSubmit = async (e) => {
                 <p>Total repasse: <strong>{formatMoney(transferTotals.totalRepasse)}</strong></p>
                 <p>Total revenda: <strong>{formatMoney(transferTotals.totalRevenda)}</strong></p>
               </div>
+              {zeroRepasseItems.length > 0 && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                  Atenção: existem itens com repasse R$ 0,00: <strong>{zeroRepasseItems.join(', ')}</strong>. A remessa pode ser salva, mas revise o cadastro de custo/repasse.
+                </div>
+              )}
             </div>
 
             {transferSyncNotice && (
