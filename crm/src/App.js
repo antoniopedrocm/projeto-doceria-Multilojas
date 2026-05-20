@@ -8968,8 +8968,13 @@ const handleSubmit = async (e) => {
         acc.quantidadeTotalItens += Number(transfer.quantidadeTotalItens) || 0;
         acc.totalRepasse += Number(transfer.totalRepasse) || 0;
         acc.totalRevenda += Number(transfer.totalRevenda) || 0;
+        if (['pagamento_informado', 'pagamento_confirmado'].includes(transfer.status)) {
+          acc.quantidadeRemessasPagas += 1;
+          acc.totalPagoRepasse += Number(transfer.totalRepasse) || 0;
+          acc.totalPagoRevenda += Number(transfer.totalRevenda) || 0;
+        }
         return acc;
-      }, { quantidadeRemessas: 0, quantidadeTotalItens: 0, totalRepasse: 0, totalRevenda: 0 });
+      }, { quantidadeRemessas: 0, quantidadeRemessasPagas: 0, quantidadeTotalItens: 0, totalRepasse: 0, totalRevenda: 0, totalPagoRepasse: 0, totalPagoRevenda: 0 });
     };
 
     const buildClosingHistoryEntry = (acao, status, comentario) => ({
@@ -9288,13 +9293,24 @@ const handleSubmit = async (e) => {
           .filter((transfer) => transfer.fechamentoId === fechamentoId);
         const activeLinkedTransfers = linkedTransfers.filter((transfer) => !['cancelado', 'cancelada'].includes(transfer.status));
         const totals = computeClosingTotals(activeLinkedTransfers);
+        const closingPaidInFull = ['pagamento_informado', 'pagamento_confirmado', 'pagamento_contestado'].includes(closing.status);
+        const totalPagoRepasse = closingPaidInFull ? totals.totalRepasse : totals.totalPagoRepasse;
+        const totalPagoRevenda = closingPaidInFull ? totals.totalRevenda : totals.totalPagoRevenda;
+        const quantidadeRemessasPagas = closingPaidInFull ? totals.quantidadeRemessas : totals.quantidadeRemessasPagas;
+        const totalRestanteRepasse = Math.max(0, totals.totalRepasse - totalPagoRepasse);
+        const totalRestanteRevenda = Math.max(0, totals.totalRevenda - totalPagoRevenda);
 
         transaction.update(closingRef, {
           remessaIds: activeLinkedTransfers.map((transfer) => transfer.id),
           quantidadeRemessas: totals.quantidadeRemessas,
+          quantidadeRemessasPagas,
           quantidadeTotalItens: totals.quantidadeTotalItens,
           totalRepasse: Number(totals.totalRepasse.toFixed(2)),
           totalRevenda: Number(totals.totalRevenda.toFixed(2)),
+          totalPagoRepasse: Number(totalPagoRepasse.toFixed(2)),
+          totalPagoRevenda: Number(totalPagoRevenda.toFixed(2)),
+          totalRestanteRepasse: Number(totalRestanteRepasse.toFixed(2)),
+          totalRestanteRevenda: Number(totalRestanteRevenda.toFixed(2)),
           dataAtualizacao: serverTimestamp()
         });
       });
@@ -9437,13 +9453,24 @@ const handleSubmit = async (e) => {
 
     const canActOnTransfer = (transfer, action) => {
       if (!user || !transfer) return false;
+      const linkedClosing = transfer.fechamentoId ? fechamentos.find((closing) => closing.id === transfer.fechamentoId) : null;
+      const linkedClosingStatus = linkedClosing?.status || transfer.fechamentoStatus;
+      if (
+        transfer.fechamentoId
+        && linkedClosingStatus
+        && linkedClosingStatus !== 'aberto'
+        && user.role !== ROLE_OWNER
+        && ['conferir', 'marcar_pago', 'cancelar'].includes(action)
+      ) {
+        return false;
+      }
       if (action === 'editar_remessa') return canEditTransfer(transfer);
       if (action === 'excluir_remessa') return canDeleteTransfer(transfer);
       if (action === 'cancelar') {
         const originAllowed = user.role === ROLE_OWNER || allowedStoreIds.includes(normalizeStoreId(transfer.lojaOrigemId));
         return originAllowed && !['pagamento_confirmado', 'cancelado', 'cancelada'].includes(transfer.status);
       }
-      if (transfer.fechamentoId && ['marcar_pago', 'confirmar_pagamento', 'contestar_pagamento'].includes(action)) {
+      if (transfer.fechamentoId && ['confirmar_pagamento', 'contestar_pagamento'].includes(action)) {
         return false;
       }
       if (user.role === ROLE_OWNER) return true;
@@ -9498,7 +9525,8 @@ const handleSubmit = async (e) => {
       });
     };
 
-    const handleTransferAction = async (transfer, action) => {
+    const handleTransferAction = async (transfer, action, commentOverride = null) => {
+      const actionObservation = commentOverride !== null ? commentOverride : actionComment;
       try {
         if (action === 'conferir_sem_divergencia' && canActOnTransfer(transfer, 'conferir')) {
           await patchTransfer(transfer, {
@@ -9506,11 +9534,11 @@ const handleSubmit = async (e) => {
             dataConferencia: serverTimestamp(),
             conferidoPorUid: user?.auth?.uid || '',
             conferidoPorNome: user?.name || user?.email || '',
-            observacaoDestino: actionComment || ''
+            observacaoDestino: actionObservation || ''
           }, {
             acao: 'conferencia_sem_divergencia',
             status: 'conferencia_sem_divergencia',
-            comentario: actionComment || 'Conferência sem divergência'
+            comentario: actionObservation || 'Conferência sem divergência'
           });
         }
         if (action === 'conferir_com_divergencia' && canActOnTransfer(transfer, 'conferir')) {
@@ -9519,11 +9547,11 @@ const handleSubmit = async (e) => {
             dataConferencia: serverTimestamp(),
             conferidoPorUid: user?.auth?.uid || '',
             conferidoPorNome: user?.name || user?.email || '',
-            observacaoDestino: actionComment || ''
+            observacaoDestino: actionObservation || ''
           }, {
             acao: 'conferencia_com_divergencia',
             status: 'conferencia_com_divergencia',
-            comentario: actionComment || 'Conferência com divergência'
+            comentario: actionObservation || 'Conferência com divergência'
           });
         }
         if (action === 'marcar_pago' && canActOnTransfer(transfer, 'marcar_pago')) {
@@ -9532,11 +9560,11 @@ const handleSubmit = async (e) => {
             dataPagamentoInformado: serverTimestamp(),
             pagamentoInformadoPorUid: user?.auth?.uid || '',
             pagamentoInformadoPorNome: user?.name || user?.email || '',
-            observacaoPagamento: actionComment || ''
+            observacaoPagamento: actionObservation || ''
           }, {
             acao: 'pagamento_informado',
             status: 'pagamento_informado',
-            comentario: actionComment || 'Pagamento informado pela loja destino'
+            comentario: actionObservation || 'Pagamento informado pela loja destino'
           });
         }
         if (action === 'confirmar_pagamento' && canActOnTransfer(transfer, 'confirmar_pagamento')) {
@@ -9545,21 +9573,21 @@ const handleSubmit = async (e) => {
             dataPagamentoConfirmado: serverTimestamp(),
             pagamentoConfirmadoPorUid: user?.auth?.uid || '',
             pagamentoConfirmadoPorNome: user?.name || user?.email || '',
-            observacaoPagamento: actionComment || transfer.observacaoPagamento || ''
+            observacaoPagamento: actionObservation || transfer.observacaoPagamento || ''
           }, {
             acao: 'pagamento_confirmado',
             status: 'pagamento_confirmado',
-            comentario: actionComment || 'Pagamento confirmado pela loja origem'
+            comentario: actionObservation || 'Pagamento confirmado pela loja origem'
           });
         }
         if (action === 'contestar_pagamento' && canActOnTransfer(transfer, 'contestar_pagamento')) {
           await patchTransfer(transfer, {
             status: 'pagamento_contestado',
-            observacaoPagamento: actionComment || transfer.observacaoPagamento || ''
+            observacaoPagamento: actionObservation || transfer.observacaoPagamento || ''
           }, {
             acao: 'pagamento_contestado',
             status: 'pagamento_contestado',
-            comentario: actionComment || 'Pagamento contestado pela loja origem'
+            comentario: actionObservation || 'Pagamento contestado pela loja origem'
           });
         }
         if (action === 'cancelar' && canActOnTransfer(transfer, 'cancelar')) {
@@ -9568,20 +9596,21 @@ const handleSubmit = async (e) => {
             dataCancelamento: serverTimestamp(),
             canceladoPorUid: user?.auth?.uid || '',
             canceladoPorNome: user?.name || user?.email || '',
-            observacaoCancelamento: actionComment || '',
+            observacaoCancelamento: actionObservation || '',
             fechamentoId: null,
             fechamentoNome: '',
             fechamentoStatus: ''
           }, {
             acao: 'remessa_cancelada',
             status: 'cancelado',
-            comentario: actionComment || 'Remessa cancelada pela loja origem'
+            comentario: actionObservation || 'Remessa cancelada pela loja origem'
           });
         }
         if (transfer.fechamentoId) {
           await recalculateClosingTotals(transfer.fechamentoId);
         }
         setActionComment('');
+        if (commentOverride !== null) setClosingActionComment('');
       } catch (error) {
         console.error('[EntreLojas] Erro ao executar ação:', error);
         alert(error?.message || 'Não foi possível executar a ação.');
@@ -9716,9 +9745,14 @@ const handleSubmit = async (e) => {
           status: 'aberto',
           remessaIds: [],
           quantidadeRemessas: 0,
+          quantidadeRemessasPagas: 0,
           quantidadeTotalItens: 0,
           totalRepasse: 0,
           totalRevenda: 0,
+          totalPagoRepasse: 0,
+          totalPagoRevenda: 0,
+          totalRestanteRepasse: 0,
+          totalRestanteRevenda: 0,
           criadoPorUid: user?.auth?.uid || '',
           criadoPorNome: user?.name || user?.email || '',
           dataCriacao: serverTimestamp(),
@@ -9911,14 +9945,21 @@ const handleSubmit = async (e) => {
             if (!canCloseClosing(latestClosing)) throw new Error('Você não tem permissão para fechar este agrupamento.');
             if (latestClosing.status !== 'aberto') throw new Error('Somente fechamentos abertos podem ser fechados.');
             if (!linkedTransfers.length) throw new Error('Não é possível fechar agrupamento sem remessas.');
+            const totalPagoRepasse = totals.totalPagoRepasse;
+            const totalPagoRevenda = totals.totalPagoRevenda;
             nextStatus = 'fechado';
             updatePayload = {
               status: nextStatus,
               remessaIds: linkedTransfers.map((transfer) => transfer.id),
               quantidadeRemessas: totals.quantidadeRemessas,
+              quantidadeRemessasPagas: totals.quantidadeRemessasPagas,
               quantidadeTotalItens: totals.quantidadeTotalItens,
               totalRepasse: Number(totals.totalRepasse.toFixed(2)),
               totalRevenda: Number(totals.totalRevenda.toFixed(2)),
+              totalPagoRepasse: Number(totalPagoRepasse.toFixed(2)),
+              totalPagoRevenda: Number(totalPagoRevenda.toFixed(2)),
+              totalRestanteRepasse: Number(Math.max(0, totals.totalRepasse - totalPagoRepasse).toFixed(2)),
+              totalRestanteRevenda: Number(Math.max(0, totals.totalRevenda - totalPagoRevenda).toFixed(2)),
               fechadoPorUid: user?.auth?.uid || '',
               fechadoPorNome: user?.name || user?.email || '',
               dataFechamento: serverTimestamp(),
@@ -9935,6 +9976,11 @@ const handleSubmit = async (e) => {
             nextStatus = 'pagamento_informado';
             updatePayload = {
               status: nextStatus,
+              quantidadeRemessasPagas: totals.quantidadeRemessas,
+              totalPagoRepasse: Number(totals.totalRepasse.toFixed(2)),
+              totalPagoRevenda: Number(totals.totalRevenda.toFixed(2)),
+              totalRestanteRepasse: 0,
+              totalRestanteRevenda: 0,
               pagamentoInformadoPorUid: user?.auth?.uid || '',
               pagamentoInformadoPorNome: user?.name || user?.email || '',
               dataPagamentoInformado: serverTimestamp(),
@@ -9950,6 +9996,11 @@ const handleSubmit = async (e) => {
             nextStatus = 'pagamento_confirmado';
             updatePayload = {
               status: nextStatus,
+              quantidadeRemessasPagas: totals.quantidadeRemessas,
+              totalPagoRepasse: Number(totals.totalRepasse.toFixed(2)),
+              totalPagoRevenda: Number(totals.totalRevenda.toFixed(2)),
+              totalRestanteRepasse: 0,
+              totalRestanteRevenda: 0,
               pagamentoConfirmadoPorUid: user?.auth?.uid || '',
               pagamentoConfirmadoPorNome: user?.name || user?.email || '',
               dataPagamentoConfirmado: serverTimestamp(),
@@ -10201,6 +10252,8 @@ const handleSubmit = async (e) => {
       { header: 'Período', render: (row) => `${formatDate(row.periodoInicio)} a ${formatDate(row.periodoFim)}` },
       { header: 'Remessas', key: 'quantidadeRemessas' },
       { header: 'Total repasse', render: (row) => <span className="font-semibold">{formatMoney(row.totalRepasse)}</span> },
+      { header: 'Pago', render: (row) => <span className="font-semibold text-green-700">{formatMoney(row.totalPagoRepasse)}</span> },
+      { header: 'Restante', render: (row) => <span className="font-semibold text-orange-700">{formatMoney(row.totalRestanteRepasse ?? Math.max(0, (Number(row.totalRepasse) || 0) - (Number(row.totalPagoRepasse) || 0)))}</span> },
       { header: 'Status', render: (row) => <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getClosingStatusClassName(row.status)}`}>{closingStatusLabelMap[row.status] || row.status}</span> }
     ];
 
@@ -10544,6 +10597,9 @@ const handleSubmit = async (e) => {
                 <p><strong>Remessas:</strong> {viewingClosing.quantidadeRemessas || 0}</p>
                 <p><strong>Total repasse:</strong> {formatMoney(viewingClosing.totalRepasse)}</p>
                 <p><strong>Total revenda:</strong> {formatMoney(viewingClosing.totalRevenda)}</p>
+                <p><strong>Valor pago:</strong> {formatMoney(viewingClosing.totalPagoRepasse)}</p>
+                <p><strong>Valor restante:</strong> {formatMoney(viewingClosing.totalRestanteRepasse ?? Math.max(0, (Number(viewingClosing.totalRepasse) || 0) - (Number(viewingClosing.totalPagoRepasse) || 0)))}</p>
+                <p><strong>Remessas pagas:</strong> {viewingClosing.quantidadeRemessasPagas || 0}</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -10562,15 +10618,31 @@ const handleSubmit = async (e) => {
                 <h3 className="font-semibold">Remessas vinculadas</h3>
                 {!viewingClosingTransfers.length && <p className="text-sm text-gray-500">Nenhuma remessa vinculada.</p>}
                 {viewingClosingTransfers.map((transfer) => (
-                  <div key={transfer.id} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center bg-white border rounded-lg p-3 text-sm">
-                    <p className="font-semibold text-pink-600">#{transfer.numero || '-'}</p>
-                    <p>{formatDate(transfer.dataRemessa || transfer.dataCriacao)}</p>
-                    <p>{statusLabelMap[transfer.status] || transfer.status}</p>
-                    <p>Itens: {transfer.quantidadeTotalItens || 0}</p>
-                    <p className="font-semibold">{formatMoney(transfer.totalRepasse)}</p>
-                    {canEditClosing(viewingClosing) && (
-                      <Button size="sm" variant="danger" onClick={() => removeTransferFromClosing(viewingClosing, transfer)}>Remover</Button>
-                    )}
+                  <div key={transfer.id} className="bg-white border rounded-lg p-3 text-sm space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
+                      <p className="font-semibold text-pink-600">#{transfer.numero || '-'}</p>
+                      <p>{formatDate(transfer.dataRemessa || transfer.dataCriacao)}</p>
+                      <p>{statusLabelMap[transfer.status] || transfer.status}</p>
+                      <p>Itens: {transfer.quantidadeTotalItens || 0}</p>
+                      <p className="font-semibold">{formatMoney(transfer.totalRepasse)}</p>
+                      {canEditClosing(viewingClosing) && (
+                        <Button size="sm" variant="danger" onClick={() => removeTransferFromClosing(viewingClosing, transfer)}>Remover</Button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {transfer.status === 'aguardando_conferencia' && canActOnTransfer(transfer, 'conferir') && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => handleTransferAction(transfer, 'conferir_sem_divergencia', closingActionComment)}>Conferir sem divergência</Button>
+                          <Button size="sm" variant="secondary" onClick={() => handleTransferAction(transfer, 'conferir_com_divergencia', closingActionComment)}>Conferir com divergência</Button>
+                        </>
+                      )}
+                      {['conferencia_sem_divergencia', 'conferencia_com_divergencia', 'aguardando_conferencia'].includes(transfer.status) && canActOnTransfer(transfer, 'marcar_pago') && (
+                        <Button size="sm" onClick={() => handleTransferAction(transfer, 'marcar_pago', closingActionComment)}>Marcar como pago</Button>
+                      )}
+                      {canActOnTransfer(transfer, 'cancelar') && (
+                        <Button size="sm" variant="danger" onClick={() => handleTransferAction(transfer, 'cancelar', closingActionComment)}>Cancelar remessa</Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
