@@ -7660,7 +7660,7 @@ const effectiveStoreName = useMemo(() => {
         const term = productSearchTerm.trim().toLowerCase();
 
         return (data.produtos || [])
-            .filter(p => p.categoria === formData.categoria && p.status === 'Ativo')
+            .filter(p => p.categoria === formData.categoria)
             .filter(p => {
                 if (!term) return true;
 
@@ -7864,12 +7864,12 @@ const effectiveStoreName = useMemo(() => {
 
             const product = { id: productSnap.id, ...productSnap.data() };
             if (isProductInactive(product)) {
-                throw new Error(`O produto ${product.nome || item.nome || productId} está inativo.`);
+                changes.push(`${product.nome || item.nome || productId}: produto inativo mantido no pedido interno.`);
             }
 
             const currentStock = Number(product.estoque);
             if (Number.isFinite(currentStock) && currentStock < quantity) {
-                throw new Error(`Estoque insuficiente para ${product.nome || item.nome || productId}. Disponível: ${currentStock}.`);
+                changes.push(`${product.nome || item.nome || productId}: estoque atual ${currentStock}, menor que a quantidade ${quantity}.`);
             }
 
             const currentPrice = roundCurrency(product.preco || 0);
@@ -8016,8 +8016,8 @@ const effectiveStoreName = useMemo(() => {
 
             const transactionChanges = [];
             const freshItems = buildFreshItemsFromProductSnaps(orderData.itens, productSnapMap, transactionChanges);
-            if (transactionChanges.some((message) => message.includes('preço atualizado') || message.includes('nome atualizado'))) {
-                throw new Error('Os dados de produtos mudaram durante o salvamento. Revise o pedido e tente novamente.');
+            if (transactionChanges.length) {
+                debugCacheSync('Pedido manual salvo com dados de produto atualizados automaticamente', { storeId, transactionChanges });
             }
 
             const subtotal = calculateOrderSubtotal(freshItems);
@@ -8065,10 +8065,6 @@ const effectiveStoreName = useMemo(() => {
                     throw new Error(`Estoque inválido para ${productData.nome || productId}.`);
                 }
 
-                if (nextStock < 0) {
-                    throw new Error(`Estoque insuficiente para ${productData.nome || productId}. Disponível: ${currentStock}.`);
-                }
-
                 transaction.update(getStoreDocRef(storeId, 'produtos', productId), {
                     estoque: nextStock,
                     updatedAt: serverTimestamp()
@@ -8100,11 +8096,15 @@ const effectiveStoreName = useMemo(() => {
 
     const reconcileOpenOrderWithLiveProducts = useCallback((items = []) => {
         const changes = [];
+        let hasItemChanges = false;
         const productMap = new Map((data.produtos || []).map((product) => [product.id, product]));
         const nextItems = items.map((item) => {
             const productId = getOrderItemProductId(item);
             const latestProduct = productMap.get(productId);
-            if (!latestProduct || isProductInactive(latestProduct)) return item;
+            if (!latestProduct) return item;
+            if (isProductInactive(latestProduct)) {
+                changes.push(`${latestProduct.nome || item.nome}: produto inativo mantido no pedido interno.`);
+            }
 
             const currentPrice = roundCurrency(latestProduct.preco || 0);
             const previousPrice = roundCurrency(item.preco || 0);
@@ -8136,19 +8136,22 @@ const effectiveStoreName = useMemo(() => {
                 changes.push(`${latestProduct.nome || item.nome}: estoque atual menor que a quantidade no pedido.`);
             }
 
+            if (changed) hasItemChanges = true;
             return changed ? nextItem : item;
         });
 
-        return { nextItems, changes };
+        return { nextItems, changes, hasItemChanges };
     }, [data.produtos]);
 
     useEffect(() => {
         if (!showModal || !formData.itens.length) return;
 
-        const { nextItems, changes } = reconcileOpenOrderWithLiveProducts(formData.itens);
+        const { nextItems, changes, hasItemChanges } = reconcileOpenOrderWithLiveProducts(formData.itens);
         if (!changes.length) return;
 
-        setFormData(prev => buildOrderWithTotals(prev, nextItems));
+        if (hasItemChanges) {
+            setFormData(prev => buildOrderWithTotals(prev, nextItems));
+        }
         const message = `Atualizamos o pedido com dados recentes: ${changes.slice(0, 3).join(' ')}`;
         setOrderSyncNotice(message);
         debugCacheSync('Pedido aberto reconciliado com snapshot de produtos', { changes });
@@ -8260,16 +8263,14 @@ const handleSubmit = async (e) => {
         const { orderData: refreshedOrderData, changes } = await reloadOrderCriticalData(initialOrderData, storeId);
 
         if (changes.length) {
-            const message = `Dados atualizados antes de salvar: ${changes.slice(0, 4).join(' ')} Revise o pedido e clique em salvar novamente.`;
+            const message = `Dados atualizados automaticamente: ${changes.slice(0, 4).join(' ')} O pedido será salvo com os dados atuais.`;
             setFormData(prev => ({
                 ...prev,
                 ...refreshedOrderData,
                 dataEntrega: refreshedOrderData.dataEntrega || prev.dataEntrega || ''
             }));
             setOrderSyncNotice(message);
-            setSaveOrderError('Revise as alterações aplicadas automaticamente e confirme o salvamento novamente.');
-            debugCacheSync('Salvamento de pedido pausado para confirmação do usuário', { storeId, changes });
-            return;
+            debugCacheSync('Pedido manual atualizado sem bloquear salvamento', { storeId, changes });
         }
 
         await persistOrderWithTransaction(refreshedOrderData, storeId);
@@ -9026,7 +9027,6 @@ const handleSubmit = async (e) => {
 
       return (data.produtos || [])
         .filter((item) => {
-          if (isProductInactive(item)) return false;
           const productStoreId = normalizeStoreId(item.lojaId);
           return !originStoreId || !productStoreId || productStoreId === originStoreId;
         })
@@ -9432,7 +9432,7 @@ const handleSubmit = async (e) => {
 
         const product = { id: productSnap.id, ...productSnap.data() };
         if (isProductInactive(product)) {
-          throw new Error(`O produto ${product.nome || item.nome || item.produtoId} está inativo.`);
+          changes.push(`${product.nome || item.nome || item.produtoId}: produto inativo mantido na remessa interna.`);
         }
 
         const quantidade = Number(item.quantidade);
@@ -9643,11 +9643,9 @@ const handleSubmit = async (e) => {
             ...prev,
             itens: validated.formItems
           }));
-          const notice = `Dados atualizados antes de salvar: ${validated.changes.slice(0, 4).join(' ')} Revise a remessa e clique em salvar novamente.`;
+          const notice = `Dados atualizados automaticamente: ${validated.changes.slice(0, 4).join(' ')} A remessa será salva com os dados atuais.`;
           setTransferSyncNotice(notice);
-          setFormError('Revise as alterações aplicadas automaticamente e confirme o salvamento novamente.');
-          entreLojasLog('Salvamento pausado para confirmação', { changes: validated.changes });
-          return;
+          entreLojasLog('Remessa interna atualizada sem bloquear salvamento', { changes: validated.changes });
         }
 
         const { payload } = validated;
