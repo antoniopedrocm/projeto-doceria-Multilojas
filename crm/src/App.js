@@ -64,6 +64,7 @@ const GOOGLE_AUTH_FLOW_STARTED_AT_KEY = 'google-auth-flow-started-at';
 const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
 const GOOGLE_AUTH_FLOW_POPUP = 'popup';
 const GOOGLE_AUTH_FLOW_MAX_AGE_MS = 10 * 60 * 1000;
+const AUTH_PROFILE_CACHE_PREFIX = 'auth-profile-cache-v1';
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -571,6 +572,85 @@ const extractStoreIdsFromProfile = (profile) => {
   if (typeof lojaId === 'string' && lojaId.trim().length) return [lojaId.trim()];
   return [];
 };
+
+const getAuthProfileCacheKey = (uid) => `${AUTH_PROFILE_CACHE_PREFIX}:${uid}`;
+
+const buildUserDataFromProfile = (authUser, profile = {}, customProfileData = null) => {
+  const role = normalizeRole(profile.role);
+  const lojaIds = extractStoreIdsFromProfile(profile);
+  const permissionsDefaults = getDefaultPermissionsForRole(role);
+  const customPermissions = customProfileData?.permissions
+    ? sanitizePermissions(customProfileData.permissions, role)
+    : null;
+  const permissions = customPermissions || sanitizePermissions(profile.permissions, role) || permissionsDefaults;
+
+  return {
+    auth: authUser,
+    role,
+    lojaIds,
+    lojaId: lojaIds[0] || null,
+    canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
+    permissions,
+    customPermissions,
+    hasCustomProfile: Boolean(customProfileData),
+  };
+};
+
+const cacheAuthenticatedProfile = (authUser, userData) => {
+  if (!authUser?.uid || !userData) return;
+
+  const payload = {
+    uid: authUser.uid,
+    email: authUser.email || '',
+    nome: authUser.displayName || authUser.email || 'Usuário',
+    role: userData.role,
+    lojaId: userData.lojaId || null,
+    lojaIds: userData.lojaIds || [],
+    permissions: userData.permissions || {},
+    customPermissions: userData.customPermissions || null,
+    hasCustomProfile: Boolean(userData.hasCustomProfile),
+    canAccessAllStores: Boolean(userData.canAccessAllStores),
+    updatedAt: Date.now()
+  };
+
+  safeStorageSet('localStorage', getAuthProfileCacheKey(authUser.uid), JSON.stringify(payload));
+};
+
+const getCachedAuthenticatedProfile = (authUser) => {
+  if (!authUser?.uid) return null;
+
+  try {
+    const cached = safeStorageGet('localStorage', getAuthProfileCacheKey(authUser.uid));
+    if (!cached) return null;
+    const parsed = JSON.parse(cached);
+    if (parsed?.uid !== authUser.uid) return null;
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+};
+
+const buildUserDataFromCache = (authUser, cachedProfile) => {
+  if (!authUser || !cachedProfile) return null;
+  const role = normalizeRole(cachedProfile.role);
+  const lojaIds = extractStoreIdsFromProfile(cachedProfile);
+  const customProfileData = cachedProfile.customPermissions
+    ? { permissions: cachedProfile.customPermissions }
+    : null;
+
+  return {
+    ...buildUserDataFromProfile(authUser, { ...cachedProfile, role, lojaIds, permissions: cachedProfile.permissions }, customProfileData),
+    canAccessAllStores: Boolean(cachedProfile.canAccessAllStores)
+  };
+};
+
+const buildFallbackAuthenticatedUserData = (authUser) => buildUserDataFromProfile(authUser, {
+  email: authUser?.email || '',
+  nome: authUser?.displayName || authUser?.email || 'Usuário',
+  role: ROLE_CLIENT,
+  lojaIds: [],
+  permissions: getDefaultPermissionsForRole(ROLE_CLIENT)
+});
 
 const formatPhoneForWhatsApp = (phone) => {
   if (!phone) return '';
@@ -3893,105 +3973,145 @@ function App() {
   }, []);
   
 	useEffect(() => {
-	  const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-                        if (authUser) {
-                          try {
-                                        const userDocRef = doc(db, "users", authUser.uid);
-                                        const userDoc = await getDoc(userDocRef);
+    let isMounted = true;
+    let unsubscribe = () => {};
 
-                                        let profile;
+    const goToAuthenticatedPage = () => {
+      setShowLogin(false);
+      setCurrentPage((prevPage) => (!prevPage || prevPage === 'pagina-inicial' ? 'dashboard' : prevPage));
+    };
 
-                                        if (userDoc.exists()) {
-                                          profile = userDoc.data() || {};
-                                        } else {
-                                          let initialRole = ROLE_CLIENT;
+    const loadAuthenticatedUserData = async (authUser) => {
+      const userDocRef = doc(db, "users", authUser.uid);
+      const userDoc = await getDoc(userDocRef);
 
-                                          try {
-                                            const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));
-                                            if (anyUserSnap.empty) {
-                                              initialRole = ROLE_OWNER;
-                                            }
-                                          } catch (roleCheckError) {
-                                            console.error("Erro ao verificar usuários existentes:", roleCheckError);
-                                            initialRole = ROLE_OWNER;
-                                          }
+      let profile;
 
-                                          profile = {
-                                            email: authUser.email || "",
-                                            nome: authUser.displayName || authUser.email || "Usuário",
-                                            role: initialRole,
-                                            lojaId: null,
-                                            lojaIds: [],
-                                          };
+      if (userDoc.exists()) {
+        profile = userDoc.data() || {};
+      } else {
+        let initialRole = ROLE_CLIENT;
 
-                                          await setDoc(userDocRef, profile, { merge: true });
-                                        }
+        try {
+          const anyUserSnap = await getDocs(query(collection(db, "users"), limit(1)));
+          if (anyUserSnap.empty) {
+            initialRole = ROLE_OWNER;
+          }
+        } catch (roleCheckError) {
+          console.error("Erro ao verificar usuários existentes:", roleCheckError);
+          initialRole = ROLE_OWNER;
+        }
 
-                                        const role = normalizeRole(profile.role);
-                                        const lojaIds = extractStoreIdsFromProfile(profile);
-                                        const permissionsDefaults = getDefaultPermissionsForRole(role);
-                                        const customProfileRef = doc(db, "customProfiles", authUser.uid);
-                                        const customProfileSnap = await getDoc(customProfileRef);
-                                        const customProfileData = customProfileSnap.exists() ? customProfileSnap.data() : null;
-                                        const customPermissions = customProfileData?.permissions
-                                          ? sanitizePermissions(customProfileData.permissions, role)
-                                          : null;
-                                        const permissions = customPermissions || permissionsDefaults;
+        profile = {
+          email: authUser.email || "",
+          nome: authUser.displayName || authUser.email || "Usuário",
+          role: initialRole,
+          lojaId: null,
+          lojaIds: [],
+        };
 
-                                        if (!customProfileSnap.exists()) {
-                                          await setDoc(customProfileRef, {
-                                            uid: authUser.uid,
-                                            role,
-                                            permissions: permissionsDefaults,
-                                          }, { merge: true });
-                                        }
-                                        const userData = {
-                                          auth: authUser,
-                                          role,
-                                          lojaIds,
-                                          lojaId: lojaIds[0] || null,
-                                          canAccessAllStores: role === ROLE_OWNER && lojaIds.length === 0,
-                                          permissions,
-                                          customPermissions,
-                                          hasCustomProfile: Boolean(customProfileData),
-                                        };
-                                        setUser(userData);
-			if (getGoogleAuthFlow()) {
-			  setShowLogin(false);
-			  setCurrentPage('dashboard');
-			  clearGoogleAuthFlow();
-			}
-			// Tenta inicializar/resumir o AudioManager APÓS o login
-			if (localStorage.getItem("audioUnlocked") === "true") {
-			  audioManager.init().catch((e) => {
-					console.error("Erro no init pós-login:", e);
-			  });
-			}
+        await setDoc(userDocRef, profile, { merge: true });
+      }
 
-		  } catch (error) {
-			console.error("Erro ao carregar dados do usuário:", error);
-      setLoginError('Não foi possível carregar seus dados de acesso. Tente sair e entrar novamente.');
-      setShowLogin(true);
-      setCurrentPage('pagina-inicial');
-		  }
-                } else {
-                  setUser(null);
-                  storeCollectionsDataRef.current = {};
-                  clientesDataRef.current = [];
-                  setAvailableStores([]);
-                  setStoreInfoMap({});
-                  setSelectedStoreId(null);
-				  setShowStoreManager(false);
-                  setIsCreatingStore(false);
-                  setCurrentPage('pagina-inicial');
-           // Não remove mais 'audioUnlocked' do localStorage no logout
-           stopAlarm(); // Garante que o alarme pare no logout
-                }
-                setAuthLoading(false);
+      const role = normalizeRole(profile.role);
+      const permissionsDefaults = getDefaultPermissionsForRole(role);
+      const customProfileRef = doc(db, "customProfiles", authUser.uid);
+      const customProfileSnap = await getDoc(customProfileRef);
+      const customProfileData = customProfileSnap.exists() ? customProfileSnap.data() : null;
+
+      if (!customProfileSnap.exists()) {
+        await setDoc(customProfileRef, {
+          uid: authUser.uid,
+          role,
+          permissions: permissionsDefaults,
+        }, { merge: true });
+      }
+
+      return buildUserDataFromProfile(authUser, profile, customProfileData);
+    };
+
+    const applyAuthenticatedUser = async (authUser) => {
+      try {
+        const userData = await loadAuthenticatedUserData(authUser);
+        if (!isMounted) return;
+
+        setUser(userData);
+        cacheAuthenticatedProfile(authUser, userData);
+        setLoginError('');
+        goToAuthenticatedPage();
+        clearGoogleAuthFlow();
+
+        if (localStorage.getItem("audioUnlocked") === "true") {
+          audioManager.init().catch((e) => {
+            console.error("Erro no init pós-login:", e);
           });
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados do usuário:", error);
+        if (!isMounted) return;
 
-	  return () => unsubscribe();
-        }, [stopAlarm, setCurrentPage]);
+        const cachedUserData = buildUserDataFromCache(authUser, getCachedAuthenticatedProfile(authUser));
+        if (cachedUserData) {
+          setUser(cachedUserData);
+          setLoginError('');
+          goToAuthenticatedPage();
+          clearGoogleAuthFlow();
+          return;
+        }
+
+        setUser(buildFallbackAuthenticatedUserData(authUser));
+        setLoginError('Sua sessão Google continua ativa, mas não foi possível carregar seu perfil completo. Verifique a conexão e recarregue a página.');
+        goToAuthenticatedPage();
+        clearGoogleAuthFlow();
+      }
+    };
+
+    const applySignedOutState = () => {
+      setUser(null);
+      storeCollectionsDataRef.current = {};
+      clientesDataRef.current = [];
+      setAvailableStores([]);
+      setStoreInfoMap({});
+      setSelectedStoreId(null);
+      setShowStoreManager(false);
+      setIsCreatingStore(false);
+      setCurrentPage('pagina-inicial');
+      stopAlarm();
+    };
+
+    const initializeAuthObserver = async () => {
+      setAuthLoading(true);
+
+      try {
+        await setPreferredAuthPersistence('SessionRestore');
+      } catch (persistenceError) {
+        console.warn('[Auth][SessionRestore] persistence setup failed:', persistenceError?.code || persistenceError);
+      }
+
+      if (!isMounted) return;
+
+      unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+        try {
+          if (authUser) {
+            await applyAuthenticatedUser(authUser);
+          } else if (isMounted) {
+            applySignedOutState();
+          }
+        } finally {
+          if (isMounted) {
+            setAuthLoading(false);
+          }
+        }
+      });
+    };
+
+    initializeAuthObserver();
+
+	  return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [stopAlarm, setCurrentPage]);
 
     useEffect(() => {
         let isMounted = true;
