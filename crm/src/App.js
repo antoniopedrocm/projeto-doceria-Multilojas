@@ -60,8 +60,10 @@ const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
 const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
+const GOOGLE_AUTH_FLOW_STARTED_AT_KEY = 'google-auth-flow-started-at';
 const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
 const GOOGLE_AUTH_FLOW_POPUP = 'popup';
+const GOOGLE_AUTH_FLOW_MAX_AGE_MS = 10 * 60 * 1000;
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -74,6 +76,141 @@ const isSafariBrowser = () => {
   const excludedBrowsersRegex = /(chrome|crios|android|edg|edge|edgios|opr|opera|fxios|firefox|samsungbrowser)/i;
 
   return hasSafariToken && isAppleVendor && !excludedBrowsersRegex.test(userAgent);
+};
+
+const isIOSBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const hasTouchMac = platform === 'MacIntel' && Number(navigator.maxTouchPoints || 0) > 1;
+  return /iphone|ipad|ipod/i.test(userAgent) || hasTouchMac;
+};
+
+const isMobileBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  return isIOSBrowser() || /android|mobile|tablet|phone/i.test(navigator.userAgent || '');
+};
+
+const getSafeStorage = (storageName) => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const storage = window[storageName];
+    const testKey = '__storage_test__';
+    storage.setItem(testKey, '1');
+    storage.removeItem(testKey);
+    return storage;
+  } catch (error) {
+    return null;
+  }
+};
+
+const safeStorageGet = (storageName, key) => {
+  try {
+    return getSafeStorage(storageName)?.getItem(key) || '';
+  } catch (error) {
+    return '';
+  }
+};
+
+const safeStorageSet = (storageName, key, value) => {
+  try {
+    getSafeStorage(storageName)?.setItem(key, value);
+  } catch (error) {
+    // Storage can be unavailable on iOS private mode or embedded browsers.
+  }
+};
+
+const safeStorageRemove = (storageName, key) => {
+  try {
+    getSafeStorage(storageName)?.removeItem(key);
+  } catch (error) {
+    // Ignore unavailable storage.
+  }
+};
+
+const setGoogleAuthFlow = (flow) => {
+  const startedAt = String(Date.now());
+  ['sessionStorage', 'localStorage'].forEach((storageName) => {
+    safeStorageSet(storageName, GOOGLE_AUTH_FLOW_KEY, flow);
+    safeStorageSet(storageName, GOOGLE_AUTH_FLOW_STARTED_AT_KEY, startedAt);
+  });
+};
+
+const clearGoogleAuthFlow = () => {
+  ['sessionStorage', 'localStorage'].forEach((storageName) => {
+    safeStorageRemove(storageName, GOOGLE_AUTH_FLOW_KEY);
+    safeStorageRemove(storageName, GOOGLE_AUTH_FLOW_STARTED_AT_KEY);
+  });
+};
+
+const getGoogleAuthFlow = () => {
+  const flow = safeStorageGet('sessionStorage', GOOGLE_AUTH_FLOW_KEY) || safeStorageGet('localStorage', GOOGLE_AUTH_FLOW_KEY);
+  const startedAt = Number(safeStorageGet('sessionStorage', GOOGLE_AUTH_FLOW_STARTED_AT_KEY) || safeStorageGet('localStorage', GOOGLE_AUTH_FLOW_STARTED_AT_KEY) || 0);
+  if (flow && startedAt && Date.now() - startedAt > GOOGLE_AUTH_FLOW_MAX_AGE_MS) {
+    clearGoogleAuthFlow();
+    return '';
+  }
+  return flow;
+};
+
+const getFirebaseAuthDomain = () => auth?.config?.authDomain || '';
+
+const isAuthDomainCurrentHost = () => {
+  if (typeof window === 'undefined') return false;
+  const currentHost = window.location.hostname || '';
+  const authDomain = getFirebaseAuthDomain();
+  return Boolean(currentHost && authDomain && currentHost === authDomain);
+};
+
+const createGoogleProvider = () => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+};
+
+const getGoogleSignInStrategy = () => {
+  const mobile = isMobileBrowser();
+  const safari = isSafariBrowser();
+  const ios = isIOSBrowser();
+  const sameAuthDomain = isAuthDomainCurrentHost();
+
+  return {
+    method: mobile && sameAuthDomain ? GOOGLE_AUTH_FLOW_REDIRECT : GOOGLE_AUTH_FLOW_POPUP,
+    mobile,
+    safari,
+    ios,
+    sameAuthDomain,
+    authDomain: getFirebaseAuthDomain(),
+    currentHost: typeof window !== 'undefined' ? window.location.hostname : ''
+  };
+};
+
+const setPreferredAuthPersistence = async (contextLabel) => {
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+  } catch (persistError) {
+    console.warn(`[Auth][${contextLabel}] local persistence failed, falling back to session:`, persistError?.code || persistError);
+    await setPersistence(auth, browserSessionPersistence);
+  }
+};
+
+const getGoogleAuthErrorMessage = (error, strategy = {}) => {
+  if (error?.code === 'auth/popup-closed-by-user') {
+    return 'A janela do Google foi fechada antes de concluir o login. Toque em “Entrar com Google” novamente e aguarde voltar para o sistema.';
+  }
+  if (error?.code === 'auth/popup-blocked') {
+    return 'O navegador bloqueou a janela do Google. Permita pop-ups para este site ou tente abrir pelo navegador padrão do celular.';
+  }
+  if (error?.code === 'auth/web-storage-unsupported') {
+    return 'O navegador bloqueou o armazenamento necessário para o login. Desative modo privado ou tente pelo navegador padrão do celular.';
+  }
+  if (error?.code === 'auth/network-request-failed') {
+    return 'Falha de conexão durante o login com Google. Verifique a internet e tente novamente.';
+  }
+  if (strategy.mobile && !strategy.sameAuthDomain) {
+    return 'Não foi possível concluir o login com Google neste navegador. Tente novamente pelo navegador padrão do celular.';
+  }
+  return 'Ocorreu um erro ao entrar com Google. Tente novamente.';
 };
 const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
 const MENU_PERMISSION_KEYS = [
@@ -3819,10 +3956,10 @@ function App() {
                                           hasCustomProfile: Boolean(customProfileData),
                                         };
                                         setUser(userData);
-			if (sessionStorage.getItem(GOOGLE_AUTH_FLOW_KEY) === GOOGLE_AUTH_FLOW_REDIRECT) {
+			if (getGoogleAuthFlow()) {
 			  setShowLogin(false);
 			  setCurrentPage('dashboard');
-			  sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+			  clearGoogleAuthFlow();
 			}
 			// Tenta inicializar/resumir o AudioManager APÓS o login
 			if (localStorage.getItem("audioUnlocked") === "true") {
@@ -3969,12 +4106,7 @@ function App() {
     const handleLogin = async () => {
         setLoginError('');
         try {
-            try {
-                await setPersistence(auth, browserLocalPersistence);
-            } catch (persistError) {
-                console.warn('[Auth][Email] local persistence failed, falling back to session:', persistError?.code || persistError);
-                await setPersistence(auth, browserSessionPersistence);
-            }
+            await setPreferredAuthPersistence('Email');
             await signInWithEmailAndPassword(auth, email, password);
             setShowLogin(false);
             setEmail('');
@@ -3993,47 +4125,47 @@ function App() {
 
     const handleGoogleSignIn = async () => {
         setLoginError('');
-        const provider = new GoogleAuthProvider();
-        const isSafari = isSafariBrowser();
+        const provider = createGoogleProvider();
+        const strategy = getGoogleSignInStrategy();
 
-        console.log('[Auth][Google] Browser detect:', isSafari ? 'Safari' : 'Non-Safari');
+        console.log('[Auth][Google] Browser context:', strategy);
 
         try {
-            try {
-                await setPersistence(auth, browserLocalPersistence);
-            } catch (persistError) {
-                console.warn('[Auth][Google] local persistence failed, falling back to session:', persistError?.code || persistError);
-                await setPersistence(auth, browserSessionPersistence);
-            }
+            await setPreferredAuthPersistence('Google');
 
-            if (isSafari) {
+            if (strategy.method === GOOGLE_AUTH_FLOW_REDIRECT) {
                 console.log('[Auth][Google] Method: redirect');
-                sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_REDIRECT);
+                setGoogleAuthFlow(GOOGLE_AUTH_FLOW_REDIRECT);
                 await signInWithRedirect(auth, provider);
                 return;
             }
 
             console.log('[Auth][Google] Method: popup');
-            sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_POPUP);
+            setGoogleAuthFlow(GOOGLE_AUTH_FLOW_POPUP);
             await signInWithPopup(auth, provider);
-            sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+            clearGoogleAuthFlow();
             setShowLogin(false);
             setCurrentPage('dashboard');
         } catch (error) {
-            const fallbackToRedirect = error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request';
+            const fallbackToRedirect = strategy.method !== GOOGLE_AUTH_FLOW_REDIRECT
+                && (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request');
 
             if (fallbackToRedirect) {
                 try {
                     console.log('[Auth][Google] Method fallback: redirect');
-                    sessionStorage.setItem(GOOGLE_AUTH_FLOW_KEY, GOOGLE_AUTH_FLOW_REDIRECT);
+                    setGoogleAuthFlow(GOOGLE_AUTH_FLOW_REDIRECT);
                     await signInWithRedirect(auth, provider);
                     return;
                 } catch (redirectError) {
                     console.error('Erro no fallback de redirect do Google:', redirectError?.code || redirectError);
+                    clearGoogleAuthFlow();
+                    setLoginError(getGoogleAuthErrorMessage(redirectError, strategy));
+                    return;
                 }
             }
             console.error("Erro no login com Google:", error?.code || error);
-            setLoginError('Ocorreu um erro ao entrar com Google.');
+            clearGoogleAuthFlow();
+            setLoginError(getGoogleAuthErrorMessage(error, strategy));
         }
     };
 
@@ -4041,6 +4173,7 @@ function App() {
         let active = true;
 
         const validateGoogleRedirectResult = async () => {
+            const pendingGoogleFlow = getGoogleAuthFlow();
             try {
                 const result = await getRedirectResult(auth);
                 const googleUser = result?.user;
@@ -4052,9 +4185,12 @@ function App() {
                 }
 
                 if (!googleUser?.email) {
+                    if (pendingGoogleFlow === GOOGLE_AUTH_FLOW_REDIRECT && auth.currentUser) {
+                        clearGoogleAuthFlow();
+                    }
                     return;
                 }
-                sessionStorage.removeItem(GOOGLE_AUTH_FLOW_KEY);
+                clearGoogleAuthFlow();
 
                 if (active) {
                     setShowLogin(false);
@@ -4062,8 +4198,9 @@ function App() {
                 }
             } catch (error) {
                 console.error("Erro ao processar retorno do login com Google:", error?.code || error);
+                clearGoogleAuthFlow();
                 if (active) {
-                    setLoginError('Ocorreu um erro ao entrar com Google.');
+                    setLoginError(getGoogleAuthErrorMessage(error, getGoogleSignInStrategy()));
                 }
             }
         };
