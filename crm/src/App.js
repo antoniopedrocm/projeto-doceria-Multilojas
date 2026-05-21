@@ -189,13 +189,15 @@ const getGoogleSignInStrategy = () => {
   const safari = isSafariBrowser();
   const ios = isIOSBrowser();
   const sameAuthDomain = isAuthDomainCurrentHost();
+  const shouldUseRedirect = (mobile || safari) && sameAuthDomain;
 
   return {
-    method: mobile || safari ? GOOGLE_AUTH_FLOW_REDIRECT : GOOGLE_AUTH_FLOW_POPUP,
+    method: shouldUseRedirect ? GOOGLE_AUTH_FLOW_REDIRECT : GOOGLE_AUTH_FLOW_POPUP,
     mobile,
     safari,
     ios,
     sameAuthDomain,
+    shouldUseRedirect,
     authDomain: getFirebaseAuthDomain(),
     currentHost: typeof window !== 'undefined' ? window.location.hostname : ''
   };
@@ -4491,6 +4493,7 @@ function App() {
             setCurrentPage('dashboard');
         } catch (error) {
             const fallbackToRedirect = strategy.method !== GOOGLE_AUTH_FLOW_REDIRECT
+                && (strategy.sameAuthDomain || !strategy.mobile)
                 && (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request');
 
             if (fallbackToRedirect) {
