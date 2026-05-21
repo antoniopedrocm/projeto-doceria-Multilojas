@@ -56,6 +56,18 @@ const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const DEFAULT_RECEITA_CATEGORIES = ['Bolos', 'Doces', 'Salgados', 'Bebidas', 'Outros'];
+const TRANSFER_TABLE_COLUMN_OPTIONS = [
+  { id: 'numero', label: 'Nº' },
+  { id: 'origem', label: 'Origem' },
+  { id: 'destino', label: 'Destino' },
+  { id: 'itens', label: 'Itens' },
+  { id: 'repasse', label: 'Repasse' },
+  { id: 'revenda', label: 'Revenda' },
+  { id: 'status', label: 'Status' },
+  { id: 'fechamento', label: 'Fechamento' },
+  { id: 'criadaEm', label: 'Criada em' }
+];
+const DEFAULT_VISIBLE_TRANSFER_COLUMNS = TRANSFER_TABLE_COLUMN_OPTIONS.map((column) => column.id);
 const CONFIG_DOC_ID = 'config';
 const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
@@ -8837,6 +8849,8 @@ const handleSubmit = async (e) => {
     const [destinoFilter, setDestinoFilter] = useState('todos');
     const [startDateFilter, setStartDateFilter] = useState('');
     const [endDateFilter, setEndDateFilter] = useState('');
+    const [showTransferColumnsMenu, setShowTransferColumnsMenu] = useState(false);
+    const [visibleTransferColumns, setVisibleTransferColumns] = usePersistentState('entreLojasVisibleTransferColumns', DEFAULT_VISIBLE_TRANSFER_COLUMNS);
     const [closingStatusFilter, setClosingStatusFilter] = useState('todos');
     const [closingOrigemFilter, setClosingOrigemFilter] = useState('todos');
     const [closingDestinoFilter, setClosingDestinoFilter] = useState('todos');
@@ -8907,6 +8921,27 @@ const handleSubmit = async (e) => {
     const isEditingTransfer = !!editingTransfer?.id;
     const isEditingClosing = !!editingClosing?.id;
     const canChangeOriginStore = allowedOriginStoreIds.length > 1;
+    const visibleTransferColumnSet = useMemo(() => {
+      const validColumnIds = new Set(TRANSFER_TABLE_COLUMN_OPTIONS.map((column) => column.id));
+      const selectedColumns = Array.isArray(visibleTransferColumns)
+        ? visibleTransferColumns.filter((columnId) => validColumnIds.has(columnId))
+        : [];
+      return new Set(selectedColumns.length ? selectedColumns : DEFAULT_VISIBLE_TRANSFER_COLUMNS);
+    }, [visibleTransferColumns]);
+
+    const toggleTransferColumnVisibility = useCallback((columnId) => {
+      setVisibleTransferColumns((previous) => {
+        const validColumnIds = new Set(TRANSFER_TABLE_COLUMN_OPTIONS.map((column) => column.id));
+        const currentColumns = Array.isArray(previous)
+          ? previous.filter((currentColumnId) => validColumnIds.has(currentColumnId))
+          : DEFAULT_VISIBLE_TRANSFER_COLUMNS;
+        const nextColumns = currentColumns.includes(columnId)
+          ? currentColumns.filter((currentColumnId) => currentColumnId !== columnId)
+          : [...currentColumns, columnId];
+
+        return nextColumns.length ? nextColumns : currentColumns;
+      });
+    }, [setVisibleTransferColumns]);
 
     const DEBUG_ENTRE_LOJAS_SYNC = false;
     const entreLojasLog = (...args) => {
@@ -10818,16 +10853,17 @@ const handleSubmit = async (e) => {
     const viewingClosingTransfers = useMemo(() => getTransfersForClosing(viewingClosing), [transferencias, viewingClosing]);
 
     const columns = [
-      { header: 'Nº', render: (row) => <span className="font-semibold text-pink-600">#{row.numero || '-'}</span> },
-      { header: 'Origem', render: (row) => row.lojaOrigemNome || row.lojaOrigemId || '-' },
-      { header: 'Destino', render: (row) => row.lojaDestinoNome || row.lojaDestinoId || '-' },
-      { header: 'Itens', key: 'quantidadeTotalItens' },
-      { header: 'Repasse', render: (row) => <span className="font-semibold">{formatMoney(row.totalRepasse)}</span> },
-      { header: 'Revenda', render: (row) => <span className="font-semibold">{formatMoney(row.totalRevenda)}</span> },
-      { header: 'Status', render: (row) => <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusClassName(row.status)}`}>{statusLabelMap[row.status] || row.status}</span> },
-      { header: 'Fechamento', render: (row) => row.fechamentoNome ? <span className="text-xs font-semibold text-purple-700">{row.fechamentoNome}</span> : '-' },
-      { header: 'Criada em', render: (row) => getJSDate(row.dataCriacao)?.toLocaleString('pt-BR') || '-' }
+      { id: 'numero', header: 'Nº', render: (row) => <span className="font-semibold text-pink-600">#{row.numero || '-'}</span> },
+      { id: 'origem', header: 'Origem', render: (row) => row.lojaOrigemNome || row.lojaOrigemId || '-' },
+      { id: 'destino', header: 'Destino', render: (row) => row.lojaDestinoNome || row.lojaDestinoId || '-' },
+      { id: 'itens', header: 'Itens', key: 'quantidadeTotalItens' },
+      { id: 'repasse', header: 'Repasse', render: (row) => <span className="font-semibold">{formatMoney(row.totalRepasse)}</span> },
+      { id: 'revenda', header: 'Revenda', render: (row) => <span className="font-semibold">{formatMoney(row.totalRevenda)}</span> },
+      { id: 'status', header: 'Status', render: (row) => <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusClassName(row.status)}`}>{statusLabelMap[row.status] || row.status}</span> },
+      { id: 'fechamento', header: 'Fechamento', render: (row) => row.fechamentoNome ? <span className="text-xs font-semibold text-purple-700">{row.fechamentoNome}</span> : '-' },
+      { id: 'criadaEm', header: 'Criada em', render: (row) => getJSDate(row.dataCriacao)?.toLocaleString('pt-BR') || '-' }
     ];
+    const visibleTransferTableColumns = columns.filter((column) => visibleTransferColumnSet.has(column.id));
 
     const actions = [
       { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingTransfer(row) },
@@ -10938,17 +10974,58 @@ const handleSubmit = async (e) => {
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'todas', label: 'Todas' },
-              { id: 'enviadas', label: 'Enviadas' },
-              { id: 'recebidas', label: 'Recebidas' },
-              { id: 'aguardando_conferencia', label: 'Aguardando Conferência' },
-              { id: 'aguardando_pagamento', label: 'Aguardando Pagamento' },
-              { id: 'historico', label: 'Histórico' }
-            ].map((tab) => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab.id ? 'bg-pink-100 text-pink-700' : 'bg-gray-50 text-gray-600'}`}>{tab.label}</button>
-            ))}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: 'todas', label: 'Todas' },
+                { id: 'enviadas', label: 'Enviadas' },
+                { id: 'recebidas', label: 'Recebidas' },
+                { id: 'aguardando_conferencia', label: 'Aguardando Conferência' },
+                { id: 'aguardando_pagamento', label: 'Aguardando Pagamento' },
+                { id: 'historico', label: 'Histórico' }
+              ].map((tab) => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab.id ? 'bg-pink-100 text-pink-700' : 'bg-gray-50 text-gray-600'}`}>{tab.label}</button>
+              ))}
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowTransferColumnsMenu((previous) => !previous)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-pink-50 hover:text-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                title="Selecionar colunas"
+                aria-label="Selecionar colunas"
+                aria-expanded={showTransferColumnsMenu}
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+              {showTransferColumnsMenu && (
+                <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-gray-800">Colunas visíveis</p>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleTransferColumns(DEFAULT_VISIBLE_TRANSFER_COLUMNS)}
+                      className="text-xs font-semibold text-pink-600 hover:text-pink-700"
+                    >
+                      Todas
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {TRANSFER_TABLE_COLUMN_OPTIONS.map((column) => (
+                      <label key={column.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-700 hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={visibleTransferColumnSet.has(column.id)}
+                          onChange={() => toggleTransferColumnVisibility(column.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                        />
+                        <span>{column.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <Select value={origemFilter} onChange={(e) => setOrigemFilter(e.target.value)}>
@@ -10968,7 +11045,7 @@ const handleSubmit = async (e) => {
           </div>
         </div>
 
-        <Table columns={columns} data={filteredTransfers} actions={actions} />
+        <Table columns={visibleTransferTableColumns} data={filteredTransfers} actions={actions} />
           </>
         )}
 
