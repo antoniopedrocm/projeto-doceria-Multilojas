@@ -10328,15 +10328,21 @@ const handleSubmit = async (e) => {
           for (const transferRef of transferRefs) {
             transferSnaps.push(await transaction.get(transferRef));
           }
-          const linkedTransfers = transferSnaps
+          const linkedTransferDocs = transferSnaps
             .filter((transferSnap) => transferSnap.exists())
-            .map((transferSnap) => ({ id: transferSnap.id, ...transferSnap.data() }))
-            .filter((transfer) => transfer.fechamentoId === latestClosing.id);
+            .map((transferSnap) => ({
+              ref: transferSnap.ref,
+              transfer: { id: transferSnap.id, ...transferSnap.data() }
+            }))
+            .filter(({ transfer }) => transfer.fechamentoId === latestClosing.id);
+          const linkedTransfers = linkedTransferDocs.map(({ transfer }) => transfer);
           const totals = computeClosingTotals(linkedTransfers);
 
           let nextStatus = latestClosing.status;
           let updatePayload = {};
           let historyEntry = null;
+          let transferStatusPayload = null;
+          let transferHistoryEntry = null;
 
           if (action === 'fechar') {
             if (!canCloseClosing(latestClosing)) throw new Error('Você não tem permissão para fechar este agrupamento.');
@@ -10386,6 +10392,16 @@ const handleSubmit = async (e) => {
               observacaoPagamento: closingActionComment || latestClosing.observacaoPagamento || ''
             };
             historyEntry = buildClosingHistoryEntry('pagamento_informado', nextStatus, closingActionComment || 'Pagamento informado pela loja destino');
+            transferStatusPayload = {
+              status: 'pagamento_informado',
+              dataPagamentoInformado: serverTimestamp(),
+              pagamentoInformadoPorUid: user?.auth?.uid || '',
+              pagamentoInformadoPorNome: user?.name || user?.email || '',
+              formaPagamento: closingPaymentForm.formaPagamento,
+              dataPagamento: closingPaymentForm.dataPagamento || formatInputDate(new Date()),
+              observacaoPagamento: closingActionComment || latestClosing.observacaoPagamento || ''
+            };
+            transferHistoryEntry = buildClosingHistoryEntry('pagamento_informado_por_fechamento', 'pagamento_informado', closingActionComment || `Pagamento informado no fechamento ${latestClosing.nome || latestClosing.numero || latestClosing.id}`);
           }
 
           if (action === 'confirmar_pagamento') {
@@ -10404,6 +10420,14 @@ const handleSubmit = async (e) => {
               observacaoPagamento: closingActionComment || latestClosing.observacaoPagamento || ''
             };
             historyEntry = buildClosingHistoryEntry('pagamento_confirmado', nextStatus, closingActionComment || 'Pagamento confirmado pela loja origem');
+            transferStatusPayload = {
+              status: 'pagamento_confirmado',
+              dataPagamentoConfirmado: serverTimestamp(),
+              pagamentoConfirmadoPorUid: user?.auth?.uid || '',
+              pagamentoConfirmadoPorNome: user?.name || user?.email || '',
+              observacaoPagamento: closingActionComment || latestClosing.observacaoPagamento || ''
+            };
+            transferHistoryEntry = buildClosingHistoryEntry('pagamento_confirmado_por_fechamento', 'pagamento_confirmado', closingActionComment || `Pagamento confirmado no fechamento ${latestClosing.nome || latestClosing.numero || latestClosing.id}`);
           }
 
           if (action === 'contestar_pagamento') {
@@ -10436,10 +10460,15 @@ const handleSubmit = async (e) => {
             dataAtualizacao: serverTimestamp(),
             historico: arrayUnion(historyEntry)
           });
-          transferSnaps.filter((transferSnap) => transferSnap.exists()).forEach((transferSnap) => {
-            transaction.update(transferSnap.ref, {
+          linkedTransferDocs.forEach(({ ref, transfer }) => {
+            const shouldApplyPaymentStatus = transferStatusPayload
+              && !['cancelado', 'cancelada'].includes(transfer.status)
+              && !(action === 'marcar_pago' && transfer.status === 'pagamento_confirmado');
+            transaction.update(ref, {
+              ...(shouldApplyPaymentStatus ? transferStatusPayload : {}),
               fechamentoStatus: nextStatus,
-              dataAtualizacao: serverTimestamp()
+              dataAtualizacao: serverTimestamp(),
+              ...(shouldApplyPaymentStatus && transferHistoryEntry ? { historico: arrayUnion(transferHistoryEntry) } : {})
             });
           });
         });
