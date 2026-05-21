@@ -189,7 +189,7 @@ const getGoogleSignInStrategy = () => {
   const safari = isSafariBrowser();
   const ios = isIOSBrowser();
   const sameAuthDomain = isAuthDomainCurrentHost();
-  const shouldUseRedirect = (mobile || safari) && sameAuthDomain;
+  const shouldUseRedirect = (ios || safari) && sameAuthDomain;
 
   return {
     method: shouldUseRedirect ? GOOGLE_AUTH_FLOW_REDIRECT : GOOGLE_AUTH_FLOW_POPUP,
@@ -265,6 +265,9 @@ const getGoogleAuthErrorMessage = (error, strategy = {}) => {
   }
   if (error?.code === 'auth/network-request-failed') {
     return 'Falha de conexão durante o login com Google. Verifique a internet e tente novamente.';
+  }
+  if (error?.code === 'auth/unauthorized-domain') {
+    return 'Este domínio ainda não está autorizado no Firebase Authentication. Verifique os domínios autorizados do projeto Firebase.';
   }
   if (strategy.mobile && !strategy.sameAuthDomain) {
     return 'Não foi possível concluir o login com Google neste navegador. Tente novamente pelo navegador padrão do celular.';
