@@ -28,7 +28,7 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
+import { onIdTokenChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, query, doc, setDoc, addDoc, updateDoc, where, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -65,6 +65,9 @@ const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
 const GOOGLE_AUTH_FLOW_POPUP = 'popup';
 const GOOGLE_AUTH_FLOW_MAX_AGE_MS = 10 * 60 * 1000;
 const AUTH_PROFILE_CACHE_PREFIX = 'auth-profile-cache-v1';
+const AUTH_STATE_READY_TIMEOUT_MS = 4000;
+const AUTH_TOKEN_REFRESH_TIMEOUT_MS = 2500;
+const AUTH_SILENT_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -165,7 +168,6 @@ const isAuthDomainCurrentHost = () => {
 
 const createGoogleProvider = () => {
   const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
   return provider;
 };
 
@@ -193,6 +195,47 @@ const setPreferredAuthPersistence = async (contextLabel) => {
     console.warn(`[Auth][${contextLabel}] local persistence failed, falling back to session:`, persistError?.code || persistError);
     await setPersistence(auth, browserSessionPersistence);
   }
+};
+
+const waitForFirebaseAuthReady = async (timeoutMs = AUTH_STATE_READY_TIMEOUT_MS) => {
+  if (typeof auth?.authStateReady !== 'function') {
+    return auth.currentUser || null;
+  }
+
+  try {
+    await Promise.race([
+      auth.authStateReady(),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs))
+    ]);
+  } catch (error) {
+    console.warn('[Auth][SessionRestore] authStateReady failed:', error?.code || error);
+  }
+
+  return auth.currentUser || null;
+};
+
+const withTimeout = (promise, timeoutMs, timeoutMessage) => Promise.race([
+  promise,
+  new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  })
+]);
+
+const refreshFirebaseTokenSilently = async (contextLabel, { force = false } = {}) => {
+  const authUser = auth.currentUser || null;
+  if (!authUser) return null;
+
+  try {
+    await withTimeout(
+      getIdToken(authUser, force),
+      AUTH_TOKEN_REFRESH_TIMEOUT_MS,
+      'Tempo limite ao renovar a sessão Firebase.'
+    );
+  } catch (refreshError) {
+    console.warn(`[Auth][${contextLabel}] token refresh skipped:`, refreshError?.code || refreshError);
+  }
+
+  return authUser;
 };
 
 const getGoogleAuthErrorMessage = (error, strategy = {}) => {
@@ -3745,7 +3788,8 @@ function App() {
 
 
   const ensureAuthenticatedUserForWrite = useCallback(async () => {
-    const currentAuthUser = auth.currentUser;
+    const restoredAuthUser = await waitForFirebaseAuthReady();
+    const currentAuthUser = auth.currentUser || restoredAuthUser;
     const fallbackAuthUser = user?.auth || null;
     const resolvedAuthUser = currentAuthUser || fallbackAuthUser;
 
@@ -3762,10 +3806,22 @@ function App() {
     }
 
     try {
-      await getIdToken(resolvedAuthUser);
-    } catch (tokenError) {
-      console.error('[Sales][Auth] Falha ao validar autenticação antes da gravação:', tokenError);
-      throw new Error('Não foi possível validar sua sessão. Faça login novamente para concluir a venda.');
+      await withTimeout(
+        getIdToken(resolvedAuthUser, true),
+        AUTH_TOKEN_REFRESH_TIMEOUT_MS,
+        'Tempo limite ao renovar a sessão Firebase antes da gravação.'
+      );
+    } catch (tokenRefreshError) {
+      console.warn('[Sales][Auth] Renovação silenciosa do token falhou; mantendo tentativa de gravação com a sessão atual.', tokenRefreshError?.code || tokenRefreshError);
+      try {
+        await withTimeout(
+          getIdToken(resolvedAuthUser),
+          AUTH_TOKEN_REFRESH_TIMEOUT_MS,
+          'Tempo limite ao ler a sessão Firebase em cache antes da gravação.'
+        );
+      } catch (cachedTokenError) {
+        console.warn('[Sales][Auth] Token em cache indisponível antes da gravação; o Firestore tentará resolver a sessão.', cachedTokenError?.code || cachedTokenError);
+      }
     }
 
     return resolvedAuthUser;
@@ -4090,7 +4146,7 @@ function App() {
 
       if (!isMounted) return;
 
-      unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      unsubscribe = onIdTokenChanged(auth, async (authUser) => {
         try {
           if (authUser) {
             await applyAuthenticatedUser(authUser);
@@ -4112,6 +4168,45 @@ function App() {
       unsubscribe();
     };
   }, [stopAlarm, setCurrentPage]);
+
+    useEffect(() => {
+        if (!user?.auth?.uid) return undefined;
+
+        const refreshCurrentSession = () => {
+            refreshFirebaseTokenSilently('ActivityRefresh', { force: true });
+        };
+
+        const handleVisibilityChange = () => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                refreshCurrentSession();
+            }
+        };
+
+        refreshFirebaseTokenSilently('SessionHeartbeat');
+
+        const intervalId = setInterval(() => {
+            refreshFirebaseTokenSilently('SessionHeartbeat');
+        }, AUTH_SILENT_REFRESH_INTERVAL_MS);
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('focus', refreshCurrentSession);
+            window.addEventListener('online', refreshCurrentSession);
+        }
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+        }
+
+        return () => {
+            clearInterval(intervalId);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', refreshCurrentSession);
+                window.removeEventListener('online', refreshCurrentSession);
+            }
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+            }
+        };
+    }, [user?.auth?.uid]);
 
     useEffect(() => {
         let isMounted = true;
