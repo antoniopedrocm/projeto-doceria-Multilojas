@@ -28,7 +28,7 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onIdTokenChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
+import { onIdTokenChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, query, doc, setDoc, addDoc, updateDoc, where, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -62,7 +62,6 @@ const MAX_ALARM_PAUSE_MINUTES = 120;
 const GOOGLE_AUTH_FLOW_KEY = 'google-auth-flow-in-progress';
 const GOOGLE_AUTH_FLOW_STARTED_AT_KEY = 'google-auth-flow-started-at';
 const GOOGLE_AUTH_FLOW_REDIRECT = 'redirect';
-const GOOGLE_AUTH_FLOW_POPUP = 'popup';
 const GOOGLE_AUTH_FLOW_MAX_AGE_MS = 10 * 60 * 1000;
 const AUTH_PROFILE_CACHE_PREFIX = 'auth-profile-cache-v1';
 const AUTH_STATE_READY_TIMEOUT_MS = 4000;
@@ -178,7 +177,7 @@ const getGoogleSignInStrategy = () => {
   const sameAuthDomain = isAuthDomainCurrentHost();
 
   return {
-    method: mobile && sameAuthDomain ? GOOGLE_AUTH_FLOW_REDIRECT : GOOGLE_AUTH_FLOW_POPUP,
+    method: GOOGLE_AUTH_FLOW_REDIRECT,
     mobile,
     safari,
     ios,
@@ -4320,9 +4319,15 @@ function App() {
 
     const handleLogin = async () => {
         setLoginError('');
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail || !password) {
+            setLoginError('Use o botão “Entrar com Google” ou preencha email e senha.');
+            return;
+        }
+
         try {
             await setPreferredAuthPersistence('Email');
-            await signInWithEmailAndPassword(auth, email, password);
+            await signInWithEmailAndPassword(auth, normalizedEmail, password);
             setShowLogin(false);
             setEmail('');
             setPassword('');
@@ -4348,36 +4353,10 @@ function App() {
         try {
             await setPreferredAuthPersistence('Google');
 
-            if (strategy.method === GOOGLE_AUTH_FLOW_REDIRECT) {
-                console.log('[Auth][Google] Method: redirect');
-                setGoogleAuthFlow(GOOGLE_AUTH_FLOW_REDIRECT);
-                await signInWithRedirect(auth, provider);
-                return;
-            }
-
-            console.log('[Auth][Google] Method: popup');
-            setGoogleAuthFlow(GOOGLE_AUTH_FLOW_POPUP);
-            await signInWithPopup(auth, provider);
-            clearGoogleAuthFlow();
-            setShowLogin(false);
-            setCurrentPage('dashboard');
+            console.log('[Auth][Google] Method: redirect');
+            setGoogleAuthFlow(GOOGLE_AUTH_FLOW_REDIRECT);
+            await signInWithRedirect(auth, provider);
         } catch (error) {
-            const fallbackToRedirect = strategy.method !== GOOGLE_AUTH_FLOW_REDIRECT
-                && (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request');
-
-            if (fallbackToRedirect) {
-                try {
-                    console.log('[Auth][Google] Method fallback: redirect');
-                    setGoogleAuthFlow(GOOGLE_AUTH_FLOW_REDIRECT);
-                    await signInWithRedirect(auth, provider);
-                    return;
-                } catch (redirectError) {
-                    console.error('Erro no fallback de redirect do Google:', redirectError?.code || redirectError);
-                    clearGoogleAuthFlow();
-                    setLoginError(getGoogleAuthErrorMessage(redirectError, strategy));
-                    return;
-                }
-            }
             console.error("Erro no login com Google:", error?.code || error);
             clearGoogleAuthFlow();
             setLoginError(getGoogleAuthErrorMessage(error, strategy));
@@ -11920,7 +11899,7 @@ const handleSubmit = async (e) => {
                 </button>
                 {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
                 <div className="flex flex-col gap-4 pt-2">
-                    <Button onClick={handleLogin}>Entrar</Button>
+                    <Button onClick={handleLogin} disabled={!email.trim() || !password}>Entrar com email</Button>
                     <div className="relative">
                         <div className="absolute inset-0 flex items-center">
                             <div className="w-full border-t border-gray-300" />
