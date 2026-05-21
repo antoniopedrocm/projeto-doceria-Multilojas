@@ -55,6 +55,7 @@ const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
+const DEFAULT_RECEITA_CATEGORIES = ['Bolos', 'Doces', 'Salgados', 'Bebidas', 'Outros'];
 const CONFIG_DOC_ID = 'config';
 const DEFAULT_ALARM_PAUSE_MINUTES = 5;
 const MIN_ALARM_PAUSE_MINUTES = 1;
@@ -449,6 +450,7 @@ const COLLECTIONS_TO_SYNC = [
   'produtos',
   'subcategorias',
   'categoriasFornecedores',
+  'categoriasReceitas',
   'contas_a_pagar',
   'contas_a_receber',
   'fornecedores',
@@ -1297,6 +1299,10 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [newFornecedorCategoria, setNewFornecedorCategoria] = useState('');
     const [isSavingFornecedorCategoria, setIsSavingFornecedorCategoria] = useState(false);
     const [previousFornecedorCategoria, setPreviousFornecedorCategoria] = useState('');
+    const [isAddingReceitaCategoria, setIsAddingReceitaCategoria] = useState(false);
+    const [newReceitaCategoria, setNewReceitaCategoria] = useState('');
+    const [isSavingReceitaCategoria, setIsSavingReceitaCategoria] = useState(false);
+    const [previousReceitaCategoria, setPreviousReceitaCategoria] = useState('');
 
     const resetFornecedorForm = () => {
         setFornecedorFormData({ nome: '', cnpj_cpf: '', contato_telefone: '', contato_email: '', contato_whatsapp: '', endereco_completo: '', endereco_cep: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], dados_bancarios: '', observacoes: '', status: 'Ativo' });
@@ -1308,7 +1314,13 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const resetPedidoForm = () => setPedidoFormData({ fornecedorId: '', itens: [], valorTotal: 0, dataPedido: new Date().toISOString().split('T')[0], dataPrevistaEntrega: '', status: 'Pendente' });
     const resetEstoqueForm = () => setEstoqueFormData({ nome: '', categoria: DEFAULT_FORNECEDOR_CATEGORIES[0], fornecedorId: '', quantidade: '', unidade: 'un', custoUnitario: '', nivelMinimo: '' });
     const resetPerdaForm = () => setPerdaFormData({ produtoId: '', produtoNome: '', custoUnitario: '', quantidade: '', dataDescarte: new Date().toISOString().split('T')[0], motivo: 'Vencimento', outroMotivo: '' });
-    const resetReceitaForm = () => setReceitaFormData({ nome: '', categoria: '', ingredientes: '', modoPreparo: '', tempoPreparo: '', rendimento: '', custoEstimado: '', observacoes: '' });
+    const resetReceitaForm = () => {
+        setReceitaFormData({ nome: '', categoria: '', ingredientes: '', modoPreparo: '', tempoPreparo: '', rendimento: '', custoEstimado: '', observacoes: '' });
+        setIsAddingReceitaCategoria(false);
+        setNewReceitaCategoria('');
+        setIsSavingReceitaCategoria(false);
+        setPreviousReceitaCategoria('');
+    };
 
     const openStockMovementModal = (item, type) => {
         setStockMovementModal({ isOpen: true, type, item });
@@ -1375,6 +1387,35 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
 
         return unique;
     }, [data.categoriasFornecedores, fornecedorFormData.categoria, estoqueFormData.categoria]);
+
+    const receitaCategories = useMemo(() => {
+        const customCategories = (data.categoriasReceitas || [])
+            .map(item => {
+                if (!item) return null;
+                if (typeof item === 'string') return item;
+                return item.nome;
+            })
+            .filter(Boolean);
+
+        const combined = [...DEFAULT_RECEITA_CATEGORIES, ...customCategories];
+        if (receitaFormData.categoria && receitaFormData.categoria.trim()) {
+            combined.push(receitaFormData.categoria.trim());
+        }
+
+        const seen = new Set();
+        const unique = [];
+        combined.forEach(cat => {
+            const normalized = typeof cat === 'string' ? cat.trim() : '';
+            if (!normalized) return;
+            const key = normalized.toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                unique.push(normalized);
+            }
+        });
+
+        return unique;
+    }, [data.categoriasReceitas, receitaFormData.categoria]);
     
 	useEffect(() => {
 		const total = (pedidoFormData.itens || []).reduce((sum, item) => 
@@ -1556,8 +1597,63 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const handleDeletePerda = (perda) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('perdasDescarte', perda.id) });
 
     const handleNewReceita = () => { setEditingReceita(null); resetReceitaForm(); setShowReceitaModal(true); };
-    const handleEditReceita = (receita) => { setEditingReceita(receita); setReceitaFormData({ ...receita }); setShowReceitaModal(true); };
+    const handleEditReceita = (receita) => { setEditingReceita(receita); setReceitaFormData({ ...receita }); setIsAddingReceitaCategoria(false); setNewReceitaCategoria(''); setIsSavingReceitaCategoria(false); setPreviousReceitaCategoria(''); setShowReceitaModal(true); };
     const handleDeleteReceita = (receita) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('receitas', receita.id) });
+
+    const handleReceitaCategoriaChange = (e) => {
+        const value = e.target.value;
+        if (value === '__add_new__') {
+            setIsAddingReceitaCategoria(true);
+            setNewReceitaCategoria('');
+            setPreviousReceitaCategoria(receitaFormData.categoria || '');
+            setReceitaFormData(prev => ({ ...prev, categoria: '' }));
+            return;
+        }
+        setIsAddingReceitaCategoria(false);
+        setNewReceitaCategoria('');
+        setPreviousReceitaCategoria('');
+        setReceitaFormData(prev => ({ ...prev, categoria: value }));
+    };
+
+    const handleCancelReceitaCategoria = () => {
+        setIsAddingReceitaCategoria(false);
+        setNewReceitaCategoria('');
+        setIsSavingReceitaCategoria(false);
+        setReceitaFormData(prev => ({ ...prev, categoria: previousReceitaCategoria || '' }));
+        setPreviousReceitaCategoria('');
+    };
+
+    const handleCreateReceitaCategoria = async () => {
+        const trimmed = newReceitaCategoria.trim();
+        if (!trimmed) {
+            alert('Informe o nome da nova categoria.');
+            return;
+        }
+
+        const existing = receitaCategories.find(cat => cat.toLowerCase() === trimmed.toLowerCase());
+        if (existing) {
+            alert('Esta categoria já existe.');
+            setReceitaFormData(prev => ({ ...prev, categoria: existing }));
+            setIsAddingReceitaCategoria(false);
+            setNewReceitaCategoria('');
+            return;
+        }
+
+        try {
+            setIsSavingReceitaCategoria(true);
+            await addItem('categoriasReceitas', { nome: trimmed });
+            setReceitaFormData(prev => ({ ...prev, categoria: trimmed }));
+            setIsAddingReceitaCategoria(false);
+            setNewReceitaCategoria('');
+            setPreviousReceitaCategoria('');
+        } catch (error) {
+            console.error('Erro ao criar categoria de receita:', error);
+            alert('Não foi possível salvar a nova categoria. Tente novamente.');
+        } finally {
+            setIsSavingReceitaCategoria(false);
+        }
+    };
+
     const handleReceitaSubmit = async (e) => {
         e.preventDefault();
         const requiredFields = ['nome', 'categoria', 'ingredientes', 'modoPreparo', 'tempoPreparo', 'rendimento', 'custoEstimado'];
@@ -1808,6 +1904,20 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                 Textarea={Textarea}
                 Button={Button}
                 Save={Save}
+                categories={receitaCategories}
+                isAddingCategory={isAddingReceitaCategoria}
+                newCategory={newReceitaCategoria}
+                setNewCategory={setNewReceitaCategoria}
+                isSavingCategory={isSavingReceitaCategoria}
+                onCategoryChange={handleReceitaCategoriaChange}
+                onStartAddCategory={() => {
+                    setIsAddingReceitaCategoria(true);
+                    setNewReceitaCategoria('');
+                    setPreviousReceitaCategoria(receitaFormData.categoria || '');
+                    setReceitaFormData(prev => ({ ...prev, categoria: '' }));
+                }}
+                onCancelAddCategory={handleCancelReceitaCategoria}
+                onCreateCategory={handleCreateReceitaCategoria}
             />
 
             <Modal
