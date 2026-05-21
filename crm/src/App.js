@@ -474,6 +474,7 @@ const COLLECTIONS_TO_SYNC = [
   'kardex',
   'perdasDescarte',
   'receitas',
+  'agendaLembretes',
   'logs',
   'cupons',
   'pedidos'
@@ -1276,6 +1277,71 @@ const getJSDate = (firestoreTimestamp) => {
   }
   const date = new Date(firestoreTimestamp);
   return isNaN(date.getTime()) ? null : date;
+};
+
+const padDatePart = (value) => String(value).padStart(2, '0');
+
+const formatDateKey = (year, monthIndex, day) => `${year}-${padDatePart(monthIndex + 1)}-${padDatePart(day)}`;
+
+const parseDateKey = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map((part) => Number(part));
+    const date = new Date(year, month - 1, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return getJSDate(value);
+};
+
+const getDateKeyFromValue = (value) => {
+  const parsed = parseDateKey(value);
+  if (!parsed) return '';
+  return formatDateKey(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+};
+
+const addDays = (date, days) => {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+};
+
+const getEasterDate = (year) => {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month, day);
+};
+
+const getBrazilNationalHolidays = (year) => {
+  const easter = getEasterDate(year);
+  const holidays = [
+    { date: formatDateKey(year, 0, 1), name: 'Confraternização Universal' },
+    { date: getDateKeyFromValue(addDays(easter, -2)), name: 'Sexta-feira Santa' },
+    { date: formatDateKey(year, 3, 21), name: 'Tiradentes' },
+    { date: formatDateKey(year, 4, 1), name: 'Dia do Trabalho' },
+    { date: formatDateKey(year, 8, 7), name: 'Independência do Brasil' },
+    { date: formatDateKey(year, 9, 12), name: 'Nossa Senhora Aparecida' },
+    { date: formatDateKey(year, 10, 2), name: 'Finados' },
+    { date: formatDateKey(year, 10, 15), name: 'Proclamação da República' },
+    { date: formatDateKey(year, 10, 20), name: 'Consciência Negra' },
+    { date: formatDateKey(year, 11, 25), name: 'Natal' }
+  ];
+
+  return holidays.reduce((acc, holiday) => {
+    acc[holiday.date] = holiday.name;
+    return acc;
+  }, {});
 };
 
 // --- NOVOS COMPONENTES ---
@@ -11545,6 +11611,8 @@ const handleSubmit = async (e) => {
     const [selectedDay, setSelectedDay] = useState(null);
     const [viewingOrder, setViewingOrder] = useState(null);
     const [orderToSendToDeliverer, setOrderToSendToDeliverer] = useState(null);
+    const [reminderForm, setReminderForm] = useState({ titulo: '', hora: '', descricao: '' });
+    const [isSavingReminder, setIsSavingReminder] = useState(false);
 
     const deliveryProviders = useMemo(
         () => (data.fornecedores || []).filter(f => (f.status || 'Ativo') !== 'Inativo'),
@@ -11588,19 +11656,33 @@ const handleSubmit = async (e) => {
         setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
     };
 
-    const pedidosDoMes = (data.pedidos || []).filter(p => {
-		const relevantDateStr = p.categoria === 'Festa' && p.dataEntrega ? p.dataEntrega : p.createdAt;
-		let pedidoDate = getJSDate(relevantDateStr);
-		if (p.categoria === 'Festa' && p.dataEntrega) {
-			const [year, month, day] = p.dataEntrega.split('-');
-			const y = parseInt(year, 10);
-			const m = parseInt(month, 10) - 1;
-			const d = parseInt(day, 10);
-			pedidoDate = new Date(Date.UTC(y, m, d));
-		  }
-	  return pedidoDate && pedidoDate.getFullYear() === currentDate.getFullYear() &&
-			 pedidoDate.getMonth() === currentDate.getMonth();
-	});
+    const getScheduledOrderInfo = (order) => {
+        const dateValue = order.dataEntrega || order.dataAgendada || order.entregaData || order.deliveryDate || order.scheduledDate || order.agendadoPara;
+        const timeValue = order.horaEntrega || order.horarioEntrega || order.deliveryTime || order.horarioAgendado || '';
+        if (!dateValue && !timeValue) return null;
+
+        const parsedDate = dateValue ? parseDateKey(dateValue) : getJSDate(order.createdAt);
+        if (!parsedDate) return null;
+
+        return {
+            date: parsedDate,
+            dateKey: formatDateKey(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()),
+            time: timeValue
+        };
+    };
+
+    const pedidosProgramadosDoMes = (data.pedidos || []).filter(p => {
+        if (['Cancelado', 'Cancelada'].includes(p.status)) return false;
+        const schedule = getScheduledOrderInfo(p);
+        return schedule && schedule.date.getFullYear() === currentDate.getFullYear() && schedule.date.getMonth() === currentDate.getMonth();
+    });
+
+    const lembretesDoMes = (data.agendaLembretes || []).filter((reminder) => {
+        const reminderDate = parseDateKey(reminder.data);
+        return reminderDate && reminderDate.getFullYear() === currentDate.getFullYear() && reminderDate.getMonth() === currentDate.getMonth();
+    });
+
+    const feriadosNacionais = useMemo(() => getBrazilNationalHolidays(currentDate.getFullYear()), [currentDate]);
 
     const clientes = data.clientes || [];
     const aniversariantesDoMes = useMemo(() => {
@@ -11613,11 +11695,45 @@ const handleSubmit = async (e) => {
         });
     }, [data.clientes, currentDate]);
 
+    const openAgendaDay = ({ day, dateKey, pedidos, aniversariantes, lembretes, feriado }) => {
+        setReminderForm({ titulo: '', hora: '', descricao: '' });
+        setSelectedDay({ day, dateKey, pedidos, aniversariantes, lembretes, feriado });
+    };
+
+    const handleReminderSubmit = async (event) => {
+        event.preventDefault();
+        if (!selectedDay?.dateKey) return;
+        const title = reminderForm.titulo.trim();
+        if (!title) {
+            alert('Informe o título do lembrete.');
+            return;
+        }
+
+        try {
+            setIsSavingReminder(true);
+            await addItem('agendaLembretes', {
+                titulo: title,
+                data: selectedDay.dateKey,
+                hora: reminderForm.hora || '',
+                descricao: reminderForm.descricao.trim(),
+                criadoPorUid: user?.auth?.uid || '',
+                criadoPorNome: user?.auth?.displayName || user?.auth?.email || ''
+            });
+            setReminderForm({ titulo: '', hora: '', descricao: '' });
+            setSelectedDay(null);
+        } catch (error) {
+            console.error('Erro ao criar lembrete na agenda:', error);
+            alert(error?.message || 'Não foi possível salvar o lembrete.');
+        } finally {
+            setIsSavingReminder(false);
+        }
+    };
+
     return (
         <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
              <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Agenda</h1>
-                <p className="text-gray-600 mt-1">Visualize entregas e aniversários</p>
+                <p className="text-gray-600 mt-1">Visualize entregas programadas, lembretes, feriados e aniversários</p>
             </div>
 
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 md:p-6">
@@ -11635,22 +11751,13 @@ const handleSubmit = async (e) => {
                     {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} className="border rounded-lg aspect-square"></div>)}
                     {Array.from({ length: daysInMonth }).map((_, day) => {
                         const dayNumber = day + 1;
+                        const dateKey = formatDateKey(currentDate.getFullYear(), currentDate.getMonth(), dayNumber);
+                        const feriado = feriadosNacionais[dateKey] || '';
                         
                         const today = new Date();
                         const isToday = today.getDate() === dayNumber && today.getMonth() === currentDate.getMonth() && today.getFullYear() === currentDate.getFullYear();
                         
-                        const pedidosDoDia = pedidosDoMes.filter(p => {
-                            const relevantDateStr = p.categoria === 'Festa' && p.dataEntrega ? p.dataEntrega : p.createdAt;
-                            const pedidoDate = getJSDate(relevantDateStr);
-                            if (!pedidoDate) return false;
-                            // Se for Festa, compara com UTC
-                             if (p.categoria === 'Festa' && p.dataEntrega) {
-                                const [year, month, d] = p.dataEntrega.split('-');
-                                return parseInt(d, 10) === dayNumber;
-                             }
-                             // Senão, compara data local
-                            return pedidoDate.getDate() === dayNumber;
-                        });
+                        const pedidosDoDia = pedidosProgramadosDoMes.filter(p => getScheduledOrderInfo(p)?.dateKey === dateKey);
 
                         const aniversariantesDoDia = aniversariantesDoMes.filter(c => {
 
@@ -11658,16 +11765,32 @@ const handleSubmit = async (e) => {
                              return parseInt(dayString, 10) === dayNumber;
                         });
 
-                        const hasEvents = pedidosDoDia.length > 0 || aniversariantesDoDia.length > 0;
+                        const lembretesDoDia = lembretesDoMes.filter((reminder) => reminder.data === dateKey);
+                        const hasEvents = pedidosDoDia.length > 0 || aniversariantesDoDia.length > 0 || lembretesDoDia.length > 0 || Boolean(feriado);
                         
                         return (
-                            <div key={dayNumber} onClick={() => hasEvents && setSelectedDay({ day: dayNumber, pedidos: pedidosDoDia, aniversariantes: aniversariantesDoDia })} className={`border rounded-lg p-1 md:p-2 aspect-square flex flex-col ${hasEvents ? 'cursor-pointer hover:bg-pink-50' : ''} transition-colors ${isToday ? 'bg-pink-100' : ''}`}>
-                                <span className={`font-bold text-xs md:text-base ${isToday ? 'text-pink-600' : 'text-gray-800'}`}>{dayNumber}</span>
+                            <div
+                                key={dayNumber}
+                                onClick={() => openAgendaDay({ day: dayNumber, dateKey, pedidos: pedidosDoDia, aniversariantes: aniversariantesDoDia, lembretes: lembretesDoDia, feriado })}
+                                className={`border rounded-lg p-1 md:p-2 aspect-square flex flex-col cursor-pointer transition-colors hover:bg-pink-50 ${isToday ? 'bg-pink-100' : ''} ${feriado ? 'border-red-300 bg-red-50/70' : ''}`}
+                            >
+                                <span className={`font-bold text-xs md:text-base ${feriado ? 'text-red-700' : (isToday ? 'text-pink-600' : 'text-gray-800')}`}>{dayNumber}</span>
                                 <div className="mt-1 space-y-1 overflow-y-auto text-[10px] md:text-xs">
+                                    {feriado && (
+                                        <div className="w-full bg-red-600 text-white rounded px-1 truncate" title={feriado}>
+                                            {feriado}
+                                        </div>
+                                    )}
                                     {pedidosDoDia.map(p => (
                                         <div key={p.id} className={`w-full text-white rounded px-1 truncate ${getStatusClass(p.status)}`} title={`${p.clienteNome} (${p.status})`}>
                                             {p.categoria === 'Festa' ? <Gift size={10} className="inline mr-1"/> : <ShoppingCart size={10} className="inline mr-1"/>}
                                             {p.clienteNome}
+                                        </div>
+                                    ))}
+                                    {lembretesDoDia.map((reminder) => (
+                                        <div key={reminder.id} className="w-full bg-purple-100 text-purple-800 rounded px-1 truncate" title={reminder.descricao || reminder.titulo}>
+                                            <Calendar size={10} className="inline mr-1" />
+                                            {reminder.hora ? `${reminder.hora} ` : ''}{reminder.titulo}
                                         </div>
                                     ))}
                                     {aniversariantesDoDia.map(c => (
@@ -11683,12 +11806,18 @@ const handleSubmit = async (e) => {
                 </div>
             </div>
             
-            <Modal isOpen={!!selectedDay} onClose={() => setSelectedDay(null)} title={`Eventos do dia ${selectedDay?.day}`}>
+            <Modal isOpen={!!selectedDay} onClose={() => setSelectedDay(null)} title={`Agenda do dia ${selectedDay?.day}`}>
                 {selectedDay && (
                     <div className="space-y-4">
+                        {selectedDay.feriado && (
+                            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+                                <p className="font-bold">Feriado nacional</p>
+                                <p>{selectedDay.feriado}</p>
+                            </div>
+                        )}
                         {selectedDay.pedidos.length > 0 && (
                             <div>
-                                <h3 className="font-bold text-lg mb-2 text-gray-700">Pedidos ({selectedDay.pedidos.length})</h3>
+                                <h3 className="font-bold text-lg mb-2 text-gray-700">Entregas programadas ({selectedDay.pedidos.length})</h3>
                                 <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
                                 {selectedDay.pedidos.map(p => (
                                     <div key={p.id} onClick={() => { setSelectedDay(null); setViewingOrder(p); }} className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer flex justify-between items-center">
@@ -11698,10 +11827,24 @@ const handleSubmit = async (e) => {
                                                 {p.clienteNome}
                                             </p>
                                             <p className="text-sm text-gray-600">Total: R$ {p.total.toFixed(2)}</p>
+                                            {getScheduledOrderInfo(p)?.time && <p className="text-xs text-gray-500">Horário: {getScheduledOrderInfo(p).time}</p>}
                                         </div>
                                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusClassText(p.status)}`}>{p.status}</span>
                                     </div>
                                 ))}
+                                </div>
+                            </div>
+                        )}
+                        {selectedDay.lembretes.length > 0 && (
+                            <div>
+                                <h3 className="font-bold text-lg mb-2 text-gray-700">Lembretes ({selectedDay.lembretes.length})</h3>
+                                <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                                    {selectedDay.lembretes.map((reminder) => (
+                                        <div key={reminder.id} className="p-3 bg-purple-50 rounded-lg">
+                                            <p className="font-bold text-purple-800">{reminder.hora ? `${reminder.hora} - ` : ''}{reminder.titulo}</p>
+                                            {reminder.descricao && <p className="text-sm text-purple-700 mt-1">{reminder.descricao}</p>}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}
@@ -11718,7 +11861,20 @@ const handleSubmit = async (e) => {
                                 </div>
                             </div>
                         )}
-                        {selectedDay.pedidos.length === 0 && selectedDay.aniversariantes.length === 0 && <p>Nenhum evento para este dia.</p>}
+                        {selectedDay.pedidos.length === 0 && selectedDay.aniversariantes.length === 0 && selectedDay.lembretes.length === 0 && !selectedDay.feriado && <p>Nenhum evento para este dia.</p>}
+                        <form onSubmit={handleReminderSubmit} className="border-t pt-4 space-y-3">
+                            <h3 className="font-bold text-lg text-gray-700">Adicionar lembrete/compromisso</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div className="md:col-span-2">
+                                    <Input label="Título" value={reminderForm.titulo} onChange={(e) => setReminderForm(prev => ({ ...prev, titulo: e.target.value }))} placeholder="Ex: Comprar embalagem" required />
+                                </div>
+                                <Input label="Horário" type="time" value={reminderForm.hora} onChange={(e) => setReminderForm(prev => ({ ...prev, hora: e.target.value }))} />
+                            </div>
+                            <Textarea label="Descrição" rows="3" value={reminderForm.descricao} onChange={(e) => setReminderForm(prev => ({ ...prev, descricao: e.target.value }))} placeholder="Detalhes do compromisso" />
+                            <div className="flex justify-end">
+                                <Button type="submit" disabled={isSavingReminder}>{isSavingReminder ? 'Salvando...' : 'Salvar lembrete'}</Button>
+                            </div>
+                        </form>
                     </div>
                 )}
             </Modal>
