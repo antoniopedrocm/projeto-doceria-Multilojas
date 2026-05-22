@@ -28,12 +28,6 @@ const envVar = (key) => process.env[key] || import.meta.env?.[key] || '';
 
 const GOOGLE_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
 const DEFAULT_FIREBASE_AUTH_DOMAIN = 'ana-guimaraes.firebaseapp.com';
-const FIREBASE_HOSTING_AUTH_DOMAINS = new Set([
-  DEFAULT_FIREBASE_AUTH_DOMAIN,
-  'ana-guimaraes.web.app',
-  'www.anaguimaraesdoceria.com.br',
-  'anaguimaraesdoceria.com.br',
-]);
 const DEFAULT_FIREBASE_STORAGE_BUCKET = 'ana-guimaraes.firebasestorage.app';
 const LEGACY_FIREBASE_STORAGE_BUCKET = 'ana-guimaraes.appspot.com';
 
@@ -46,25 +40,11 @@ const normalizeStorageBucket = (bucket) => {
   return normalizedBucket;
 };
 
-const resolveAuthDomain = () => {
-  const configuredAuthDomain = envVar('REACT_APP_FIREBASE_AUTH_DOMAIN');
-
-  if (typeof window !== 'undefined') {
-    const currentHost = window.location.hostname || '';
-    if (
-      FIREBASE_HOSTING_AUTH_DOMAINS.has(currentHost)
-      && (!configuredAuthDomain || configuredAuthDomain === DEFAULT_FIREBASE_AUTH_DOMAIN)
-    ) {
-      return currentHost;
-    }
-  }
-
-  return configuredAuthDomain || DEFAULT_FIREBASE_AUTH_DOMAIN;
-};
-
 const firebaseConfig = {
   apiKey: envVar('REACT_APP_FIREBASE_API_KEY') || GOOGLE_API_KEY,
-  authDomain: resolveAuthDomain(),
+  // Keep the default OAuth handler unless a deployment explicitly configures
+  // another handler and authorizes its /__/auth/handler redirect URI.
+  authDomain: envVar('REACT_APP_FIREBASE_AUTH_DOMAIN') || DEFAULT_FIREBASE_AUTH_DOMAIN,
   projectId: envVar('REACT_APP_FIREBASE_PROJECT_ID') || 'ana-guimaraes',
   // Keep old env files from pointing uploads at the retired appspot bucket.
   storageBucket: normalizeStorageBucket(
