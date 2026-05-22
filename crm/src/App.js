@@ -2965,6 +2965,7 @@ function App() {
   const [pedidosConnectivityStatus, setPedidosConnectivityStatus] = useState('online');
   const [pendingOrders, setPendingOrders] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const pendingOrderOpenRequestRef = useRef(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const isiOS = useMemo(() => {
@@ -7905,7 +7906,7 @@ const effectiveStoreName = useMemo(() => {
     );
   };
   
-  const Pedidos = () => {
+  const Pedidos = ({ orderOpenRequest, onOrderOpenRequestHandled }) => {
     // Helper para obter a data de hoje no formato YYYY-MM-DD
     const getTodayString = () => {
         const today = new Date();
@@ -7947,10 +7948,10 @@ const effectiveStoreName = useMemo(() => {
         return deliveryProviders.length > 0;
     };
 
-    const pedidosComNomes = (data.pedidos || []).map(pedido => {
+    const pedidosComNomes = useMemo(() => (data.pedidos || []).map(pedido => {
         const cliente = data.clientes.find(c => c.id === pedido.clienteId);
         return { ...pedido, clienteNome: cliente ? cliente.nome : (pedido.clienteNome || 'Cliente não encontrado') };
-    });
+    }), [data.pedidos, data.clientes]);
 
     const filteredProducts = useMemo(() => {
         const term = productSearchTerm.trim().toLowerCase();
@@ -8580,7 +8581,7 @@ const handleSubmit = async (e) => {
     }
 };
     
-    const handleEdit = (order) => {
+    const handleEdit = useCallback((order) => {
         setEditingOrder(order);
         const subtotal = (order.itens || []).reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
         const desconto = order.cupom?.valorDesconto || order.desconto || 0;
@@ -8616,7 +8617,21 @@ const handleSubmit = async (e) => {
         setDescontoValor(order.desconto && !order.cupom ? String(order.desconto) : ''); // Preenche desconto manual se houver
         setDescontoPercentual(''); // Limpa percentual ao editar
         setShowModal(true);
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!orderOpenRequest?.orderId) return;
+
+        const requestedOrder = pedidosComNomes.find((order) => (
+            order.id === orderOpenRequest.orderId
+            && (!orderOpenRequest.lojaId || !order.lojaId || order.lojaId === orderOpenRequest.lojaId)
+        ));
+
+        if (!requestedOrder) return;
+
+        handleEdit(requestedOrder);
+        onOrderOpenRequestHandled();
+    }, [handleEdit, onOrderOpenRequestHandled, orderOpenRequest, pedidosComNomes]);
 
     const getStatusClass = (status) => { switch (status) { case 'Pendente': return 'bg-yellow-100 text-yellow-800'; case 'Em Produção': return 'bg-blue-100 text-blue-800'; case 'Finalizado': return 'bg-green-100 text-green-800'; case 'Cancelado': return 'bg-red-100 text-red-800'; default: return 'bg-gray-100 text-gray-800'; } };
     const columns = [ { header: "ID do Pedido", render: (row) => <span className="font-mono text-xs text-gray-500">{row.id?.substring(0, 8) || 'N/A'}</span> }, { header: "Cliente", key: "clienteNome" }, { header: "Total", render: (row) => <span className="font-semibold text-green-600">R$ {(row.total || 0).toFixed(2)}</span> }, { header: "Data", render: (row) => { const date = getJSDate(row.createdAt); return date ? date.toLocaleDateString('pt-BR') : '-'; } }, { header: "Origem", key: "origem"}, { header: "Status", render: (row) => { const isPendingSync = row._isPendingSync; return <span className={`px-3 py-1 rounded-full text-xs font-medium ${isPendingSync ? 'bg-gray-100 text-gray-600' : getStatusClass(row.status)}`}>{isPendingSync ? 'Sincronizando...' : row.status}</span>; } } ];
@@ -11995,6 +12010,21 @@ const handleSubmit = async (e) => {
     return ids.length ? ids[0] : null;
   }, [user, selectedStoreId, resolveStoreIdsForView]);
 
+  const openPendingOrderFromNotification = useCallback((order) => {
+    if (!order?.id) return;
+
+    pendingOrderOpenRequestRef.current = {
+      orderId: order.id,
+      lojaId: order.lojaId || null
+    };
+    setCurrentPage('pedidos');
+    setShowNotifications(false);
+  }, [setCurrentPage]);
+
+  const handleOrderOpenRequestHandled = useCallback(() => {
+    pendingOrderOpenRequestRef.current = null;
+  }, []);
+
   const renderCurrentPage = () => {
     if (authLoading || (loading && user)) {
       return (<div className="flex h-full w-full items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-pink-500"></div></div>);
@@ -12013,7 +12043,12 @@ const handleSubmit = async (e) => {
                                         /> : <PaginaInicial />;
       case 'clientes': return userHasPermission('clientes') ? <Clientes /> : <PaginaInicial />;
       case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
-      case 'pedidos': return userHasPermission('pedidos') ? <Pedidos /> : <PaginaInicial />;
+      case 'pedidos': return userHasPermission('pedidos') ? (
+        <Pedidos
+          orderOpenRequest={pendingOrderOpenRequestRef.current}
+          onOrderOpenRequestHandled={handleOrderOpenRequestHandled}
+        />
+      ) : <PaginaInicial />;
       case 'entre-lojas': return userHasPermission('entre-lojas') ? <EntreLojas /> : <PaginaInicial />;
       case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
       case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : <PaginaInicial />;
@@ -12180,12 +12215,17 @@ const handleSubmit = async (e) => {
 								<div className="p-2 max-h-96 overflow-y-auto">
 									{pendingOrders.length > 0 ? (
 										pendingOrders.map(order => (
-											<div key={order.id} className="p-2 border-b hover:bg-gray-50 cursor-pointer" onClick={() => { setCurrentPage('pedidos'); setShowNotifications(false); }}>
+											<button
+												key={order.id}
+												type="button"
+												className="block w-full p-2 border-b text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-pink-500"
+												onClick={() => openPendingOrderFromNotification(order)}
+											>
 												<p className="font-semibold">{order.clienteNome || 'Cliente'}</p>
 												<p className="text-sm text-gray-500">ID: {order.id?.substring(0,8) || 'N/A'}</p>
 												<p className="text-sm text-gray-500">Data: {getJSDate(order.createdAt)?.toLocaleDateString() || '-'}</p>
 												<p className="text-sm">Status: <span className="font-medium">{order.status}</span></p>
-											</div>
+											</button>
 										))
 									) : (
 										<p className="p-4 text-center text-gray-500">Nenhum pedido pendente.</p>
