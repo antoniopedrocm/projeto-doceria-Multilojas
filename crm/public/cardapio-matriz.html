@@ -420,7 +420,7 @@
                     <div>
                         <label for="customer-modal-birthdate" class="block text-sm font-medium text-gray-700">Data de Nascimento *</label>
                         <div class="relative mt-1">
-                            <input id="customer-modal-birthdate" type="text" inputmode="numeric" autocomplete="bday" maxlength="10" placeholder="dd/mm/aaaa" required class="w-full px-4 py-2 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                            <input id="customer-modal-birthdate" type="text" inputmode="numeric" autocomplete="bday" maxlength="10" placeholder="dia/mês/ano" required class="w-full px-4 py-2 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
                             <button id="customer-modal-birthdate-button" type="button" aria-label="Abrir calendario da data de nascimento" title="Abrir calendario" class="absolute inset-y-0 right-0 w-12 flex items-center justify-center text-gray-600 border-l hover:text-pink-600 focus:outline-none focus:ring-2 focus:ring-pink-500 rounded-r-lg">
                                 <i class="fa-regular fa-calendar"></i>
                             </button>
@@ -2590,10 +2590,52 @@
             return `${day}/${month}/${year}`;
         }
 
+        function sanitizeBirthdateDayOrMonth(value, maxValue) {
+            return String(value || '')
+                .replace(/\D/g, '')
+                .slice(0, 2)
+                .split('')
+                .reduce((segment, digit) => {
+                    if (segment.length >= 2) return segment;
+
+                    const candidate = `${segment}${digit}`;
+                    const numericValue = Number(candidate);
+                    if (candidate.length === 1) {
+                        const maxFirstDigit = Math.floor(maxValue / 10);
+                        return numericValue === 0 || numericValue <= maxFirstDigit ? candidate : segment;
+                    }
+
+                    return numericValue >= 1 && numericValue <= maxValue ? candidate : segment;
+                }, '');
+        }
+
+        function getBirthdateTypingParts(value) {
+            const rawValue = String(value || '').replace(/[^\d/]/g, '');
+            const typedParts = rawValue.split('/');
+            if (typedParts.length > 1) {
+                const rawMonth = typedParts[1] || '';
+                return [
+                    typedParts[0].slice(0, 2),
+                    rawMonth.slice(0, 2),
+                    `${rawMonth.slice(2)}${typedParts.slice(2).join('')}`.slice(0, 4)
+                ];
+            }
+
+            const digits = rawValue.replace(/\D/g, '').slice(0, 8);
+            return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)];
+        }
+
         function formatBirthdateTyping(value) {
-            const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
-            const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
-            return parts.join('/');
+            const [rawDay, rawMonth, rawYear] = getBirthdateTypingParts(value);
+            const day = sanitizeBirthdateDayOrMonth(rawDay, 31);
+            if (!day || day.length < 2) return day;
+
+            const month = sanitizeBirthdateDayOrMonth(rawMonth, 12);
+            if (!month) return day;
+            if (month.length < 2) return `${day}/${month}`;
+
+            const year = String(rawYear || '').replace(/\D/g, '').slice(0, 4);
+            return year ? `${day}/${month}/${year}` : `${day}/${month}`;
         }
 
         function parseBirthdateInput(value) {
@@ -2704,7 +2746,7 @@
                 const newBirthdate = getCustomerBirthdateValue();
                 if (!newName || !newBirthdate) {
                     document.getElementById('customer-modal-error').textContent = birthdateInput.value.trim()
-                        ? 'Informe uma data de nascimento válida no formato dd/mm/aaaa.'
+                        ? 'Informe uma data de nascimento válida no formato dia/mês/ano.'
                         : 'Nome e data de nascimento são obrigatórios.';
                     document.getElementById('customer-modal-error').classList.remove('hidden');
                     return;
@@ -2765,7 +2807,7 @@
                 const newBirthdate = getCustomerBirthdateValue();
                 if (!newName || !newBirthdate) {
                     document.getElementById('customer-modal-error').textContent = birthdateInput.value.trim()
-                        ? 'Informe uma data de nascimento válida no formato dd/mm/aaaa.'
+                        ? 'Informe uma data de nascimento válida no formato dia/mês/ano.'
                         : 'Nome e data de nascimento são obrigatórios.';
                     document.getElementById('customer-modal-error').classList.remove('hidden');
                     return;
