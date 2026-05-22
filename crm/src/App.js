@@ -4034,6 +4034,16 @@ function App() {
       return 'Sua sessão expirou. Faça login novamente para continuar.';
     }
 
+    if (
+      rawCode.includes('unavailable')
+      || rawCode.includes('deadline-exceeded')
+      || rawMessage.includes('offline')
+      || rawMessage.includes('network')
+      || rawMessage.includes('failed to fetch')
+    ) {
+      return 'A conexão com o sistema oscilou ao salvar. Aguarde alguns segundos e tente salvar novamente.';
+    }
+
     if (rawCode.includes('failed-precondition') || rawMessage.includes('failed-precondition')) {
       return 'Não foi possível concluir esta operação agora. Atualize a página e tente novamente.';
     }
@@ -8278,7 +8288,9 @@ const effectiveStoreName = useMemo(() => {
         const orderRef = editingOrder ? getStoreDocRef(storeId, 'pedidos', editingOrder.id) : doc(getStoreCollectionRef(storeId, 'pedidos'));
         const orderId = orderRef.id;
 
-        await runTransaction(db, async (transaction) => {
+        await runWithRetry(
+          'pedidos:save-transaction',
+          () => runTransaction(db, async (transaction) => {
             const configSnap = await transaction.get(getStoreConfigDocRef(storeId));
             const storeConfig = configSnap.exists() ? (configSnap.data() || {}) : {};
             if (!isStoreOpenNow(storeConfig)) {
@@ -8384,7 +8396,14 @@ const effectiveStoreName = useMemo(() => {
                 timestamp: serverTimestamp(),
                 lojaId: storeId
             });
-        });
+          }),
+          {
+            route: currentPage,
+            uid: currentAuthUser?.uid || userId,
+            collection: 'pedidos',
+            maxAttempts: 3
+          }
+        );
 
         await waitForPendingWrites(db);
         debugCacheSync('Pedido salvo após revalidação transacional', { orderId, storeId });
@@ -8557,7 +8576,16 @@ const handleSubmit = async (e) => {
             clienteNome: clienteSelecionado ? clienteSelecionado.nome : formData.clienteNome
         });
         const storeId = resolveOrderStoreId(initialOrderData);
-        const { orderData: refreshedOrderData, changes } = await reloadOrderCriticalData(initialOrderData, storeId);
+        const { orderData: refreshedOrderData, changes } = await runWithRetry(
+            'pedidos:reload-critical-data',
+            () => reloadOrderCriticalData(initialOrderData, storeId),
+            {
+                route: currentPage,
+                uid: user?.auth?.uid || userId,
+                collection: 'pedidos',
+                maxAttempts: 3
+            }
+        );
 
         if (changes.length) {
             const message = `Dados atualizados automaticamente: ${changes.slice(0, 4).join(' ')} O pedido será salvo com os dados atuais.`;
@@ -8575,7 +8603,7 @@ const handleSubmit = async (e) => {
         resetForm();
     } catch (error) {
         console.error('[Sales][Create] Fluxo de cadastro abortado por falha na persistência.', error);
-        setSaveOrderError(error?.message || 'Não foi possível salvar o pedido. Tente novamente.');
+        setSaveOrderError(mapCriticalWriteErrorMessage(error));
     } finally {
         setIsSavingOrder(false);
     }
