@@ -1696,7 +1696,7 @@ exports.updateUserPassword = onCall(async (request) => {
 
 
 exports.notifyNewOrder = onDocumentCreated({
-    document: "pedidos/{pedidoId}",
+    document: "lojas/{lojaId}/pedidos/{pedidoId}",
     region: "southamerica-east1",
 }, async (event) => {
     const orderData = event.data?.data();
@@ -1716,6 +1716,7 @@ exports.notifyNewOrder = onDocumentCreated({
 
         const tokens = tokensSnapshot.docs.map((doc) => doc.id);
         const orderId = String(event.params?.pedidoId || "");
+        const lojaId = String(event.params?.lojaId || orderData.lojaId || "");
         const status = orderData.status ? String(orderData.status) : "Pendente";
         const customerName = orderData.clienteNome || orderData.nomeCliente || orderData.nome || orderData.cliente?.nome || "";
         const orderCode = orderData.numeroPedido || orderData.codigo || orderData.numero || "";
@@ -1734,9 +1735,11 @@ exports.notifyNewOrder = onDocumentCreated({
             },
             data: {
                 orderId,
+                lojaId,
                 status,
                 url: "/",
                 source: "new-order",
+                playAlarm: "true",
             },
             android: {
                 priority: "high",
@@ -1774,6 +1777,7 @@ exports.notifyNewOrder = onDocumentCreated({
                     vibrate: [200, 100, 200],
                     data: {
                         orderId,
+                        lojaId,
                         url: "/",
                     },
                 },

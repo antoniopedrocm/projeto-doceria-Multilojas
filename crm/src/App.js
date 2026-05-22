@@ -28,7 +28,7 @@ import { httpsCallable } from "firebase/functions";
 
 // Importações do Firebase SDK
 // ATUALIZADO: Adicionado fluxo com redirect para login Google e reset de senha
-import { onIdTokenChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
+import { onIdTokenChanged, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithRedirect, signInWithPopup, getRedirectResult, sendPasswordResetEmail, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, getIdToken } from "firebase/auth";
 // CORRIGIDO: Adicionado 'getDocs' à importação
 import { collection, query, doc, setDoc, addDoc, updateDoc, where, limit, orderBy, Timestamp, serverTimestamp, arrayUnion, writeBatch, waitForPendingWrites, runTransaction } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -204,12 +204,24 @@ const getGoogleSignInStrategy = () => {
 };
 
 const setPreferredAuthPersistence = async (contextLabel) => {
-  try {
-    await setPersistence(auth, browserLocalPersistence);
-  } catch (persistError) {
-    console.warn(`[Auth][${contextLabel}] local persistence failed, falling back to session:`, persistError?.code || persistError);
-    await setPersistence(auth, browserSessionPersistence);
+  const localPersistenceStrategies = [
+    ['localStorage', browserLocalPersistence],
+    ['indexedDB', indexedDBLocalPersistence],
+  ];
+  let localPersistenceError = null;
+
+  for (const [storageLabel, persistence] of localPersistenceStrategies) {
+    try {
+      await setPersistence(auth, persistence);
+      return;
+    } catch (persistError) {
+      localPersistenceError = persistError;
+      console.warn(`[Auth][${contextLabel}] ${storageLabel} local persistence failed:`, persistError?.code || persistError);
+    }
   }
+
+  console.warn(`[Auth][${contextLabel}] persistent login unavailable, falling back to session:`, localPersistenceError?.code || localPersistenceError);
+  await setPersistence(auth, browserSessionPersistence);
 };
 
 const waitForFirebaseAuthReady = async (timeoutMs = AUTH_STATE_READY_TIMEOUT_MS) => {
