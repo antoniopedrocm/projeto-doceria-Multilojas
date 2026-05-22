@@ -3341,12 +3341,13 @@ function App() {
 		  stopAlarmRef.current(); // Chama a função de parada
 		  stopAlarmRef.current = null; // Limpa a referência
 		}
-		if (stopAlarmFn) {
-		  stopAlarmFn(); // Também chama a função do estado se existir
-		  setStopAlarmFn(null); // Limpa o estado
+		if (stopAlarmFnRef.current) {
+		  stopAlarmFnRef.current(); // Também chama a função do estado se existir
+		  stopAlarmFnRef.current = null;
 		}
+		setStopAlarmFn(null); // Limpa o estado
 		setIsAlarmPlaying(false); // Atualiza o estado da UI
-	}, [stopAlarmFn]);
+	}, []);
 
   // --- REMOVIDO: Antiga função unlockAudio ---
 
