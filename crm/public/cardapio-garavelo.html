@@ -419,7 +419,13 @@
                     </div>
                     <div>
                         <label for="customer-modal-birthdate" class="block text-sm font-medium text-gray-700">Data de Nascimento *</label>
-                        <input id="customer-modal-birthdate" type="date" required class="mt-1 w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        <div class="relative mt-1">
+                            <input id="customer-modal-birthdate" type="text" inputmode="numeric" autocomplete="bday" maxlength="10" placeholder="dd/mm/aaaa" required class="w-full px-4 py-2 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                            <span class="absolute inset-y-0 right-0 w-12 flex items-center justify-center text-gray-600 pointer-events-none" aria-hidden="true">
+                                <i class="fa-regular fa-calendar"></i>
+                            </span>
+                            <input id="customer-modal-birthdate-picker" type="date" aria-label="Selecionar data de nascimento no calendario" class="absolute inset-y-0 right-0 w-12 opacity-0 cursor-pointer">
+                        </div>
                     </div>
                     <p id="customer-modal-error" class="text-red-500 text-sm hidden"></p>
                 </form>
@@ -2156,6 +2162,7 @@
             });
 
             searchPhoneButton.addEventListener('click', handlePhoneSearch);
+            setupCustomerBirthdateInputs();
 
             document.getElementById('close-customer-modal').addEventListener('click', () => {
                 document.getElementById('customer-details-modal').classList.add('hidden');
@@ -2469,22 +2476,33 @@
 			if (!confirm('Tem certeza que deseja excluir este endereço?')) return;
 
 			try {
-                           const { db, doc, getDoc, updateDoc } = await import('./firebaseClientConfig.js');
-                           const clientDocRef = doc(db, ...storePath('clientes', currentClient.id));
-				const clientSnap = await getDoc(clientDocRef);
-				if (!clientSnap.exists()) {
-                    throw new Error('Cliente não encontrado.');
+                if (!currentClient?.id) {
+                    throw new Error('Cliente não identificado.');
                 }
 
-				const existingAddresses = clientSnap.data().enderecos || [];
-
+                const existingAddresses = Array.isArray(currentClient.enderecos)
+                    ? [...currentClient.enderecos]
+                    : [];
+                if (!existingAddresses[addressIndex]) {
+                    throw new Error('Endereço não encontrado.');
+                }
                 existingAddresses.splice(addressIndex, 1);
 
-				await updateDoc(clientDocRef, {
-                    enderecos: existingAddresses
+                const response = await fetch(`${API_BASE_URL}/clientes/${encodeURIComponent(currentClient.id)}?lojaId=${encodeURIComponent(STORE_ID)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enderecos: existingAddresses })
                 });
+                const updatedClient = await response.json().catch(() => ({}));
+                if (!response.ok || !updatedClient?.id) {
+                    throw new Error(updatedClient?.message || 'Não foi possível excluir o endereço.');
+                }
 
-                currentClient.enderecos = existingAddresses;
+                currentClient = {
+                    ...currentClient,
+                    ...updatedClient,
+                    enderecos: Array.isArray(updatedClient.enderecos) ? updatedClient.enderecos : existingAddresses
+                };
 
                 showToast('Endereço excluído!');
 				openAddressManagementModal(currentClient);
@@ -2548,6 +2566,96 @@
 			paymentModal.classList.remove('hidden');
 		}
 
+        function getTodayIsoDate() {
+            const today = new Date();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${today.getFullYear()}-${month}-${day}`;
+        }
+
+        function isValidIsoDate(value) {
+            const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!match) return false;
+
+            const [, year, month, day] = match;
+            const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+            return parsed.getUTCFullYear() === Number(year)
+                && parsed.getUTCMonth() === Number(month) - 1
+                && parsed.getUTCDate() === Number(day);
+        }
+
+        function formatBirthdateForDisplay(value) {
+            if (!isValidIsoDate(value)) return '';
+            const [year, month, day] = value.split('-');
+            return `${day}/${month}/${year}`;
+        }
+
+        function formatBirthdateTyping(value) {
+            const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+            const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)].filter(Boolean);
+            return parts.join('/');
+        }
+
+        function parseBirthdateInput(value) {
+            const rawValue = String(value || '').trim();
+            if (isValidIsoDate(rawValue)) return rawValue;
+
+            const match = rawValue.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return '';
+
+            const [, day, month, year] = match;
+            const isoDate = `${year}-${month}-${day}`;
+            return isValidIsoDate(isoDate) ? isoDate : '';
+        }
+
+        function setCustomerBirthdateValue(value = '') {
+            const birthdateInput = document.getElementById('customer-modal-birthdate');
+            const birthdatePicker = document.getElementById('customer-modal-birthdate-picker');
+            const isoDate = parseBirthdateInput(value);
+
+            if (birthdateInput) {
+                birthdateInput.value = isoDate ? formatBirthdateForDisplay(isoDate) : '';
+            }
+
+            if (birthdatePicker) {
+                birthdatePicker.value = isoDate || getTodayIsoDate();
+            }
+        }
+
+        function getCustomerBirthdateValue() {
+            return parseBirthdateInput(document.getElementById('customer-modal-birthdate')?.value);
+        }
+
+        function setupCustomerBirthdateInputs() {
+            const birthdateInput = document.getElementById('customer-modal-birthdate');
+            const birthdatePicker = document.getElementById('customer-modal-birthdate-picker');
+            if (!birthdateInput || !birthdatePicker || birthdateInput.dataset.syncReady === 'true') return;
+
+            birthdateInput.dataset.syncReady = 'true';
+            birthdatePicker.value = getTodayIsoDate();
+
+            birthdateInput.addEventListener('input', () => {
+                const pastedIsoDate = parseBirthdateInput(birthdateInput.value);
+                if (pastedIsoDate) {
+                    birthdateInput.value = formatBirthdateForDisplay(pastedIsoDate);
+                    birthdatePicker.value = pastedIsoDate;
+                    return;
+                }
+
+                birthdateInput.value = formatBirthdateTyping(birthdateInput.value);
+                const isoDate = parseBirthdateInput(birthdateInput.value);
+                if (isoDate) {
+                    birthdatePicker.value = isoDate;
+                }
+            });
+
+            birthdatePicker.addEventListener('change', () => {
+                if (isValidIsoDate(birthdatePicker.value)) {
+                    birthdateInput.value = formatBirthdateForDisplay(birthdatePicker.value);
+                }
+            });
+        }
+
         function openCustomerModalForEdit(client) {
             const modal = document.getElementById('customer-details-modal');
             document.getElementById('customer-modal-title').textContent = 'Editar Perfil';
@@ -2556,7 +2664,7 @@
             const birthdateInput = document.getElementById('customer-modal-birthdate');
 
             nameInput.value = client.nome || '';
-            birthdateInput.value = client.aniversario || '';
+            setCustomerBirthdateValue(client.aniversario || '');
 
             nameInput.readOnly = false;
             birthdateInput.readOnly = false;
@@ -2576,9 +2684,11 @@
 
             document.getElementById('save-customer-btn').onclick = async () => {
                 const newName = nameInput.value.trim();
-                const newBirthdate = birthdateInput.value;
+                const newBirthdate = getCustomerBirthdateValue();
                 if (!newName || !newBirthdate) {
-                    document.getElementById('customer-modal-error').textContent = 'Nome e data de nascimento são obrigatórios.';
+                    document.getElementById('customer-modal-error').textContent = birthdateInput.value.trim()
+                        ? 'Informe uma data de nascimento válida no formato dd/mm/aaaa.'
+                        : 'Nome e data de nascimento são obrigatórios.';
                     document.getElementById('customer-modal-error').classList.remove('hidden');
                     return;
                 }
@@ -2622,7 +2732,7 @@
             const nameInput = document.getElementById('customer-modal-name');
             const birthdateInput = document.getElementById('customer-modal-birthdate');
             nameInput.value = '';
-            birthdateInput.value = '';
+            setCustomerBirthdateValue();
             nameInput.readOnly = false;
             birthdateInput.readOnly = false;
             nameInput.classList.remove('bg-gray-100');
@@ -2635,9 +2745,11 @@
 
             document.getElementById('create-customer-btn').onclick = async () => {
                 const newName = nameInput.value.trim();
-                const newBirthdate = birthdateInput.value;
+                const newBirthdate = getCustomerBirthdateValue();
                 if (!newName || !newBirthdate) {
-                    document.getElementById('customer-modal-error').textContent = 'Nome e data de nascimento são obrigatórios.';
+                    document.getElementById('customer-modal-error').textContent = birthdateInput.value.trim()
+                        ? 'Informe uma data de nascimento válida no formato dd/mm/aaaa.'
+                        : 'Nome e data de nascimento são obrigatórios.';
                     document.getElementById('customer-modal-error').classList.remove('hidden');
                     return;
                 }
@@ -2648,7 +2760,6 @@
                 button.textContent = 'Criando...';
 
                 try {
-                    const { db, addDoc, collection, serverTimestamp } = await import('./firebaseClientConfig.js');
                     const newClientData = {
                         nome: newName,
                         aniversario: newBirthdate,
@@ -2657,12 +2768,19 @@
                         lojasVisitadas: [STORE_ID],
                         numeroDeCompras: 0,
                         valorEmCompras: 0,
-                        criadoEm: serverTimestamp(),
-                        atualizadoEm: serverTimestamp(),
                         lojaId: STORE_ID
                     };
-                    const docRef = await addDoc(collection(db, ...storePath("clientes")), newClientData);
-                    currentClient = { id: docRef.id, ...newClientData };
+                    const response = await fetch(`${API_BASE_URL}/clientes?lojaId=${encodeURIComponent(STORE_ID)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newClientData)
+                    });
+                    const savedClient = await response.json().catch(() => ({}));
+                    if (!response.ok || !savedClient?.id) {
+                        throw new Error(savedClient?.message || 'Não foi possível criar o cadastro.');
+                    }
+
+                    currentClient = savedClient;
                     showToast("Novo cliente criado com sucesso!");
                     modal.classList.add('hidden');
                     openAddressManagementModal(currentClient);
