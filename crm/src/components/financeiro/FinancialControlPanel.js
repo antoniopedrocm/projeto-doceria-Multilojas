@@ -140,6 +140,10 @@ const FinancialControlPanel = ({
     {
       value: ALL_COST_CENTERS,
       label: `Toda a unidade - ${storeInfoMap[currentStoreId]?.nome || currentStoreId}`
+    },
+    {
+      value: EVENTS_COST_CENTER,
+      label: 'Festas/Eventos'
     }
   ] : [
     { value: ALL_COST_CENTERS, label: 'Visão geral' },
@@ -159,12 +163,14 @@ const FinancialControlPanel = ({
   ], [scopedStoreIds, storeInfoMap]);
 
   useEffect(() => {
-    if (isSpecificStoreView || !centerOptions.some((option) => option.value === selectedCenter)) {
+    if (!centerOptions.some((option) => option.value === selectedCenter)) {
       setSelectedCenter(ALL_COST_CENTERS);
     }
-  }, [centerOptions, isSpecificStoreView, selectedCenter, setSelectedCenter]);
+  }, [centerOptions, selectedCenter, setSelectedCenter]);
 
-  const activeCenter = isSpecificStoreView ? ALL_COST_CENTERS : selectedCenter;
+  const activeCenter = centerOptions.some((option) => option.value === selectedCenter)
+    ? selectedCenter
+    : ALL_COST_CENTERS;
   const insights = useFinancialComparison({ data, selectedMonth, selectedCenter: activeCenter });
 
   const expenseCategories = useMemo(() => Array.from(new Set([
@@ -392,7 +398,7 @@ const FinancialControlPanel = ({
             <TextInput type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} />
           </Field>
           <Field label="Centro de custos">
-            <SelectInput value={activeCenter} onChange={(event) => setSelectedCenter(event.target.value)} disabled={isSpecificStoreView}>
+            <SelectInput value={activeCenter} onChange={(event) => setSelectedCenter(event.target.value)}>
               {centerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </SelectInput>
           </Field>
