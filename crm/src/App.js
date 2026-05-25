@@ -5904,6 +5904,7 @@ function App() {
   
   const Produtos = () => {
     const [searchTerm, setSearchTerm] = usePersistentState("produtos_searchTerm", ""); 
+    const [selectedMainCategory, setSelectedMainCategory] = useState('');
     const [selectedSubcategory, setSelectedSubcategory] = useState('');
     const [filterActiveOnly, setFilterActiveOnly] = useState(false);
     const [showModal, setShowModal] = useState(false); 
@@ -6105,14 +6106,16 @@ function App() {
 
     const subcategoriasCadastradas = useMemo(() => {
       const subcategorias = (data.produtos || [])
+        .filter((product) => selectedMainCategory === '' || (product.categoria || 'Delivery') === selectedMainCategory)
         .map((product) => (product.subcategoria || '').trim())
         .filter(Boolean);
 
       return Array.from(new Set(subcategorias)).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
-    }, [data.produtos]);
+    }, [data.produtos, selectedMainCategory]);
 
     const filteredProducts = (data.produtos || [])
       .filter((p) => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter((p) => selectedMainCategory === '' || (p.categoria || 'Delivery') === selectedMainCategory)
       .filter((p) => selectedSubcategory === '' || p.subcategoria === selectedSubcategory)
       .filter((p) => {
         if (!filterActiveOnly) return true;
@@ -6122,9 +6125,15 @@ function App() {
       .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
     const handleClearFilters = () => {
+      setSelectedMainCategory('');
       setSelectedSubcategory('');
       setFilterActiveOnly(false);
       setSearchTerm('');
+    };
+
+    const handleMainCategoryFilter = (categoria) => {
+      setSelectedMainCategory((current) => current === categoria ? '' : categoria);
+      setSelectedSubcategory('');
     };
 
     useEffect(() => {
@@ -6285,30 +6294,46 @@ function App() {
     return (
       <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4"><div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Produtos</h1><p className="text-gray-600 mt-1">Gerencie seu cardápio e estoque</p></div><Button onClick={() => setShowModal(true)} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Novo Produto</Button></div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3">
           <div className="relative w-full sm:w-auto sm:min-w-[28rem] max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar produtos..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
-          {subcategoriasCadastradas.length > 0 && (
-            <>
+          <button
+            type="button"
+            onClick={handleClearFilters}
+            className="px-5 py-2.5 rounded-lg text-base font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Limpar filtros
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterActiveOnly((prev) => !prev)}
+            aria-pressed={filterActiveOnly}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              filterActiveOnly
+                ? 'bg-pink-100 text-pink-700 border-pink-200'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Ativo
+          </button>
+          {['Delivery', 'Festa'].map((categoria) => {
+            const isSelected = selectedMainCategory === categoria;
+
+            return (
               <button
+                key={categoria}
                 type="button"
-                onClick={handleClearFilters}
-                className="px-5 py-2.5 rounded-lg text-base font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Limpar filtro
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterActiveOnly((prev) => !prev)}
+                onClick={() => handleMainCategoryFilter(categoria)}
+                aria-pressed={isSelected}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  filterActiveOnly
+                  isSelected
                     ? 'bg-pink-100 text-pink-700 border-pink-200'
                     : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                 }`}
               >
-                Ativo
+                {categoria}
               </button>
-            </>
-          )}
+            );
+          })}
         </div>
         {subcategoriasCadastradas.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
