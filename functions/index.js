@@ -1896,21 +1896,15 @@ const transferFinancialDataChanged = (before = {}, after = {}) => (
         !== getFinancialDateComparableValue(after.dataPagamentoConfirmado)
 );
 
-exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
-    document: 'transferenciasEntreLojas/{transferId}',
-    region: 'southamerica-east1',
-}, async (event) => {
-    const previousTransfer = event.data?.before.data() || {};
-    const transfer = event.data?.after.data() || {};
+const TRANSFER_FINANCIAL_MODEL = 'origem_entrada_destino_despesa_v2';
 
-    if (
-        transfer.status !== 'pagamento_confirmado'
-        || !transferFinancialDataChanged(previousTransfer, transfer)
-    ) {
-        return;
-    }
-
-    const transferId = String(event.params.transferId || '');
+const syncConfirmedTransferFinancialRecords = async ({
+    transferId,
+    transferRef,
+    transfer,
+    previousTransfer = {},
+    syncSource = 'trigger',
+}) => {
     const destinationStoreId = String(transfer.lojaDestinoId || '').trim();
     const originStoreId = String(transfer.lojaOrigemId || '').trim();
     const originName = String(
@@ -1928,37 +1922,56 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
             destinationStoreId,
             amount,
         });
-        return;
+        return false;
     }
 
     const entryId = `repasse_entre_lojas_${transferId}`;
     const expenseId = `repasse_entre_lojas_${transferId}`;
-    const transferRef = event.data.after.ref;
     const previousOriginStoreId = String(previousTransfer.lojaOrigemId || '').trim();
     const previousDestinationStoreId = String(previousTransfer.lojaDestinoId || '').trim();
     const entryRef = db.collection('lojas')
-        .doc(destinationStoreId)
+        .doc(originStoreId)
         .collection('contas_a_receber')
         .doc(entryId);
     const expenseRef = db.collection('lojas')
-        .doc(originStoreId)
+        .doc(destinationStoreId)
         .collection('contas_a_pagar')
         .doc(expenseId);
     const previousEntryRef = (
+        previousTransfer.status === 'pagamento_confirmado'
+        && previousOriginStoreId
+        && previousOriginStoreId !== originStoreId
+    )
+        ? db.collection('lojas')
+            .doc(previousOriginStoreId)
+            .collection('contas_a_receber')
+            .doc(entryId)
+        : null;
+    const previousExpenseRef = (
         previousTransfer.status === 'pagamento_confirmado'
         && previousDestinationStoreId
         && previousDestinationStoreId !== destinationStoreId
     )
         ? db.collection('lojas')
             .doc(previousDestinationStoreId)
+            .collection('contas_a_pagar')
+            .doc(expenseId)
+        : null;
+    const legacyEntryRef = db.collection('lojas')
+        .doc(destinationStoreId)
+        .collection('contas_a_receber')
+        .doc(entryId);
+    const legacyExpenseRef = db.collection('lojas')
+        .doc(originStoreId)
+        .collection('contas_a_pagar')
+        .doc(expenseId);
+    const previousLegacyEntryRef = previousTransfer.status === 'pagamento_confirmado' && previousDestinationStoreId
+        ? db.collection('lojas')
+            .doc(previousDestinationStoreId)
             .collection('contas_a_receber')
             .doc(entryId)
         : null;
-    const previousExpenseRef = (
-        previousTransfer.status === 'pagamento_confirmado'
-        && previousOriginStoreId
-        && previousOriginStoreId !== originStoreId
-    )
+    const previousLegacyExpenseRef = previousTransfer.status === 'pagamento_confirmado' && previousOriginStoreId
         ? db.collection('lojas')
             .doc(previousOriginStoreId)
             .collection('contas_a_pagar')
@@ -1973,17 +1986,19 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
     const now = admin.firestore.FieldValue.serverTimestamp();
     const isNewEntry = (
         previousTransfer.status !== 'pagamento_confirmado'
-        || previousDestinationStoreId !== destinationStoreId
+        || previousOriginStoreId !== originStoreId
+        || transfer.financeiroModelo !== TRANSFER_FINANCIAL_MODEL
         || !previousTransfer.financeiroContaReceberId
     );
     const isNewExpense = (
         previousTransfer.status !== 'pagamento_confirmado'
-        || previousOriginStoreId !== originStoreId
+        || previousDestinationStoreId !== destinationStoreId
+        || transfer.financeiroModelo !== TRANSFER_FINANCIAL_MODEL
         || !previousTransfer.financeiroContaPagarId
     );
     const entryData = {
         tipo: 'entrada',
-        descricao: `Repasse automático - ${originName}`,
+        descricao: `Repasse automático - ${destinationName}`,
         valor: amount,
         dataRecebimento: operationDate,
         competencia: competence,
@@ -1992,8 +2007,8 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
         canal: 'Entre Lojas',
         metodo: 'Repasse Interno',
         status: 'Recebido',
-        centroCusto: destinationStoreId,
-        lojaId: destinationStoreId,
+        centroCusto: originStoreId,
+        lojaId: originStoreId,
         origemAutomatica: 'entre_lojas',
         transferenciaEntreLojasId: transferId,
         transferenciaEntreLojasRef: transferRef,
@@ -2006,7 +2021,7 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
     };
     const expenseData = {
         tipo: 'saida',
-        descricao: `Compra/Repasse interno para - ${destinationName}`,
+        descricao: `Compra/Repasse interno para - ${originName}`,
         valor: amount,
         dataVencimento: operationDate,
         dataPagamento: operationDate,
@@ -2015,8 +2030,8 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
         fonte: 'Transferência Interna',
         canal: 'Entre Lojas',
         status: 'Pago',
-        centroCusto: originStoreId,
-        lojaId: originStoreId,
+        centroCusto: destinationStoreId,
+        lojaId: destinationStoreId,
         origemAutomatica: 'entre_lojas',
         transferenciaEntreLojasId: transferId,
         transferenciaEntreLojasRef: transferRef,
@@ -2029,29 +2044,99 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
     };
 
     const batch = db.batch();
-    if (previousEntryRef) {
-        batch.delete(previousEntryRef);
-    }
-    if (previousExpenseRef) {
-        batch.delete(previousExpenseRef);
-    }
+    const currentPaths = new Set([entryRef.path, expenseRef.path]);
+    const obsoleteRefs = new Map();
+    [previousEntryRef, previousExpenseRef, legacyEntryRef, legacyExpenseRef, previousLegacyEntryRef, previousLegacyExpenseRef]
+        .filter((ref) => ref && !currentPaths.has(ref.path))
+        .forEach((ref) => obsoleteRefs.set(ref.path, ref));
+    obsoleteRefs.forEach((ref) => batch.delete(ref));
     batch.set(entryRef, entryData, {merge: true});
     batch.set(expenseRef, expenseData, {merge: true});
     batch.set(transferRef, {
         financeiroIntegrado: true,
+        financeiroModelo: TRANSFER_FINANCIAL_MODEL,
         financeiroContaReceberId: entryId,
         financeiroContaPagarId: expenseId,
+        financeiroContaReceberLojaId: originStoreId,
+        financeiroContaPagarLojaId: destinationStoreId,
         financeiroIntegradoEm: now,
     }, {merge: true});
     await batch.commit();
 
     logger.info('Entrada e saída financeiras sincronizadas a partir de repasse confirmado.', {
+        syncSource,
         transferId,
         originStoreId,
         destinationStoreId,
         entryId,
         expenseId,
         amount,
+    });
+    return true;
+};
+
+exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
+    document: 'transferenciasEntreLojas/{transferId}',
+    region: 'southamerica-east1',
+}, async (event) => {
+    const previousTransfer = event.data?.before.data() || {};
+    const transfer = event.data?.after.data() || {};
+
+    if (
+        transfer.status !== 'pagamento_confirmado'
+        || !transferFinancialDataChanged(previousTransfer, transfer)
+    ) {
+        return;
+    }
+
+    await syncConfirmedTransferFinancialRecords({
+        transferId: String(event.params.transferId || ''),
+        transferRef: event.data.after.ref,
+        transfer,
+        previousTransfer,
+    });
+});
+
+exports.reconcileConfirmedTransferFinancialRecords = onSchedule({
+    schedule: '30 3 * * *',
+    timeZone: DEFAULT_STORE_TIMEZONE,
+    region: 'southamerica-east1',
+}, async () => {
+    const transfersSnapshot = await db.collection('transferenciasEntreLojas')
+        .where('status', '==', 'pagamento_confirmado')
+        .get();
+    let synchronizedCount = 0;
+
+    for (const transferDoc of transfersSnapshot.docs) {
+        const transfer = transferDoc.data();
+        const originStoreId = String(transfer.lojaOrigemId || '').trim();
+        const destinationStoreId = String(transfer.lojaDestinoId || '').trim();
+        const isCurrentModel = (
+            transfer.financeiroModelo === TRANSFER_FINANCIAL_MODEL
+            && transfer.financeiroContaReceberLojaId === originStoreId
+            && transfer.financeiroContaPagarLojaId === destinationStoreId
+        );
+
+        if (isCurrentModel) {
+            continue;
+        }
+
+        const synchronized = await syncConfirmedTransferFinancialRecords({
+            transferId: transferDoc.id,
+            transferRef: transferDoc.ref,
+            transfer,
+            previousTransfer: transfer,
+            syncSource: 'scheduled-reconciliation',
+        });
+        if (synchronized) {
+            synchronizedCount += 1;
+        }
+    }
+
+    logger.info('Reconciliação de repasses financeiros concluída.', {
+        confirmedTransferCount: transfersSnapshot.size,
+        synchronizedCount,
+        financialModel: TRANSFER_FINANCIAL_MODEL,
     });
 });
 
