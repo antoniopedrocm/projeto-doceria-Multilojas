@@ -9,6 +9,7 @@
 
 const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const express = require("express");
@@ -1692,6 +1693,177 @@ exports.updateUserPassword = onCall(async (request) => {
         logger.error("Erro ao alterar senha:", error);
         throw new HttpsError("internal", "Não foi possível alterar a senha.");
     }
+});
+
+const FINANCIAL_RECURRENCE_FIXED = 'fixa';
+const FINANCIAL_RECURRENCE_VARIABLE = 'variavel';
+const FINANCIAL_RECURRENCE_SINGLE = 'avulsa';
+
+const getFinancialMonthKey = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: DEFAULT_STORE_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    return `${year}-${month}`;
+};
+
+const isValidFinancialMonth = (monthKey) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(monthKey || ''));
+
+const shiftFinancialMonth = (monthKey, delta) => {
+    const [year, month] = monthKey.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1 + delta, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+
+const getExpenseRecurrenceType = (expense = {}) => {
+    const configuredType = String(expense.tipoRecorrencia || expense.recorrenciaTipo || '').toLowerCase();
+    if ([FINANCIAL_RECURRENCE_FIXED, FINANCIAL_RECURRENCE_VARIABLE, FINANCIAL_RECURRENCE_SINGLE].includes(configuredType)) {
+        return configuredType;
+    }
+
+    const normalizedCategory = String(expense.categoria || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    if (normalizedCategory === 'despesa fixa') return FINANCIAL_RECURRENCE_FIXED;
+    if (normalizedCategory === 'despesa variavel') return FINANCIAL_RECURRENCE_VARIABLE;
+    return FINANCIAL_RECURRENCE_SINGLE;
+};
+
+const getExpenseMonth = (expense = {}) => {
+    if (isValidFinancialMonth(expense.competencia)) return expense.competencia;
+    const dueDate = expense.dataVencimento;
+    if (typeof dueDate === 'string' && isValidFinancialMonth(dueDate.slice(0, 7))) {
+        return dueDate.slice(0, 7);
+    }
+    if (dueDate && typeof dueDate.toDate === 'function') {
+        return getFinancialMonthKey(dueDate.toDate());
+    }
+    return '';
+};
+
+const rollFinancialDueDate = (dueDate, targetMonth) => {
+    const originalDate = typeof dueDate === 'string' ? dueDate.match(/^\d{4}-\d{2}-(\d{2})/) : null;
+    const requestedDay = originalDate ? Number(originalDate[1]) : 1;
+    const [year, month] = targetMonth.split('-').map(Number);
+    const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${targetMonth}-${String(Math.min(requestedDay, maxDay)).padStart(2, '0')}`;
+};
+
+const prepareRecurringExpensesForStores = async (storeIds, sourceMonth) => {
+    const targetMonth = shiftFinancialMonth(sourceMonth, 1);
+    let createdCount = 0;
+    let ignoredCount = 0;
+    let batch = db.batch();
+    let batchSize = 0;
+
+    const commitBatch = async () => {
+        if (!batchSize) return;
+        await batch.commit();
+        batch = db.batch();
+        batchSize = 0;
+    };
+
+    for (const storeId of storeIds) {
+        const expensesCollection = db.collection('lojas').doc(storeId).collection('contas_a_pagar');
+        const snapshot = await expensesCollection.get();
+
+        for (const expenseDoc of snapshot.docs) {
+            const expense = expenseDoc.data() || {};
+            const recurrenceType = getExpenseRecurrenceType(expense);
+
+            if (recurrenceType === FINANCIAL_RECURRENCE_SINGLE || getExpenseMonth(expense) !== sourceMonth) {
+                continue;
+            }
+
+            const seriesId = String(expense.serieRecorrenciaId || expenseDoc.id);
+            const targetId = `${seriesId}__${targetMonth}`;
+            const targetRef = expensesCollection.doc(targetId);
+            const existingTarget = await targetRef.get();
+            if (existingTarget.exists) {
+                ignoredCount += 1;
+                continue;
+            }
+
+            const targetExpense = {
+                ...expense,
+                valor: recurrenceType === FINANCIAL_RECURRENCE_VARIABLE ? 0 : Number(expense.valor || 0),
+                dataVencimento: rollFinancialDueDate(expense.dataVencimento, targetMonth),
+                competencia: targetMonth,
+                status: 'Pendente',
+                tipoRecorrencia: recurrenceType,
+                recorrente: true,
+                aguardandoFatura: recurrenceType === FINANCIAL_RECURRENCE_VARIABLE,
+                serieRecorrenciaId: seriesId,
+                geradoPorRecorrencia: true,
+                recorrenciaOrigemId: expenseDoc.id,
+                recorrenciaOrigemCompetencia: sourceMonth,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+
+            delete targetExpense.dataPagamento;
+            delete targetExpense.pagoEm;
+            delete targetExpense.baixadoEm;
+
+            batch.set(targetRef, targetExpense);
+            batchSize += 1;
+            createdCount += 1;
+
+            if (batchSize >= 400) {
+                await commitBatch();
+            }
+        }
+    }
+
+    await commitBatch();
+    return {sourceMonth, targetMonth, createdCount, ignoredCount};
+};
+
+exports.prepareNextFinancialMonth = onCall(async (request) => {
+    const requester = await verifyManagementAccess(request.auth?.uid);
+    const requestedStores = Array.isArray(request.data?.storeIds)
+        ? Array.from(new Set(request.data.storeIds.filter((storeId) => typeof storeId === 'string' && storeId)))
+        : [];
+    const sourceMonth = isValidFinancialMonth(request.data?.sourceMonth)
+        ? request.data.sourceMonth
+        : getFinancialMonthKey();
+
+    let allowedStores = requester.stores;
+    if (requester.role === ROLE_OWNER && requester.allStores) {
+        if (requestedStores.length) {
+            allowedStores = requestedStores;
+        } else {
+            const storesSnapshot = await db.collection('lojas').get();
+            allowedStores = storesSnapshot.docs.map((storeDoc) => storeDoc.id);
+        }
+    } else if (requestedStores.length) {
+        if (!userHasAccessToStores(requester.stores, requestedStores)) {
+            throw new HttpsError('permission-denied', 'Você não pode preparar contas de outra loja.');
+        }
+        allowedStores = requestedStores;
+    }
+
+    if (!allowedStores.length) {
+        throw new HttpsError('failed-precondition', 'Nenhuma loja disponível para preparar o mês seguinte.');
+    }
+
+    return prepareRecurringExpensesForStores(allowedStores, sourceMonth);
+});
+
+exports.rollFinancialRecurringExpenses = onSchedule({
+    schedule: '15 3 * * *',
+    timeZone: DEFAULT_STORE_TIMEZONE,
+    region: 'southamerica-east1',
+}, async () => {
+    const sourceMonth = getFinancialMonthKey();
+    const storesSnapshot = await db.collection('lojas').get();
+    const storeIds = storesSnapshot.docs.map((storeDoc) => storeDoc.id);
+    const result = await prepareRecurringExpensesForStores(storeIds, sourceMonth);
+    logger.info('Virada automatica do financeiro concluida.', result);
 });
 
 

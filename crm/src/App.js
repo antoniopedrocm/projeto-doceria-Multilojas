@@ -39,6 +39,7 @@ import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceW
 import { updateStock as updateStockService } from './services/stockService.js';
 import ReceitasList from './components/fornecedores/ReceitasList';
 import ReceitasModal from './components/fornecedores/ReceitasModal';
+import FinancialControlPanel from './components/financeiro/FinancialControlPanel';
 
 // --- importação para Android
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -4219,8 +4220,7 @@ function App() {
     const scripts = [
         { id: 'jspdf', src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js' },
         { id: 'jspdf-autotable', src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js' },
-        { id: 'xlsx', src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js' },
-        { id: 'chartjs', src: 'https://cdn.jsdelivr.net/npm/chart.js' }
+        { id: 'xlsx', src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js' }
     ];
 
     scripts.forEach(scriptInfo => {
@@ -12100,7 +12100,19 @@ const handleSubmit = async (e) => {
           currentStoreIdForDisplay={currentStoreIdForDisplay}
         />
       ) : <PaginaInicial />;
-          case 'financeiro': return userHasPermission('financeiro') ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
+          case 'financeiro': return userHasPermission('financeiro') ? (
+            <FinancialControlPanel
+              data={data}
+              addItem={addItem}
+              updateItem={updateItem}
+              deleteItem={deleteItem}
+              setConfirmDelete={setConfirmDelete}
+              availableStores={availableStores}
+              storeInfoMap={storeInfoMap}
+              selectedStoreId={selectedStoreId}
+              user={user}
+            />
+          ) : <PaginaInicial />;
       case 'configuracoes': return userHasPermission('configuracoes') ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
       case 'financeiro': return user?.role === 'admin' ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
       case 'configuracoes': return user?.role === 'admin' ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} /> : <PaginaInicial />;
