@@ -504,10 +504,11 @@ const FinancialControlPanel = ({
                   </Field>
                 </div>
                 <Field label="Categoria">
-                  <TextInput list="financial-expense-categories" value={formData.categoria || ''} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })} required />
-                  <datalist id="financial-expense-categories">
-                    {expenseCategories.map((category) => <option key={category} value={category} />)}
-                  </datalist>
+                  <SelectInput value={formData.categoria || ''} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })} required>
+                    {expenseCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </SelectInput>
                 </Field>
               </>
             ) : (
