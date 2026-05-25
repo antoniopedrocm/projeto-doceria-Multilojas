@@ -24,6 +24,7 @@ import {
   EXPENSE_RECURRENCE_OPTIONS,
   expenseNeedsInvoice,
   formatCurrency,
+  normalizeIncomeSource,
   periodDisplay,
   resolveExpenseMonth,
   resolveReceivableMonth,
@@ -35,7 +36,7 @@ const STORE_ALL_KEY = '__all__';
 const tabs = [
   { id: 'dashboard', label: 'Raio-X' },
   { id: 'pagar', label: 'Despesas' },
-  { id: 'receber', label: 'Receitas' },
+  { id: 'receber', label: 'Entradas' },
   { id: 'fluxo', label: 'Fluxo' }
 ];
 
@@ -173,7 +174,7 @@ const FinancialControlPanel = ({
     };
     setFormData(type === 'pagar'
       ? { ...base, dataVencimento: dateValue, categoria: 'Fornecedores', tipoRecorrencia: 'avulsa' }
-      : { ...base, dataRecebimento: dateValue, categoria: 'Outras receitas', metodo: 'Pix' });
+      : { ...base, dataRecebimento: dateValue, categoria: 'Outras entradas', metodo: 'Pix' });
     setModal({ type, item: null });
   };
 
@@ -184,6 +185,7 @@ const FinancialControlPanel = ({
       competencia: type === 'pagar' ? resolveExpenseMonth(item) : resolveReceivableMonth(item),
       dataVencimento: toDateInput(item.dataVencimento),
       dataRecebimento: toDateInput(item.dataRecebimento),
+      categoria: type === 'pagar' ? item.categoria : normalizeIncomeSource(item.categoria),
       centroCusto: item.centroCusto || item.lojaId,
       lojaId: item.lojaId || defaultWriteStoreId()
     });
@@ -430,9 +432,9 @@ const FinancialControlPanel = ({
           {activeTab === 'receber' && (
             <section className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">Receitas de {periodDisplay(selectedMonth)}</h2>
+                <h2 className="text-xl font-semibold text-gray-900">Entradas de {periodDisplay(selectedMonth)}</h2>
                 <button type="button" onClick={() => openNew('receber')} className="inline-flex items-center gap-2 rounded-lg bg-pink-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-pink-700">
-                  <Plus className="h-4 w-4" /> Nova receita
+                  <Plus className="h-4 w-4" /> Nova Entrada
                 </button>
               </div>
               <TransactionTable

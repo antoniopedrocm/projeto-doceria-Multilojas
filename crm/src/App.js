@@ -2107,7 +2107,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 		const monthlyData = {
 			labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
 			datasets: [
-				{ label: 'Receitas', data: Array(12).fill(0), backgroundColor: 'rgba(34, 197, 94, 0.6)' },
+				{ label: 'Entradas', data: Array(12).fill(0), backgroundColor: 'rgba(34, 197, 94, 0.6)' },
 				{ label: 'Despesas', data: Array(12).fill(0), backgroundColor: 'rgba(239, 68, 68, 0.6)' }
 			]
 		};
@@ -2229,7 +2229,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
     const renderDashboard = () => (
         <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-2xl shadow-lg"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg"><ArrowUpCircle className="w-6 h-6 text-white" /></div><div><p className="text-gray-500 text-sm font-medium">Receita Total (Pago)</p><h2 className="text-2xl font-bold text-gray-800">R$ {financialSummary.totalReceitas.toFixed(2)}</h2></div></div></div>
+                <div className="bg-white p-6 rounded-2xl shadow-lg"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg"><ArrowUpCircle className="w-6 h-6 text-white" /></div><div><p className="text-gray-500 text-sm font-medium">Entradas Recebidas</p><h2 className="text-2xl font-bold text-gray-800">R$ {financialSummary.totalReceitas.toFixed(2)}</h2></div></div></div>
                 <div className="bg-white p-6 rounded-2xl shadow-lg"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl flex items-center justify-center shadow-lg"><ArrowDownCircle className="w-6 h-6 text-white" /></div><div><p className="text-gray-500 text-sm font-medium">Despesa Total (Pago)</p><h2 className="text-2xl font-bold text-gray-800">R$ {financialSummary.totalDespesas.toFixed(2)}</h2></div></div></div>
                 <div className="bg-white p-6 rounded-2xl shadow-lg"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg"><DollarSign className="w-6 h-6 text-white" /></div><div><p className="text-gray-500 text-sm font-medium">Lucro Líquido</p><h2 className="text-2xl font-bold text-gray-800">R$ {financialSummary.lucroLiquido.toFixed(2)}</h2></div></div></div>
             </div>
@@ -2256,7 +2256,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
 
     const renderContas = (type) => {
         const collection = type === 'pagar' ? 'contas_a_pagar' : 'contas_a_receber';
-        let title = type === 'pagar' ? 'Despesas' : 'Contas a Receber';
+        let title = type === 'pagar' ? 'Despesas' : 'Entradas';
         let items = data[collection] || [];
 
         if (type === 'pagar' && despesaFilter !== 'Todas') {
@@ -2287,7 +2287,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
             <div>
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-bold text-gray-700">{title}</h2>
-                    <Button onClick={() => handleNew(type)}><Plus className="w-4 h-4"/> Novo Lançamento</Button>
+                    <Button onClick={() => handleNew(type)}><Plus className="w-4 h-4"/> {type === 'pagar' ? 'Nova Despesa' : 'Nova Entrada'}</Button>
                 </div>
                 {type === 'pagar' && (
                     <div className="mb-4 flex space-x-2 border-b">
@@ -2421,7 +2421,7 @@ const Financeiro = ({ data, addItem, updateItem, deleteItem, setConfirmDelete })
                         <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${activeTab === tab ? 'bg-pink-600 text-white' : 'hover:bg-pink-100'}`}>
                             {tab === 'dashboard' && 'Dashboard'}
                             {tab === 'pagar' && 'Despesas'}
-                            {tab === 'receber' && 'Contas a Receber'}
+                            {tab === 'receber' && 'Entradas'}
                             {tab === 'fluxo' && 'Fluxo de Caixa'}
                         </button>
                     ))}
@@ -2873,7 +2873,7 @@ const Relatorios = ({ data }) => {
                     <option value="usoCupons">Uso de Cupons</option>
                     <option value="estoqueBaixo">Estoque Baixo (Produtos Finais)</option>
                     <option value="comprasInsumos">Compras de Insumos</option>
-                    <option value="receitaPorPagamento">Receita por Forma de Pagamento</option>
+                    <option value="receitaPorPagamento">Entradas por Forma de Pagamento</option>
                     <option value="custoProducao">Custo de Produção</option>
                 </Select>
             </div>

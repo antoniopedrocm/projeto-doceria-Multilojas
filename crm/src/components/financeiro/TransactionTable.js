@@ -1,6 +1,12 @@
 import React from 'react';
 import { Banknote, Edit, FileClock, Repeat, Trash2 } from 'lucide-react';
-import { expenseNeedsInvoice, formatCurrency, getExpenseRecurrence, toDate } from './financialUtils.js';
+import {
+  expenseNeedsInvoice,
+  formatCurrency,
+  getExpenseRecurrence,
+  normalizeIncomeSource,
+  toDate
+} from './financialUtils.js';
 
 const statusClass = {
   Pendente: 'bg-amber-50 text-amber-700',
@@ -68,7 +74,9 @@ const TransactionTable = ({ type, items, onEdit, onDelete, onSettle }) => {
                   <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                     {formatDate(isExpense ? item.dataVencimento : item.dataRecebimento)}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{item.categoria || item.metodo || '-'}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {isExpense ? (item.categoria || '-') : normalizeIncomeSource(item.categoria || item.metodo || '-')}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`rounded px-2 py-1 text-xs font-semibold ${statusClass[item.status] || 'bg-gray-100 text-gray-700'}`}>
                       {item.status || 'Pendente'}

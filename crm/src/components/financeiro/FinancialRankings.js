@@ -48,7 +48,7 @@ const FinancialRankings = ({ expenseRanking, incomeSources }) => (
       emptyText="Nenhuma despesa registrada no periodo."
     />
     <RankingPanel
-      title="Fontes de receita"
+      title="Fontes de entrada"
       rows={incomeSources}
       favorableIncrease
       emptyText="Nenhuma entrada realizada no periodo."

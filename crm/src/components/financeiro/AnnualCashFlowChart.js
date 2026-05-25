@@ -14,7 +14,7 @@ import { formatCurrency } from './financialUtils.js';
 const AnnualCashFlowChart = ({ data, year }) => (
   <section className="rounded-lg border border-gray-200 bg-white p-5">
     <div className="mb-5">
-      <h2 className="text-base font-semibold text-gray-900">Receita x despesa em {year}</h2>
+      <h2 className="text-base font-semibold text-gray-900">Entradas x despesas em {year}</h2>
       <p className="text-sm text-gray-500">Valores realizados por mês</p>
     </div>
     <div className="h-72 w-full">
@@ -30,7 +30,7 @@ const AnnualCashFlowChart = ({ data, year }) => (
           />
           <Tooltip formatter={(value) => formatCurrency(value)} />
           <Legend iconType="circle" />
-          <Bar dataKey="receita" name="Receita" fill="#10b981" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="receita" name="Entradas" fill="#10b981" radius={[4, 4, 0, 0]} />
           <Bar dataKey="despesa" name="Despesa" fill="#ef4444" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>

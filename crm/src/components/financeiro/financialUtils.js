@@ -87,13 +87,17 @@ export const expenseNeedsInvoice = (item = {}) => (
   && (item.aguardandoFatura === true || Number(item.valor || 0) === 0)
 );
 
+export const normalizeIncomeSource = (source) => (
+  source === 'Outras receitas' ? 'Outras entradas' : source
+);
+
 export const getIncomeSource = (item, kind) => {
   if (kind === 'pedido') {
     if (isEventsRecord(item)) return 'Festas/Eventos';
     if (['Cardapio Online', 'Plataforma'].includes(item.origem)) return 'Cardapio online';
     return 'Venda presencial';
   }
-  return item.categoria || item.descricao || 'Outras receitas';
+  return normalizeIncomeSource(item.categoria || item.descricao || 'Outras entradas');
 };
 
 export const toDateInput = (value) => {

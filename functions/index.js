@@ -8,7 +8,7 @@
  */
 
 const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -1864,6 +1864,128 @@ exports.rollFinancialRecurringExpenses = onSchedule({
     const storeIds = storesSnapshot.docs.map((storeDoc) => storeDoc.id);
     const result = await prepareRecurringExpensesForStores(storeIds, sourceMonth);
     logger.info('Virada automatica do financeiro concluida.', result);
+});
+
+const getTransferFinancialMonth = (transfer = {}) => {
+    const paymentDate = transfer.dataPagamento || transfer.dataPagamentoConfirmado;
+    if (typeof paymentDate === 'string' && /^\d{4}-\d{2}/.test(paymentDate)) {
+        return paymentDate.slice(0, 7);
+    }
+    if (paymentDate && typeof paymentDate.toDate === 'function') {
+        return getFinancialMonthKey(paymentDate.toDate());
+    }
+    return getFinancialMonthKey();
+};
+
+const transferFinancialDataChanged = (before = {}, after = {}) => (
+    before.status !== after.status
+    || before.totalRepasse !== after.totalRepasse
+    || before.lojaOrigemId !== after.lojaOrigemId
+    || before.lojaOrigemNome !== after.lojaOrigemNome
+    || before.lojaDestinoId !== after.lojaDestinoId
+    || before.dataPagamento !== after.dataPagamento
+);
+
+exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
+    document: 'transferenciasEntreLojas/{transferId}',
+    region: 'southamerica-east1',
+}, async (event) => {
+    const previousTransfer = event.data?.before.data() || {};
+    const transfer = event.data?.after.data() || {};
+
+    if (
+        transfer.status !== 'pagamento_confirmado'
+        || !transferFinancialDataChanged(previousTransfer, transfer)
+    ) {
+        return;
+    }
+
+    const transferId = String(event.params.transferId || '');
+    const destinationStoreId = String(transfer.lojaDestinoId || '').trim();
+    const originName = String(
+        transfer.lojaOrigemNome || transfer.lojaOrigemId || 'Loja de origem'
+    ).trim();
+    const amount = Number(transfer.totalRepasse);
+
+    if (!destinationStoreId || !transferId || !Number.isFinite(amount) || amount < 0) {
+        logger.warn('Repasse confirmado sem dados válidos para gerar entrada financeira.', {
+            transferId,
+            destinationStoreId,
+            amount,
+        });
+        return;
+    }
+
+    const entryId = `repasse_entre_lojas_${transferId}`;
+    const transferRef = event.data.after.ref;
+    const previousDestinationStoreId = String(previousTransfer.lojaDestinoId || '').trim();
+    const entryRef = db.collection('lojas')
+        .doc(destinationStoreId)
+        .collection('contas_a_receber')
+        .doc(entryId);
+    const previousEntryRef = (
+        previousTransfer.status === 'pagamento_confirmado'
+        && previousDestinationStoreId
+        && previousDestinationStoreId !== destinationStoreId
+    )
+        ? db.collection('lojas')
+            .doc(previousDestinationStoreId)
+            .collection('contas_a_receber')
+            .doc(entryId)
+        : null;
+    const dataRecebimento = (
+        transfer.dataPagamento
+        || transfer.dataPagamentoConfirmado
+        || admin.firestore.Timestamp.now()
+    );
+
+    await db.runTransaction(async (transaction) => {
+        const entrySnapshot = await transaction.get(entryRef);
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        const entryData = {
+            tipo: 'entrada',
+            descricao: `Repasse automático - ${originName}`,
+            valor: amount,
+            dataRecebimento,
+            competencia: getTransferFinancialMonth(transfer),
+            categoria: 'Repasse Interno',
+            fonte: 'Entre Lojas',
+            canal: 'Entre Lojas',
+            metodo: 'Repasse Interno',
+            status: 'Recebido',
+            centroCusto: destinationStoreId,
+            lojaId: destinationStoreId,
+            origemAutomatica: 'entre_lojas',
+            transferenciaEntreLojasId: transferId,
+            transferenciaEntreLojasRef: transferRef,
+            lojaOrigemId: transfer.lojaOrigemId || '',
+            lojaOrigemNome: originName,
+            lojaDestinoId: destinationStoreId,
+            lojaDestinoNome: transfer.lojaDestinoNome || destinationStoreId,
+            updatedAt: now,
+        };
+
+        if (!entrySnapshot.exists) {
+            entryData.createdAt = now;
+        }
+
+        if (previousEntryRef) {
+            transaction.delete(previousEntryRef);
+        }
+        transaction.set(entryRef, entryData, {merge: true});
+        transaction.set(transferRef, {
+            financeiroIntegrado: true,
+            financeiroContaReceberId: entryId,
+            financeiroIntegradoEm: now,
+        }, {merge: true});
+    });
+
+    logger.info('Entrada financeira criada a partir de repasse confirmado.', {
+        transferId,
+        destinationStoreId,
+        entryId,
+        amount,
+    });
 });
 
 
