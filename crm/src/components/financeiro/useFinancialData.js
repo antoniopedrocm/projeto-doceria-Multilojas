@@ -3,6 +3,7 @@ import { collection, query } from 'firebase/firestore';
 import { db, onSnapshot } from '../../firebaseConfig.js';
 
 const COLLECTION_KEYS = ['contas_a_pagar', 'contas_a_receber', 'pedidos'];
+const STORE_ALL_KEY = '__all__';
 
 const emptyFinancialData = () => ({
   contas_a_pagar: [],
@@ -14,13 +15,24 @@ const withStoreId = (snapshot, lojaId) => (
   snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data(), lojaId }))
 );
 
-export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
+export const useFinancialData = ({ storeIds = [], currentStoreId, fallbackData = {} }) => {
   const storeKey = useMemo(
     () => Array.from(new Set(storeIds.filter(Boolean))).sort().join('|'),
     [storeIds]
   );
-  const normalizedStoreIds = useMemo(() => storeKey.split('|').filter(Boolean), [storeKey]);
-  const [state, setState] = useState({ data: emptyFinancialData(), loading: true, error: null });
+  const normalizedStoreIds = useMemo(() => {
+    if (currentStoreId && currentStoreId !== STORE_ALL_KEY) {
+      return [currentStoreId];
+    }
+    return storeKey.split('|').filter(Boolean);
+  }, [currentStoreId, storeKey]);
+  const scopeKey = normalizedStoreIds.join('|');
+  const [state, setState] = useState({
+    data: emptyFinancialData(),
+    loading: true,
+    error: null,
+    scopeKey: ''
+  });
 
   useEffect(() => {
     if (normalizedStoreIds.length) return undefined;
@@ -31,10 +43,11 @@ export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
         pedidos: fallbackData.pedidos || []
       },
       loading: false,
-      error: null
+      error: null,
+      scopeKey
     });
     return undefined;
-  }, [normalizedStoreIds, fallbackData]);
+  }, [normalizedStoreIds, fallbackData, scopeKey]);
 
   useEffect(() => {
     if (!normalizedStoreIds.length) {
@@ -45,6 +58,7 @@ export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
     const storeResults = {};
     const subscriptions = [];
     let remaining = normalizedStoreIds.length * COLLECTION_KEYS.length;
+    setState({ data: emptyFinancialData(), loading: true, error: null, scopeKey });
 
     const emit = () => {
       if (!active) return;
@@ -54,7 +68,7 @@ export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
           data[collectionName].push(...(storeResults[storeId]?.[collectionName] || []));
         });
       });
-      setState((previous) => ({ data, loading: remaining > 0, error: previous.error }));
+      setState((previous) => ({ data, loading: remaining > 0, error: previous.error, scopeKey }));
     };
 
     normalizedStoreIds.forEach((storeId) => {
@@ -78,7 +92,7 @@ export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
               receivedFirstSnapshot = true;
             }
             if (active) {
-              setState((previous) => ({ ...previous, loading: remaining > 0, error }));
+              setState((previous) => ({ ...previous, loading: remaining > 0, error, scopeKey }));
             }
             emit();
           },
@@ -96,7 +110,11 @@ export const useFinancialData = ({ storeIds = [], fallbackData = {} }) => {
       active = false;
       subscriptions.forEach((unsubscribe) => unsubscribe());
     };
-  }, [normalizedStoreIds]);
+  }, [normalizedStoreIds, scopeKey]);
+
+  if (state.scopeKey !== scopeKey) {
+    return { data: emptyFinancialData(), loading: true, error: null };
+  }
 
   return state;
 };

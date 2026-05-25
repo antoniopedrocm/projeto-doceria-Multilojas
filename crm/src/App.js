@@ -12109,7 +12109,7 @@ const handleSubmit = async (e) => {
               setConfirmDelete={setConfirmDelete}
               availableStores={availableStores}
               storeInfoMap={storeInfoMap}
-              selectedStoreId={selectedStoreId}
+              currentStoreId={currentStoreIdForDisplay}
               user={user}
             />
           ) : <PaginaInicial />;

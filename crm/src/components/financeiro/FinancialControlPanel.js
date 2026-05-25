@@ -103,7 +103,7 @@ const FinancialControlPanel = ({
   setConfirmDelete,
   availableStores = [],
   storeInfoMap = {},
-  selectedStoreId,
+  currentStoreId,
   user
 }) => {
   const defaultMonth = currentMonthKey();
@@ -115,9 +115,9 @@ const FinancialControlPanel = ({
   const [feedback, setFeedback] = useState(null);
   const [rollingForward, setRollingForward] = useState(false);
 
-  const storeIds = useMemo(() => {
+  const allStoreIds = useMemo(() => {
     const knownStores = new Set(availableStores.filter(Boolean));
-    if (selectedStoreId && selectedStoreId !== STORE_ALL_KEY) knownStores.add(selectedStoreId);
+    if (currentStoreId && currentStoreId !== STORE_ALL_KEY) knownStores.add(currentStoreId);
     if (user?.lojaId) knownStores.add(user.lojaId);
     (user?.lojaIds || []).forEach((storeId) => knownStores.add(storeId));
     Object.values(fallbackData || {}).forEach((items) => {
@@ -127,26 +127,45 @@ const FinancialControlPanel = ({
       });
     });
     return Array.from(knownStores);
-  }, [availableStores, selectedStoreId, user, fallbackData]);
+  }, [availableStores, currentStoreId, user, fallbackData]);
 
-  const { data, loading, error } = useFinancialData({ storeIds, fallbackData });
+  const isSpecificStoreView = Boolean(currentStoreId && currentStoreId !== STORE_ALL_KEY);
+  const scopedStoreIds = useMemo(
+    () => (isSpecificStoreView ? [currentStoreId] : allStoreIds),
+    [allStoreIds, currentStoreId, isSpecificStoreView]
+  );
+  const { data, loading, error } = useFinancialData({ storeIds: allStoreIds, currentStoreId, fallbackData });
 
-  const centerOptions = useMemo(() => [
+  const centerOptions = useMemo(() => isSpecificStoreView ? [
+    {
+      value: ALL_COST_CENTERS,
+      label: `Toda a unidade - ${storeInfoMap[currentStoreId]?.nome || currentStoreId}`
+    }
+  ] : [
     { value: ALL_COST_CENTERS, label: 'Visão geral' },
-    ...storeIds.map((storeId) => ({
+    ...allStoreIds.map((storeId) => ({
       value: storeId,
       label: storeInfoMap[storeId]?.nome || storeInfoMap[storeId]?.razaoSocial || storeId
     })),
     { value: EVENTS_COST_CENTER, label: 'Festas/Eventos' }
-  ], [storeIds, storeInfoMap]);
+  ], [allStoreIds, currentStoreId, isSpecificStoreView, storeInfoMap]);
+
+  const transactionCenterOptions = useMemo(() => [
+    ...scopedStoreIds.map((storeId) => ({
+      value: storeId,
+      label: storeInfoMap[storeId]?.nome || storeInfoMap[storeId]?.razaoSocial || storeId
+    })),
+    { value: EVENTS_COST_CENTER, label: 'Festas/Eventos' }
+  ], [scopedStoreIds, storeInfoMap]);
 
   useEffect(() => {
-    if (!centerOptions.some((option) => option.value === selectedCenter)) {
+    if (isSpecificStoreView || !centerOptions.some((option) => option.value === selectedCenter)) {
       setSelectedCenter(ALL_COST_CENTERS);
     }
-  }, [centerOptions, selectedCenter, setSelectedCenter]);
+  }, [centerOptions, isSpecificStoreView, selectedCenter, setSelectedCenter]);
 
-  const insights = useFinancialComparison({ data, selectedMonth, selectedCenter });
+  const activeCenter = isSpecificStoreView ? ALL_COST_CENTERS : selectedCenter;
+  const insights = useFinancialComparison({ data, selectedMonth, selectedCenter: activeCenter });
 
   const expenseCategories = useMemo(() => Array.from(new Set([
     ...DEFAULT_EXPENSE_CATEGORIES,
@@ -154,16 +173,16 @@ const FinancialControlPanel = ({
   ])), [data.contas_a_pagar]);
 
   const defaultWriteStoreId = () => {
+    if (isSpecificStoreView) return currentStoreId;
     if (selectedCenter !== ALL_COST_CENTERS && selectedCenter !== EVENTS_COST_CENTER) return selectedCenter;
-    if (selectedStoreId && selectedStoreId !== STORE_ALL_KEY) return selectedStoreId;
-    return storeIds[0] || '';
+    return allStoreIds[0] || '';
   };
 
   const openNew = (type) => {
     const dateValue = buildDefaultDate(selectedMonth);
-    const centroCusto = selectedCenter === ALL_COST_CENTERS
+    const centroCusto = activeCenter === ALL_COST_CENTERS
       ? (defaultWriteStoreId() || EVENTS_COST_CENTER)
-      : selectedCenter;
+      : activeCenter;
     const base = {
       descricao: '',
       valor: '',
@@ -272,9 +291,11 @@ const FinancialControlPanel = ({
   const rollNextMonth = async () => {
     setRollingForward(true);
     setFeedback(null);
-    const storesToPrepare = selectedCenter !== ALL_COST_CENTERS && selectedCenter !== EVENTS_COST_CENTER
-      ? [selectedCenter]
-      : storeIds;
+    const storesToPrepare = isSpecificStoreView
+      ? [currentStoreId]
+      : (selectedCenter !== ALL_COST_CENTERS && selectedCenter !== EVENTS_COST_CENTER
+          ? [selectedCenter]
+          : allStoreIds);
     try {
       const prepareNextMonth = httpsCallable(functions, 'prepareNextFinancialMonth');
       const result = await prepareNextMonth({ sourceMonth: selectedMonth, storeIds: storesToPrepare });
@@ -371,14 +392,14 @@ const FinancialControlPanel = ({
             <TextInput type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} />
           </Field>
           <Field label="Centro de custos">
-            <SelectInput value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>
+            <SelectInput value={activeCenter} onChange={(event) => setSelectedCenter(event.target.value)} disabled={isSpecificStoreView}>
               {centerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </SelectInput>
           </Field>
           <button
             type="button"
             onClick={rollNextMonth}
-            disabled={rollingForward || !storeIds.length}
+            disabled={rollingForward || !scopedStoreIds.length}
             className="inline-flex h-[42px] items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <CalendarPlus className="h-4 w-4" />
@@ -504,14 +525,14 @@ const FinancialControlPanel = ({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Centro de custos">
                 <SelectInput value={formData.centroCusto || ''} onChange={(event) => setFormData({ ...formData, centroCusto: event.target.value })} required>
-                  {centerOptions.filter((option) => option.value !== ALL_COST_CENTERS).map((option) => (
+                  {transactionCenterOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </SelectInput>
               </Field>
               <Field label="Unidade responsável">
                 <SelectInput value={formData.lojaId || ''} onChange={(event) => setFormData({ ...formData, lojaId: event.target.value })} required>
-                  {storeIds.map((storeId) => (
+                  {scopedStoreIds.map((storeId) => (
                     <option key={storeId} value={storeId}>{storeInfoMap[storeId]?.nome || storeId}</option>
                   ))}
                 </SelectInput>
