@@ -836,6 +836,14 @@ const usePersistentState = (key, defaultValue) => {
   return [state, setState];
 };
 
+const DIRTY_FORM_SELECTOR = 'form[data-unsaved-changes="true"]';
+
+const hasUnsavedFormChanges = () => (
+  typeof document !== 'undefined' && Boolean(document.querySelector(DIRTY_FORM_SELECTOR))
+);
+
+// Inner pages close over App services; this stable host keeps their hook state during live updates.
+const InlinePageHost = ({ renderPage }) => renderPage();
 
 // Componentes de UI
 const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
@@ -3061,6 +3069,8 @@ function App() {
   const isSnoozedRef = useRef(false);
   const isAlarmPlayingRef = useRef(false);
   const initialDataLoaded = useRef(false);
+  const loadedWorkspaceUserIdRef = useRef(null);
+  const loadedDataScopeRef = useRef(null);
   const storeCollectionsDataRef = useRef({});
   const clientesDataRef = useRef([]);
   const pushTokenRef = useRef(null);
@@ -3080,6 +3090,40 @@ function App() {
     return user.lojaId || null;
   }, [user, isGeneralViewSelected, selectedStoreId, availableStores]);
   const [resolvedAlarmPauseMinutes, setResolvedAlarmPauseMinutes] = useState(DEFAULT_ALARM_PAUSE_MINUTES);
+
+  useEffect(() => {
+    const markFormAsDirty = (event) => {
+      const form = event.target?.closest?.('form');
+      if (form) {
+        form.dataset.unsavedChanges = 'true';
+      }
+    };
+    const handleBeforeUnload = (event) => {
+      if (!hasUnsavedFormChanges()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    document.addEventListener('input', markFormAsDirty, true);
+    document.addEventListener('change', markFormAsDirty, true);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      document.removeEventListener('input', markFormAsDirty, true);
+      document.removeEventListener('change', markFormAsDirty, true);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  const confirmDiscardUnsavedChanges = useCallback(() => (
+    !hasUnsavedFormChanges()
+    || window.confirm('Existem dados não salvos. Deseja sair e descartar as alterações?')
+  ), []);
+
+  const requestPageChange = useCallback((pageId) => {
+    if (!confirmDiscardUnsavedChanges()) return false;
+    setCurrentPage(pageId);
+    return true;
+  }, [confirmDiscardUnsavedChanges, setCurrentPage]);
 
   useEffect(() => {
     setFirestoreTelemetryContext({
@@ -3287,8 +3331,9 @@ function App() {
   }, [setSelectedStoreId]);
 
   const handleStoreChange = useCallback((event) => {
+        if (!confirmDiscardUnsavedChanges()) return;
         selectStoreById(event.target.value);
-  }, [selectStoreById]);
+  }, [confirmDiscardUnsavedChanges, selectStoreById]);
 
   const handleCreateStore = useCallback(async ({ storeId, nome }) => {
         const trimmedId = typeof storeId === 'string' ? storeId.trim() : '';
@@ -3704,24 +3749,35 @@ function App() {
                 storeCollectionsDataRef.current = {};
                 setLoading(false);
                 initialDataLoaded.current = false;
+                if (!user) {
+                  loadedWorkspaceUserIdRef.current = null;
+                  loadedDataScopeRef.current = null;
+                }
                 return;
           }
 
+          const listenerScopeKey = `${userId || ''}:${Array.from(new Set(storeIds)).sort().join('|')}`;
+          const isRefreshingLoadedScope = loadedDataScopeRef.current === listenerScopeKey;
           let isMounted = true;
           let pendingInitial = (storeIds.length * COLLECTIONS_TO_SYNC.length) + 1;
           const unsubscribes = [];
 
           debugCacheSync('Iniciando listeners por loja', { storeIds, uid: userId });
-          setData(getInitialDataState());
-          setPendingOrders([]);
-          clientesDataRef.current = [];
-          storeCollectionsDataRef.current = {};
+          if (!isRefreshingLoadedScope) {
+                setData(getInitialDataState());
+                setPendingOrders([]);
+                clientesDataRef.current = [];
+                storeCollectionsDataRef.current = {};
+          }
+          initialDataLoaded.current = false;
 
           const markInitialLoaded = () => {
                 if (pendingInitial > 0) {
                       pendingInitial -= 1;
                       if (pendingInitial === 0) {
                             initialDataLoaded.current = true;
+                            loadedWorkspaceUserIdRef.current = userId;
+                            loadedDataScopeRef.current = listenerScopeKey;
                             setLoading(false);
                       }
                 }
@@ -3731,8 +3787,7 @@ function App() {
                 setLoading(false);
                 initialDataLoaded.current = true;
           } else {
-                setLoading(true);
-                initialDataLoaded.current = false;
+                setLoading(!isRefreshingLoadedScope);
           }
 
           const setupClientesListener = () => {
@@ -4672,6 +4727,7 @@ function App() {
 
 
   const handleLogout = async () => { 
+      if (!confirmDiscardUnsavedChanges()) return;
       stopAlarm(); // Garante que o alarme pare
       await signOut(auth); 
       // O useEffect do onAuthStateChanged agora cuida de resetar a página
@@ -12077,6 +12133,7 @@ const handleSubmit = async (e) => {
 
   const openPendingOrderFromNotification = useCallback((order) => {
     if (!order?.id) return;
+    if (!confirmDiscardUnsavedChanges()) return;
 
     pendingOrderOpenRequestRef.current = {
       orderId: order.id,
@@ -12084,47 +12141,47 @@ const handleSubmit = async (e) => {
     };
     setCurrentPage('pedidos');
     setShowNotifications(false);
-  }, [setCurrentPage]);
+  }, [confirmDiscardUnsavedChanges, setCurrentPage]);
 
   const handleOrderOpenRequestHandled = useCallback(() => {
     pendingOrderOpenRequestRef.current = null;
   }, []);
 
   const renderCurrentPage = () => {
-    if (authLoading || (loading && user)) {
+    if (authLoading || (loading && user && loadedWorkspaceUserIdRef.current !== userId)) {
       return (<div className="flex h-full w-full items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-pink-500"></div></div>);
     }
 
+    const inlinePage = (pageKey, renderPage) => <InlinePageHost key={pageKey} renderPage={renderPage} />;
+    const homePage = () => inlinePage('pagina-inicial', PaginaInicial);
+
     switch (currentPage) {
-      case 'pagina-inicial': return <PaginaInicial />;
-      case 'dashboard': return userHasPermission('dashboard') ? <Dashboard
-                                        handleStopAndSnoozeAlarm={handleStopAndSnoozeAlarm}
-                                        isAlarmPlaying={isAlarmPlaying}
-                                        isAlarmSnoozed={isAlarmSnoozed}
-                                        snoozeEndTime={snoozeEndTime}
-                                        hasNewPendingOrders={hasNewPendingOrders}
-                                        alarmPauseMinutes={resolvedAlarmPauseMinutes}
-                                        // --- REMOVIDO: unlockAudio e audioUnlocked ---
-                                        /> : <PaginaInicial />;
-      case 'clientes': return userHasPermission('clientes') ? <Clientes /> : <PaginaInicial />;
-      case 'produtos': return userHasPermission('produtos') ? <Produtos /> : <PaginaInicial />;
-      case 'pedidos': return userHasPermission('pedidos') ? (
-        <Pedidos
-          orderOpenRequest={pendingOrderOpenRequestRef.current}
-          onOrderOpenRequestHandled={handleOrderOpenRequestHandled}
-        />
-      ) : <PaginaInicial />;
-      case 'entre-lojas': return userHasPermission('entre-lojas') ? <EntreLojas /> : <PaginaInicial />;
-      case 'agenda': return userHasPermission('agenda') ? <Agenda /> : <PaginaInicial />;
-      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : <PaginaInicial />;
-      case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : <PaginaInicial />;
-      case 'meu-espaco': return userHasPermission('meu-espaco') ? (
-        <MeuEspaco
-          user={user}
-          resolveActiveStoreForWrite={resolveActiveStoreForWrite}
-          currentStoreIdForDisplay={currentStoreIdForDisplay}
-        />
-      ) : <PaginaInicial />;
+      case 'pagina-inicial': return homePage();
+      case 'dashboard': return userHasPermission('dashboard')
+        ? inlinePage('dashboard', () => Dashboard({
+            handleStopAndSnoozeAlarm,
+            isAlarmPlaying,
+            isAlarmSnoozed,
+            snoozeEndTime,
+            hasNewPendingOrders,
+            alarmPauseMinutes: resolvedAlarmPauseMinutes
+          }))
+        : homePage();
+      case 'clientes': return userHasPermission('clientes') ? inlinePage('clientes', Clientes) : homePage();
+      case 'produtos': return userHasPermission('produtos') ? inlinePage('produtos', Produtos) : homePage();
+      case 'pedidos': return userHasPermission('pedidos')
+        ? inlinePage('pedidos', () => Pedidos({
+            orderOpenRequest: pendingOrderOpenRequestRef.current,
+            onOrderOpenRequestHandled: handleOrderOpenRequestHandled
+          }))
+        : homePage();
+      case 'entre-lojas': return userHasPermission('entre-lojas') ? inlinePage('entre-lojas', EntreLojas) : homePage();
+      case 'agenda': return userHasPermission('agenda') ? inlinePage('agenda', Agenda) : homePage();
+      case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : homePage();
+      case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : homePage();
+      case 'meu-espaco': return userHasPermission('meu-espaco')
+        ? inlinePage('meu-espaco', () => MeuEspaco({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay }))
+        : homePage();
           case 'financeiro': return userHasPermission('financeiro') ? (
             <FinancialControlPanel
               data={data}
@@ -12137,11 +12194,11 @@ const handleSubmit = async (e) => {
               currentStoreId={currentStoreIdForDisplay}
               user={user}
             />
-          ) : <PaginaInicial />;
-      case 'configuracoes': return userHasPermission('configuracoes') ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} availableStores={availableStores} storeInfoMap={storeInfoMap} resolveActiveStoreForWrite={resolveActiveStoreForWrite} selectedStoreId={selectedStoreId} /> : <PaginaInicial />;
-      case 'financeiro': return user?.role === 'admin' ? <Financeiro data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} /> : <PaginaInicial />;
-      case 'configuracoes': return user?.role === 'admin' ? <Configuracoes user={user} setConfirmDelete={setConfirmDelete} data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} /> : <PaginaInicial />;
-      default: return user ? <PlaceholderPage title={allMenuItems.find(i=>i.id===currentPage)?.label || "Página"} /> : <PaginaInicial />;
+          ) : homePage();
+      case 'configuracoes': return userHasPermission('configuracoes')
+        ? inlinePage('configuracoes', () => Configuracoes({ user, setConfirmDelete, data, addItem, updateItem, deleteItem, availableStores, storeInfoMap, resolveActiveStoreForWrite, selectedStoreId }))
+        : homePage();
+      default: return user ? <PlaceholderPage title={allMenuItems.find(i=>i.id===currentPage)?.label || "Página"} /> : homePage();
     }
   };
 
@@ -12183,7 +12240,7 @@ const handleSubmit = async (e) => {
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto"> {/* Adicionado overflow */}
                 {menuItems.map((item) => (
-                    <button key={item.id} onClick={() => {setCurrentPage(item.id); if(!isDesktop) setSidebarOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${currentPage === item.id ? 'bg-pink-100 text-pink-700' : 'hover:bg-pink-50 text-gray-700'} ${!sidebarOpen ? 'justify-center' : ''}`}>
+                    <button key={item.id} onClick={() => { if (requestPageChange(item.id) && !isDesktop) setSidebarOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${currentPage === item.id ? 'bg-pink-100 text-pink-700' : 'hover:bg-pink-50 text-gray-700'} ${!sidebarOpen ? 'justify-center' : ''}`}>
                     <item.icon className="w-5 h-5 flex-shrink-0" />
                     {(sidebarOpen || !isDesktop) && <span className="font-medium text-sm">{item.label}</span>} {/* Diminuído font size */}
                     </button>
@@ -12329,7 +12386,7 @@ const handleSubmit = async (e) => {
 					{showUserMenu && user && (
 						<div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl z-20 border p-2">
 							<p className="px-2 py-1 text-sm text-gray-700 font-semibold truncate">{user.auth.displayName || user.auth.email}</p>
-                            <button onClick={() => { setCurrentPage('configuracoes'); setShowUserMenu(false); }} className="w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded">Configurações</button>
+                            <button onClick={() => { if (requestPageChange('configuracoes')) setShowUserMenu(false); }} className="w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded">Configurações</button>
                             <button onClick={handleLogout} className="w-full text-left px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded">Sair</button>
 						</div>
 					)}
@@ -12358,7 +12415,11 @@ const handleSubmit = async (e) => {
         availableStores={availableStores}
         storeInfoMap={storeInfoMap}
         onCreateStore={handleCreateStore}
-        onSelectStore={selectStoreById}
+        onSelectStore={(storeId) => {
+          if (confirmDiscardUnsavedChanges()) {
+            selectStoreById(storeId);
+          }
+        }}
         canCreate={canCreateStores}
         allowAllOption={user?.role === ROLE_OWNER}
         currentStoreId={currentStoreIdForDisplay}
