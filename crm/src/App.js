@@ -11913,6 +11913,7 @@ const handleSubmit = async (e) => {
     const daysOfWeek = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
     const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
     const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    const calendarWeekCount = Math.ceil((firstDayOfMonth + daysInMonth) / daysOfWeek.length);
 
     const changeMonth = (offset) => {
         setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
@@ -11992,25 +11993,28 @@ const handleSubmit = async (e) => {
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
-             <div>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Agenda</h1>
+        <div className="p-3 sm:p-4 md:p-6 space-y-4 md:space-y-5 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen md:min-h-0 md:h-full md:flex md:flex-col">
+             <div className="shrink-0">
+                <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Agenda</h1>
                 <p className="text-gray-600 mt-1">Visualize entregas programadas, lembretes, feriados e aniversários</p>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 md:p-6">
-                <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-2.5 sm:p-4 md:p-5 md:flex-1 md:min-h-0 md:flex md:flex-col">
+                <div className="flex justify-between items-center mb-2 sm:mb-4 shrink-0">
                     <Button variant="secondary" size="sm" onClick={() => changeMonth(-1)}><ChevronLeft/></Button>
-                    <h2 className="text-xl font-bold text-gray-800 text-center">{currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
+                    <h2 className="text-base sm:text-xl font-bold text-gray-800 text-center">{currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
                     <Button variant="secondary" size="sm" onClick={() => changeMonth(1)}><ChevronRight/></Button>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 text-center text-sm font-semibold text-gray-600">
-                    {daysOfWeek.map(day => <div key={day} className="py-2">{day}</div>)}
+                <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm font-semibold text-gray-600 shrink-0">
+                    {daysOfWeek.map(day => <div key={day} className="py-1.5 sm:py-2">{day}</div>)}
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 md:gap-2">
-                    {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} className="border rounded-lg aspect-square"></div>)}
+                <div
+                    className="grid grid-cols-7 gap-1 md:gap-2 md:flex-1 md:min-h-0"
+                    style={{ gridTemplateRows: `repeat(${calendarWeekCount}, minmax(0, 1fr))` }}
+                >
+                    {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} className="border rounded-lg min-h-[4.25rem] sm:min-h-[5.5rem] md:min-h-0"></div>)}
                     {Array.from({ length: daysInMonth }).map((_, day) => {
                         const dayNumber = day + 1;
                         const dateKey = formatDateKey(currentDate.getFullYear(), currentDate.getMonth(), dayNumber);
@@ -12031,13 +12035,22 @@ const handleSubmit = async (e) => {
                         const hasEvents = pedidosDoDia.length > 0 || aniversariantesDoDia.length > 0 || lembretesDoDia.length > 0 || Boolean(feriado);
                         
                         return (
-                            <div
+                            <button
+                                type="button"
                                 key={dayNumber}
                                 onClick={() => openAgendaDay({ day: dayNumber, dateKey, pedidos: pedidosDoDia, aniversariantes: aniversariantesDoDia, lembretes: lembretesDoDia, feriado })}
-                                className={`border rounded-lg p-1 md:p-2 aspect-square flex flex-col cursor-pointer transition-colors hover:bg-pink-50 ${isToday ? 'bg-pink-100' : ''} ${feriado ? 'border-red-300 bg-red-50/70' : ''}`}
+                                className={`border rounded-lg p-1 md:p-2 min-h-[4.25rem] sm:min-h-[5.5rem] md:min-h-0 flex flex-col text-left cursor-pointer transition-colors hover:bg-pink-50 overflow-hidden ${isToday ? 'bg-pink-100' : ''} ${feriado ? 'border-red-300 bg-red-50/70' : ''}`}
                             >
                                 <span className={`font-bold text-xs md:text-base ${feriado ? 'text-red-700' : (isToday ? 'text-pink-600' : 'text-gray-800')}`}>{dayNumber}</span>
-                                <div className="mt-1 space-y-1 overflow-y-auto text-[10px] md:text-xs">
+                                {hasEvents && (
+                                    <div className="mt-auto flex flex-wrap gap-0.5 sm:hidden" aria-hidden="true">
+                                        {feriado && <span className="h-1.5 w-1.5 rounded-full bg-red-600" />}
+                                        {pedidosDoDia.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />}
+                                        {lembretesDoDia.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />}
+                                        {aniversariantesDoDia.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />}
+                                    </div>
+                                )}
+                                <div className="mt-1 hidden sm:block space-y-1 overflow-y-auto text-[10px] md:text-xs">
                                     {feriado && (
                                         <div className="w-full bg-red-600 text-white rounded px-1 truncate" title={feriado}>
                                             {feriado}
@@ -12062,7 +12075,7 @@ const handleSubmit = async (e) => {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>
