@@ -9086,6 +9086,8 @@ const handleSubmit = async (e) => {
     const [startDateFilter, setStartDateFilter] = useState('');
     const [endDateFilter, setEndDateFilter] = useState('');
     const [showTransferColumnsMenu, setShowTransferColumnsMenu] = useState(false);
+    const transferColumnsButtonRef = useRef(null);
+    const transferColumnsMenuRef = useRef(null);
     const [visibleTransferColumns, setVisibleTransferColumns] = usePersistentState('entreLojasVisibleTransferColumns', DEFAULT_VISIBLE_TRANSFER_COLUMNS);
     const [closingStatusFilter, setClosingStatusFilter] = useState('todos');
     const [closingOrigemFilter, setClosingOrigemFilter] = useState('todos');
@@ -9178,6 +9180,59 @@ const handleSubmit = async (e) => {
         return nextColumns.length ? nextColumns : currentColumns;
       });
     }, [setVisibleTransferColumns]);
+
+    useEffect(() => {
+      if (!showTransferColumnsMenu) return undefined;
+
+      const closeOnOutsidePointer = (event) => {
+        if (
+          transferColumnsButtonRef.current?.contains(event.target)
+          || transferColumnsMenuRef.current?.contains(event.target)
+        ) {
+          return;
+        }
+        setShowTransferColumnsMenu(false);
+      };
+      const closeOnEscape = (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        setShowTransferColumnsMenu(false);
+        transferColumnsButtonRef.current?.focus();
+      };
+
+      document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+      document.addEventListener('keydown', closeOnEscape);
+      return () => {
+        document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+        document.removeEventListener('keydown', closeOnEscape);
+      };
+    }, [showTransferColumnsMenu]);
+
+    useEffect(() => {
+      if (
+        showTransferColumnsMenu
+        && (
+          moduleTab !== 'remessas'
+          || showModal
+          || showClosingModal
+          || viewingClosing
+          || viewingTransfer
+          || showAddTransfersModal
+          || transferToMove
+        )
+      ) {
+        setShowTransferColumnsMenu(false);
+      }
+    }, [
+      moduleTab,
+      showAddTransfersModal,
+      showClosingModal,
+      showModal,
+      showTransferColumnsMenu,
+      transferToMove,
+      viewingClosing,
+      viewingTransfer
+    ]);
 
     const DEBUG_ENTRE_LOJAS_SYNC = false;
     const entreLojasLog = (...args) => {
@@ -11225,17 +11280,26 @@ const handleSubmit = async (e) => {
             </div>
             <div className="relative">
               <button
+                ref={transferColumnsButtonRef}
                 type="button"
                 onClick={() => setShowTransferColumnsMenu((previous) => !previous)}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-pink-50 hover:text-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
                 title="Selecionar colunas"
                 aria-label="Selecionar colunas"
+                aria-haspopup="dialog"
+                aria-controls="transfer-columns-menu"
                 aria-expanded={showTransferColumnsMenu}
               >
                 <Settings className="h-5 w-5" />
               </button>
               {showTransferColumnsMenu && (
-                <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                <div
+                  id="transfer-columns-menu"
+                  ref={transferColumnsMenuRef}
+                  role="dialog"
+                  aria-label="Colunas visíveis"
+                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+                >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-gray-800">Colunas visíveis</p>
                     <button
