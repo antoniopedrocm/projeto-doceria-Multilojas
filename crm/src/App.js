@@ -846,7 +846,20 @@ const hasUnsavedFormChanges = () => (
 const InlinePageHost = ({ renderPage }) => renderPage();
 
 // Componentes de UI
-const Modal = ({ isOpen, onClose, title, children, size = "md" }) => {
+const Modal = ({ isOpen, onClose, title, children, size = "md", closeOnEscape = false }) => {
+  useEffect(() => {
+    if (!isOpen || !closeOnEscape) return undefined;
+
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeOnEscape, isOpen, onClose]);
+
   if (!isOpen) return null;
   const sizeClasses = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-4xl" };
   return ( <div className="fixed inset-0 z-50 flex items-center justify-center p-4"> <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} /> <div className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col`}> <div className="flex items-center justify-between p-6 border-b border-gray-100"> <h2 className="text-xl font-semibold text-gray-800">{title}</h2> <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"> <X className="w-5 h-5" /> </button> </div> <div className="p-6 overflow-y-auto"> {children} </div> </div> </div> );
@@ -2986,8 +2999,12 @@ function App() {
   const [pedidosConnectivityStatus, setPedidosConnectivityStatus] = useState('online');
   const [pendingOrders, setPendingOrders] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const notificationsButtonRef = useRef(null);
+  const notificationsMenuRef = useRef(null);
   const pendingOrderOpenRequestRef = useRef(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuButtonRef = useRef(null);
+  const userMenuRef = useRef(null);
 
   const isiOS = useMemo(() => {
     const platform = Capacitor.getPlatform();
@@ -3124,6 +3141,47 @@ function App() {
     setCurrentPage(pageId);
     return true;
   }, [confirmDiscardUnsavedChanges, setCurrentPage]);
+
+  useEffect(() => {
+    if (!showNotifications && !showUserMenu) return undefined;
+
+    const closeOnOutsidePointer = (event) => {
+      if (
+        showNotifications
+        && !notificationsButtonRef.current?.contains(event.target)
+        && !notificationsMenuRef.current?.contains(event.target)
+      ) {
+        setShowNotifications(false);
+      }
+      if (
+        showUserMenu
+        && !userMenuButtonRef.current?.contains(event.target)
+        && !userMenuRef.current?.contains(event.target)
+      ) {
+        setShowUserMenu(false);
+      }
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+
+      if (showNotifications) {
+        setShowNotifications(false);
+        notificationsButtonRef.current?.focus();
+      }
+      if (showUserMenu) {
+        setShowUserMenu(false);
+        userMenuButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showNotifications, showUserMenu]);
 
   useEffect(() => {
     setFirestoreTelemetryContext({
@@ -12399,7 +12457,20 @@ const handleSubmit = async (e) => {
             <div className="flex items-center gap-4">
                                 {user && (
                                         <div className="relative">
-                                                <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 rounded-full hover:bg-gray-100">
+                                                <button
+                                                    ref={notificationsButtonRef}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setShowUserMenu(false);
+                                                        setShowLogin(false);
+                                                        setShowNotifications((previous) => !previous);
+                                                    }}
+                                                    className="relative p-2 rounded-full hover:bg-gray-100"
+                                                    aria-label="Notificações"
+                                                    aria-haspopup="dialog"
+                                                    aria-controls="notifications-menu"
+                                                    aria-expanded={showNotifications}
+                                                >
 							<Bell className="w-5 h-5 text-gray-600" />
 							{pendingOrders.length > 0 && 
 								<span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center animate-pulse">
@@ -12408,7 +12479,13 @@ const handleSubmit = async (e) => {
 							}
 						</button>
 						{showNotifications && (
-							<div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-20 border">
+							<div
+                                id="notifications-menu"
+                                ref={notificationsMenuRef}
+                                role="dialog"
+                                aria-label="Pedidos pendentes"
+                                className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-20 border"
+                            >
 								<div className="p-4 font-bold border-b">Pedidos Pendentes ({pendingOrders.length})</div>
 								<div className="p-2 max-h-96 overflow-y-auto">
 									{pendingOrders.length > 0 ? (
@@ -12435,20 +12512,22 @@ const handleSubmit = async (e) => {
 				)}
 				
 				<div className="relative">
-					<button onClick={() => {
+					<button ref={userMenuButtonRef} type="button" onClick={() => {
+                        setShowNotifications(false);
 						if (!user) {
-							setShowLogin(true);
+							setShowLogin((previous) => !previous);
+                            setShowUserMenu(false);
 							setShowPasswordReset(false);
 							setPasswordResetMessage({ text: '', type: '' });
 						} else {
-							setShowUserMenu(!showUserMenu);
+							setShowUserMenu((previous) => !previous);
 						}
-					}} className="p-2 rounded-full hover:bg-gray-100">
+					}} className="p-2 rounded-full hover:bg-gray-100" aria-label={user ? 'Menu do usuário' : 'Entrar'} aria-haspopup={user ? 'menu' : 'dialog'} aria-controls={user ? 'user-menu' : undefined} aria-expanded={user ? showUserMenu : showLogin}>
 						<UserIcon className="w-6 h-6 text-gray-600" />
 					</button>
 					{user && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white"></span>}
 					{showUserMenu && user && (
-						<div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl z-20 border p-2">
+						<div id="user-menu" ref={userMenuRef} role="menu" aria-label="Conta do usuário" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-xl z-20 border p-2">
 							<p className="px-2 py-1 text-sm text-gray-700 font-semibold truncate">{user.auth.displayName || user.auth.email}</p>
                             <button onClick={() => { if (requestPageChange('configuracoes')) setShowUserMenu(false); }} className="w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded">Configurações</button>
                             <button onClick={handleLogout} className="w-full text-left px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded">Sair</button>
@@ -12490,7 +12569,7 @@ const handleSubmit = async (e) => {
         isCreatingStore={isCreatingStore}
       />
 
-      <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' });}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm">
+      <Modal isOpen={showLogin} onClose={() => {setShowLogin(false); setLoginError(''); setPasswordResetMessage({ text: '', type: '' });}} title={showPasswordReset ? "Recuperar Senha" : "Login"} size="sm" closeOnEscape>
         {showPasswordReset ? (
             <div className="space-y-4">
                 <p className="text-sm text-gray-600">Insira seu e-mail para enviarmos um link de recuperação.</p>
