@@ -2098,7 +2098,7 @@ exports.syncConfirmedTransferToFinancialEntry = onDocumentUpdated({
 });
 
 exports.reconcileConfirmedTransferFinancialRecords = onSchedule({
-    schedule: '30 3 * * *',
+    schedule: 'every 15 minutes',
     timeZone: DEFAULT_STORE_TIMEZONE,
     region: 'southamerica-east1',
 }, async () => {
