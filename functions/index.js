@@ -15,6 +15,7 @@ const admin = require("firebase-admin");
 const express = require("express");
 const cors = require("cors");
 const crypto = require('crypto');
+const {createFiscalFunctions} = require('./fiscal');
 
 // Inicializa o Firebase Admin SDK
 admin.initializeApp();
@@ -26,6 +27,7 @@ const ROLE_OWNER = 'dono';
 const STORE_ALL_KEY = '__all__';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_ACCOUNTANT = 'contador';
 const ROLE_CLIENT = 'cliente';
 const MENU_PERMISSION_KEYS = [
   'pagina-inicial',
@@ -33,21 +35,25 @@ const MENU_PERMISSION_KEYS = [
   'clientes',
   'pedidos',
   'produtos',
+  'entre-lojas',
   'agenda',
   'fornecedores',
   'relatorios',
   'meu-espaco',
   'financeiro',
+  'nota-fiscal',
   'configuracoes',
 ];
+const ACCOUNTANT_RESTRICTED_MODULES = new Set(['configuracoes']);
 
 const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return ROLE_ATTENDANT;
   const value = role.toLowerCase();
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT].includes(value)) {
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_ACCOUNTANT, ROLE_CLIENT].includes(value)) {
     return value;
   }
   if (value === 'client') return ROLE_CLIENT;
+  if (value === 'accountant') return ROLE_ACCOUNTANT;
   if (value === 'admin') return ROLE_OWNER;
   return ROLE_ATTENDANT;
 };
@@ -75,12 +81,25 @@ const getDefaultPermissionsForRole = (role) => {
       clientes: true,
       pedidos: true,
       produtos: true,
+      'entre-lojas': true,
       agenda: true,
       fornecedores: true,
       relatorios: true,
       'meu-espaco': true,
       financeiro: true,
+      'nota-fiscal': true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_ACCOUNTANT) {
+    return {
+      ...basePermissions,
+      'pagina-inicial': true,
+      dashboard: true,
+      relatorios: true,
+      financeiro: true,
+      'nota-fiscal': true,
     };
   }
 
@@ -109,6 +128,10 @@ const sanitizePermissions = (permissions, role) => {
   }
 
   return MENU_PERMISSION_KEYS.reduce((acc, key) => {
+    if (normalizeRole(role) === ROLE_ACCOUNTANT && ACCOUNTANT_RESTRICTED_MODULES.has(key)) {
+      acc[key] = false;
+      return acc;
+    }
     if (Object.prototype.hasOwnProperty.call(permissions, key)) {
       acc[key] = Boolean(permissions[key]);
     } else {
@@ -185,6 +208,29 @@ const verifyManagementAccess = async (uid) => {
   }
 
   throw new HttpsError('permission-denied', 'Você não tem permissão para realizar esta ação.');
+};
+
+const verifyStoreReadAccess = async (uid) => {
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
+  }
+  const profile = await getUserProfile(uid);
+  const role = normalizeRole(profile.role);
+  const stores = extractStoreIds(profile);
+  const permissions = await getUserPermissions(uid, role);
+
+  if (role === ROLE_OWNER) {
+    return {role, stores, allStores: stores.length === 0, permissions};
+  }
+
+  if ([ROLE_MANAGER, ROLE_ACCOUNTANT].includes(role)) {
+    if (!stores.length) {
+      throw new HttpsError('permission-denied', 'Este usuário precisa estar associado a pelo menos uma loja.');
+    }
+    return {role, stores, allStores: false, permissions};
+  }
+
+  throw new HttpsError('permission-denied', 'Você não tem permissão para consultar esta operação.');
 };
 
 const requireStoreId = (req, res) => {
@@ -2256,3 +2302,15 @@ exports.notifyNewOrder = onDocumentCreated({
         logger.error("Erro ao enviar notificações de novo pedido:", error);
     }
 });
+
+Object.assign(exports, createFiscalFunctions({
+    admin,
+    db,
+    onCall,
+    HttpsError,
+    logger,
+    verifyManagementAccess,
+    verifyStoreReadAccess,
+    userHasAccessToStores,
+    STORE_ALL_KEY,
+}));

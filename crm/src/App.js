@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, ShoppingCart, Package, Calendar, Truck, DollarSign, BarChart3,
   Search, Bell, Menu, User as UserIcon, Settings, LogOut, Plus, Heart,
   Clock, Edit, Trash2, Eye, X, Save, MessageCircle, Cake, Gift, ChevronLeft, ChevronRight, Printer, Home, Store, BookOpen, Instagram, MapPin, Image as ImageIcon, MessageSquare, VolumeX, ArrowUpCircle, ArrowDownCircle, Banknote, PackagePlus, Ticket,
-  Key, ArrowLeftRight // Ícone adicionado
+  Key, ArrowLeftRight, FileText, AlertTriangle, RefreshCw, CheckCircle, Download // Ícone adicionado
 } from 'lucide-react';
 
 // --- CORREÇÃO ---
@@ -52,9 +52,25 @@ const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
 const ROLE_ATTENDANT = 'atendente';
+const ROLE_ACCOUNTANT = 'contador';
 const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
 const STORE_ALL_KEY = '__all__';
+const DEFAULT_NCM_PRODUCT = '19059090';
+const NCM_PRODUCT_OPTIONS = [
+  { value: '19059090', label: '1905.90.90 - bolo, bolo de pote, torta, brownie, cupcake etc.' },
+  { value: '17049090', label: '1704.90.90 - doces e confeitos sem cacau' },
+  { value: '18069000', label: '1806.90.00 - produtos predominantemente de chocolate/cacau' },
+];
+const DEFAULT_CFOP_OPERATION = '5101';
+const CFOP_OPERATION_OPTIONS = [
+  { value: '5101', label: '5101 - Produção própria dentro de GO' },
+  { value: '5102', label: '5102 - Revenda dentro de GO' },
+  { value: '6101', label: '6101 - Produção própria interestadual' },
+  { value: '6107', label: '6107 - Produção própria interestadual para não contribuinte' },
+  { value: '6102', label: '6102 - Revenda interestadual' },
+  { value: '6108', label: '6108 - Revenda interestadual para não contribuinte' },
+];
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const DEFAULT_RECEITA_CATEGORIES = ['Bolos', 'Doces', 'Salgados', 'Bebidas', 'Outros'];
 const TRANSFER_TABLE_COLUMN_OPTIONS = [
@@ -82,6 +98,30 @@ const AUTH_PROFILE_CACHE_PREFIX = 'auth-profile-cache-v1';
 const AUTH_STATE_READY_TIMEOUT_MS = 4000;
 const AUTH_TOKEN_REFRESH_TIMEOUT_MS = 2500;
 const AUTH_SILENT_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
+
+const normalizeFiscalCode = (value) => String(value || '').replace(/\D/g, '');
+const formatNcmCode = (value) => {
+  const digits = normalizeFiscalCode(value);
+  return digits.length === 8 ? `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6)}` : String(value || '');
+};
+const downloadBase64File = (base64, filename, contentType = 'application/octet-stream') => {
+  const binary = atob(base64 || '');
+  const chunks = [];
+  for (let offset = 0; offset < binary.length; offset += 1024) {
+    const slice = binary.slice(offset, offset + 1024);
+    const bytes = new Uint8Array(slice.length);
+    for (let i = 0; i < slice.length; i += 1) bytes[i] = slice.charCodeAt(i);
+    chunks.push(bytes);
+  }
+  const url = URL.createObjectURL(new Blob(chunks, { type: contentType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'arquivo';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
@@ -300,8 +340,10 @@ const MENU_PERMISSION_KEYS = [
   'relatorios',
   'meu-espaco',
   'financeiro',
+  'nota-fiscal',
   'configuracoes'
 ];
+const ACCOUNTANT_RESTRICTED_MODULES = new Set(['configuracoes']);
 
 const buildStoreCollectionPath = (storeId, collectionName, useLegacyPath = false) => {
   const shouldUseConfigPath = CONFIG_COLLECTIONS.has(collectionName) && !useLegacyPath;
@@ -490,6 +532,8 @@ const COLLECTIONS_TO_SYNC = [
   'kardex',
   'perdasDescarte',
   'receitas',
+  'fiscalProducts',
+  'invoices',
   'agendaLembretes',
   'logs',
   'cupons',
@@ -557,6 +601,12 @@ const normalizeRole = (role) => {
     'cliente'
   ]);
 
+  const accountantAliases = new Set([
+    ROLE_ACCOUNTANT,
+    'accountant',
+    'contabilidade'
+  ]);
+
   if (ownerAliases.has(normalizedValue)) {
     return ROLE_OWNER;
   }
@@ -569,11 +619,15 @@ const normalizeRole = (role) => {
     return ROLE_ATTENDANT;
   }
 
+  if (accountantAliases.has(normalizedValue)) {
+    return ROLE_ACCOUNTANT;
+  }
+
   if (clientAliases.has(normalizedValue)) {
     return ROLE_CLIENT;
   }
 
-  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT].includes(value)) {
+  if ([ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_ACCOUNTANT, ROLE_CLIENT].includes(value)) {
     return value;
   }
 
@@ -602,7 +656,19 @@ const getDefaultPermissionsForRole = (role) => {
       relatorios: true,
       'meu-espaco': true,
       financeiro: true,
+      'nota-fiscal': true,
       configuracoes: true,
+    };
+  }
+
+  if (normalizedRole === ROLE_ACCOUNTANT) {
+    return {
+      ...base,
+      'pagina-inicial': true,
+      dashboard: true,
+      relatorios: true,
+      financeiro: true,
+      'nota-fiscal': true,
     };
   }
 
@@ -630,6 +696,10 @@ const sanitizePermissions = (permissions, role) => {
   if (!permissions || typeof permissions !== 'object') return defaults;
 
   return MENU_PERMISSION_KEYS.reduce((acc, key) => {
+    if (normalizeRole(role) === ROLE_ACCOUNTANT && ACCOUNTANT_RESTRICTED_MODULES.has(key)) {
+      acc[key] = false;
+      return acc;
+    }
     if (Object.prototype.hasOwnProperty.call(permissions, key)) {
       acc[key] = Boolean(permissions[key]);
     } else {
@@ -1316,6 +1386,68 @@ const getJSDate = (firestoreTimestamp) => {
   return isNaN(date.getTime()) ? null : date;
 };
 
+const toDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getCurrentMonthDateRange = () => {
+  const today = new Date();
+  return {
+    start: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+    end: toDateInputValue(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+  };
+};
+
+const parseDateInput = (value, endOfDay = false) => {
+  if (!value) return null;
+  const [year, month, day] = String(value).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+};
+
+const isDateInRange = (value, startValue, endValue) => {
+  const date = getJSDate(value);
+  if (!date) return false;
+
+  const startDate = parseDateInput(startValue);
+  const endDate = parseDateInput(endValue, true);
+
+  if (startDate && date < startDate) return false;
+  if (endDate && date > endDate) return false;
+  return true;
+};
+
+const onlyDigitsText = (value) => String(value || '').replace(/\D/g, '');
+
+const normalizeSearchText = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .trim();
+
+const formatFiscalNumber = (value, size = 9) => {
+  const digits = onlyDigitsText(value);
+  return digits ? digits.padStart(size, '0') : '-';
+};
+
+const formatFiscalSeries = (value) => {
+  const digits = onlyDigitsText(value);
+  return digits ? digits.padStart(3, '0') : '-';
+};
+
+const formatCurrencyBR = (value) =>
+  (Number(value) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const maskCpfCnpj = (value) => {
+  const digits = onlyDigitsText(value);
+  if (digits.length === 11) return `${digits.slice(0, 3)}.***.***-${digits.slice(9)}`;
+  if (digits.length === 14) return `${digits.slice(0, 2)}.***.***/****-${digits.slice(12)}`;
+  return digits || '-';
+};
+
 const padDatePart = (value) => String(value).padStart(2, '0');
 
 const formatDateKey = (year, monthIndex, day) => `${year}-${padDatePart(monthIndex + 1)}-${padDatePart(day)}`;
@@ -1379,6 +1511,35 @@ const getBrazilNationalHolidays = (year) => {
     acc[holiday.date] = holiday.name;
     return acc;
   }, {});
+};
+
+const ACCOUNTANT_COLLECTION_PERMISSIONS = {
+  produtos: ['produtos', 'relatorios'],
+  subcategorias: ['produtos'],
+  categoriasFornecedores: ['fornecedores'],
+  categoriasReceitas: ['fornecedores'],
+  contas_a_pagar: ['financeiro', 'relatorios'],
+  contas_a_receber: ['financeiro', 'relatorios'],
+  fornecedores: ['fornecedores'],
+  pedidosCompra: ['fornecedores'],
+  estoque: ['fornecedores', 'relatorios'],
+  kardex: ['fornecedores', 'relatorios'],
+  perdasDescarte: ['fornecedores', 'relatorios'],
+  receitas: ['fornecedores'],
+  fiscalProducts: ['nota-fiscal'],
+  invoices: ['nota-fiscal', 'financeiro', 'relatorios'],
+  agendaLembretes: ['agenda'],
+  logs: ['configuracoes'],
+  cupons: ['configuracoes'],
+  pedidos: ['dashboard', 'pedidos', 'financeiro', 'relatorios', 'nota-fiscal'],
+};
+
+const getCollectionsToSyncForUser = (userProfile) => {
+  if (normalizeRole(userProfile?.role) !== ROLE_ACCOUNTANT) return COLLECTIONS_TO_SYNC;
+  const permissions = sanitizePermissions(userProfile.customPermissions || userProfile.permissions, userProfile.role);
+  return COLLECTIONS_TO_SYNC.filter((collectionName) => (
+    ACCOUNTANT_COLLECTION_PERMISSIONS[collectionName] || []
+  ).some((permission) => permissions[permission]));
 };
 
 // --- NOVOS COMPONENTES ---
@@ -3271,11 +3432,13 @@ function App() {
       return base;
     }
 
+    const collectionsToSync = getCollectionsToSyncForUser(user);
+
     storeIds.forEach((storeId) => {
       const storeData = storeCollectionsDataRef.current[storeId];
       if (!storeData) return;
 
-      COLLECTIONS_TO_SYNC.forEach((collectionName) => {
+      collectionsToSync.forEach((collectionName) => {
         const items = storeData[collectionName] || [];
         if (user.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY) {
           base[collectionName] = [
@@ -3814,10 +3977,11 @@ function App() {
                 return;
           }
 
-          const listenerScopeKey = `${userId || ''}:${Array.from(new Set(storeIds)).sort().join('|')}`;
+          const collectionsToSync = getCollectionsToSyncForUser(user);
+          const listenerScopeKey = `${userId || ''}:${Array.from(new Set(storeIds)).sort().join('|')}:${collectionsToSync.join('|')}`;
           const isRefreshingLoadedScope = loadedDataScopeRef.current === listenerScopeKey;
           let isMounted = true;
-          let pendingInitial = (storeIds.length * COLLECTIONS_TO_SYNC.length) + 1;
+          let pendingInitial = (storeIds.length * collectionsToSync.length) + 1;
           const unsubscribes = [];
 
           debugCacheSync('Iniciando listeners por loja', { storeIds, uid: userId });
@@ -3900,7 +4064,7 @@ function App() {
           setupClientesListener();
 
           storeIds.forEach((storeId) => {
-                COLLECTIONS_TO_SYNC.forEach((collectionName) => {
+                collectionsToSync.forEach((collectionName) => {
                         const isConfigCollection = CONFIG_COLLECTIONS.has(collectionName);
                         const primaryQuery = query(getStoreCollectionRef(storeId, collectionName));
                         const legacyQuery = isConfigCollection ? query(getStoreCollectionRef(storeId, collectionName, true)) : null;
@@ -4803,6 +4967,7 @@ function App() {
     { id: 'relatorios', permission: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT] },
     { id: 'financeiro', permission: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
+    { id: 'nota-fiscal', permission: 'nota-fiscal', label: 'Nota Fiscal', icon: FileText, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ACCOUNTANT] },
     { id: 'configuracoes', permission: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
   ];
   const currentUserRole = user ? user.role : null;
@@ -7889,6 +8054,7 @@ const effectiveStoreName = useMemo(() => {
                         <option value={ROLE_CLIENT}>Cliente</option>
                         <option value={ROLE_ATTENDANT}>Atendente</option>
                         <option value={ROLE_MANAGER}>Gerente</option>
+                        <option value={ROLE_ACCOUNTANT}>Contador</option>
                         <option value={ROLE_OWNER}>Dono</option>
                     </Select>
 
@@ -7942,7 +8108,11 @@ const effectiveStoreName = useMemo(() => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm font-semibold text-gray-800">Permissões personalizadas</p>
-                                <p className="text-xs text-gray-500">Selecione quais menus o usuário pode acessar.</p>
+                                <p className="text-xs text-gray-500">
+                                    {normalizeRole(userFormData.role) === ROLE_ACCOUNTANT
+                                        ? 'Selecione os módulos que o contador pode consultar. Este papel é sempre somente leitura.'
+                                        : 'Selecione quais menus o usuário pode acessar.'}
+                                </p>
                             </div>
                             <div className="flex items-center gap-2">
                                 <label className="flex items-center gap-2 text-xs text-gray-600" title="Ative para personalizar o menu deste usuário">
@@ -7998,7 +8168,7 @@ const effectiveStoreName = useMemo(() => {
                                     <input
                                         type="checkbox"
                                         checked={Boolean(userFormData.permissions?.[item.id])}
-                                        disabled={!userFormData.applyCustomProfile}
+                                        disabled={!userFormData.applyCustomProfile || (normalizeRole(userFormData.role) === ROLE_ACCOUNTANT && ACCOUNTANT_RESTRICTED_MODULES.has(item.id))}
                                         onChange={(e) => {
                                             setUserFormData({
                                                 ...userFormData,
@@ -8010,6 +8180,9 @@ const effectiveStoreName = useMemo(() => {
                                         }}
                                     />
                                     {item.label}
+                                    {normalizeRole(userFormData.role) === ROLE_ACCOUNTANT && ACCOUNTANT_RESTRICTED_MODULES.has(item.id) && (
+                                        <span className="text-xs text-gray-400">(indisponível para leitura)</span>
+                                    )}
                                 </label>
                             ))}
                         </div>
@@ -12217,6 +12390,1545 @@ const handleSubmit = async (e) => {
   };
 
 
+  const NotaFiscal = ({
+    data,
+    addItem,
+    updateItem,
+    deleteItem,
+    setConfirmDelete,
+    effectiveStoreId,
+    selectedStoreId,
+    storeInfoMap,
+    currentUser
+  }) => {
+    const [activeTab, setActiveTab] = usePersistentState('nota_fiscal_activeTab', 'emitir');
+    const [orderSearch, setOrderSearch] = usePersistentState('nota_fiscal_orderSearch', '');
+    const [invoiceFilters, setInvoiceFilters] = useState(() => ({
+      search: '',
+      status: 'all',
+      issuerDocument: '',
+      minValue: '',
+      maxValue: '',
+      key: '',
+      number: '',
+      series: '',
+      orderId: '',
+      customerDocument: '',
+      customerName: '',
+      protocol: '',
+      paymentMethod: '',
+      reason: '',
+      ...getCurrentMonthDateRange()
+    }));
+    const [showAdvancedInvoiceFilters, setShowAdvancedInvoiceFilters] = useState(false);
+    const [modelOverride, setModelOverride] = usePersistentState('nota_fiscal_modelOverride', '');
+    const [operationCfop, setOperationCfop] = usePersistentState('nota_fiscal_operationCfop', DEFAULT_CFOP_OPERATION);
+    const [busyOrderId, setBusyOrderId] = useState('');
+    const [message, setMessage] = useState(null);
+    const [validationByOrder, setValidationByOrder] = useState({});
+    const [showProductModal, setShowProductModal] = useState(false);
+    const [editingFiscalProduct, setEditingFiscalProduct] = useState(null);
+    const [productCorrectionOrderId, setProductCorrectionOrderId] = useState('');
+    const [orderToIssue, setOrderToIssue] = useState(null);
+    const [issueAdditionalInfo, setIssueAdditionalInfo] = useState('');
+    const [issueError, setIssueError] = useState('');
+    const [invoiceToCancel, setInvoiceToCancel] = useState(null);
+    const [invoiceToView, setInvoiceToView] = useState(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [cancelError, setCancelError] = useState('');
+    const [productForm, setProductForm] = useState({
+      productId: '',
+      code: '',
+      description: '',
+      ncm: DEFAULT_NCM_PRODUCT,
+      cfopNfe: DEFAULT_CFOP_OPERATION,
+      cfopNfce: DEFAULT_CFOP_OPERATION,
+      unit: 'un',
+      origin: 0,
+      csosn: '102',
+      pisCst: '49',
+      cofinsCst: '49',
+      cBenef: ''
+    });
+    const [issuerForm, setIssuerForm] = useState({
+      cnpj: '37185245000140',
+      legalName: 'ANA GUIMARAES DOCERIA LTDA',
+      tradeName: 'ANA GUIMARAES DOCERIA',
+      stateRegistration: '108911454',
+      taxRegime: 1,
+      address: {
+        street: 'AV COMERCIAL',
+        number: '441',
+        district: 'JD NOVA ESPERANCA',
+        city: 'Goiania',
+        cityCode: '5208707',
+        state: 'GO',
+        zip: '74465120',
+        phone: '62993398602'
+      }
+    });
+    const [settingsForm, setSettingsForm] = useState({
+      environment: 'homologation',
+      nfeSeries: 1,
+      nfceSeries: 1,
+      operationNature: 'Venda de producao do estabelecimento',
+      defaultPaymentMethodCode: '99',
+      defaultPresence: 2,
+      serviceUrl: ''
+    });
+    const [configLoading, setConfigLoading] = useState(false);
+    const [configSaving, setConfigSaving] = useState(false);
+    const [certificateInfo, setCertificateInfo] = useState(null);
+    const [certificateUploading, setCertificateUploading] = useState(false);
+    const [platformService, setPlatformService] = useState(null);
+    const [certificateForm, setCertificateForm] = useState({
+      file: null,
+      password: '',
+      cscId: '',
+      csc: ''
+    });
+    const isReadOnly = currentUser?.role === ROLE_ACCOUNTANT;
+    const isPlatformAdmin = currentUser?.role === ROLE_OWNER && currentUser?.canAccessAllStores;
+    const canViewFullFiscalDocument = [ROLE_OWNER, ROLE_MANAGER, ROLE_ACCOUNTANT].includes(currentUser?.role);
+
+    const storeName = effectiveStoreId
+      ? (storeInfoMap[effectiveStoreId]?.nome || effectiveStoreId)
+      : (selectedStoreId === STORE_ALL_KEY ? 'Todas as lojas' : 'Nenhuma loja selecionada');
+
+    const invoices = data.invoices || [];
+    const fiscalProducts = data.fiscalProducts || [];
+    const orders = data.pedidos || [];
+
+    const ordersById = useMemo(() => {
+      const map = new Map();
+      orders.forEach((order) => {
+        if (order.id) map.set(order.id, order);
+      });
+      return map;
+    }, [orders]);
+
+    const invoicesByOrderId = useMemo(() => {
+      const map = new Map();
+      invoices.forEach((invoice) => {
+        if (!invoice.orderId) return;
+        const current = map.get(invoice.orderId);
+        const currentDate = getJSDate(current?.createdAt)?.getTime() || 0;
+        const nextDate = getJSDate(invoice.createdAt)?.getTime() || 0;
+        if (!current || nextDate >= currentDate) map.set(invoice.orderId, invoice);
+      });
+      return map;
+    }, [invoices]);
+
+    const invoiceStatusFilters = [
+      { value: 'all', label: 'Todos os status' },
+      { value: 'authorized', label: 'Autorizada' },
+      { value: 'rejected', label: 'Rejeitada' },
+      { value: 'pending', label: 'Pendente' },
+      { value: 'cancelled', label: 'Cancelada' },
+      { value: 'inutilized', label: 'Inutilizada' }
+    ];
+
+    const statusLabel = {
+      validating: 'Validando',
+      authorized: 'Autorizada',
+      rejected: 'Rejeitada',
+      cancelled: 'Cancelada',
+      denied: 'Denegada',
+      pending: 'Pendente',
+      inutilized: 'Inutilizada',
+      pending_return: 'Retorno pendente'
+    };
+
+    const statusClass = {
+      validating: 'bg-blue-100 text-blue-800',
+      authorized: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+      cancelled: 'bg-red-50 text-red-700',
+      denied: 'bg-orange-100 text-orange-800',
+      pending: 'bg-yellow-100 text-yellow-800',
+      inutilized: 'bg-gray-100 text-gray-700',
+      pending_return: 'bg-yellow-100 text-yellow-800'
+    };
+
+    const formatDateTime = (value) => {
+      const date = getJSDate(value);
+      return date ? date.toLocaleString('pt-BR') : '-';
+    };
+
+    const setInvoiceFilter = (field, value) => {
+      setInvoiceFilters((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const resetInvoiceFiltersToCurrentMonth = () => {
+      setInvoiceFilters({
+        search: '',
+        status: 'all',
+        issuerDocument: '',
+        minValue: '',
+        maxValue: '',
+        key: '',
+        number: '',
+        series: '',
+        orderId: '',
+        customerDocument: '',
+        customerName: '',
+        protocol: '',
+        paymentMethod: '',
+        reason: '',
+        ...getCurrentMonthDateRange()
+      });
+    };
+
+    const getInvoiceOrder = useCallback((invoice) => ordersById.get(invoice?.orderId) || null, [ordersById]);
+
+    const getInvoiceCustomerName = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return invoice?.customerName
+        || invoice?.clienteNome
+        || invoice?.customer?.name
+        || invoice?.customer?.nome
+        || order?.clienteNome
+        || order?.customer?.name
+        || order?.cliente?.nome
+        || '-';
+    }, [getInvoiceOrder]);
+
+    const getInvoiceCustomerDocument = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return invoice?.customerDocument
+        || invoice?.customer?.document
+        || invoice?.customer?.cpf
+        || invoice?.customer?.cnpj
+        || order?.clienteDocumento
+        || order?.cpf
+        || order?.documento
+        || order?.customer?.document
+        || order?.customer?.cpf
+        || order?.fiscal?.customerDocument
+        || '';
+    }, [getInvoiceOrder]);
+
+    const getInvoiceIssuerDocument = useCallback((invoice) => (
+      invoice?.issuerDocument
+      || invoice?.issuer?.cnpj
+      || invoice?.serviceResult?.issuer?.cnpj
+      || issuerForm.cnpj
+      || ''
+    ), [issuerForm.cnpj]);
+
+    const getInvoiceValue = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return Number(
+        invoice?.total
+        ?? invoice?.valor
+        ?? invoice?.totals?.invoice
+        ?? invoice?.serviceResult?.totals?.invoice
+        ?? order?.total
+        ?? order?.valorTotal
+        ?? 0
+      ) || 0;
+    }, [getInvoiceOrder]);
+
+    const getInvoicePaymentMethod = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return invoice?.paymentMethod
+        || invoice?.payment?.method
+        || invoice?.serviceResult?.payment?.method
+        || order?.formaPagamento
+        || order?.paymentMethod
+        || '-';
+    }, [getInvoiceOrder]);
+
+    const getInvoiceItems = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      const rawItems = invoice?.items || invoice?.serviceResult?.items || order?.itens || order?.items || [];
+      return Array.isArray(rawItems) ? rawItems : [];
+    }, [getInvoiceOrder]);
+
+    const getInvoiceDiscount = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return Number(invoice?.discount ?? invoice?.desconto ?? order?.desconto ?? order?.cupom?.valorDesconto ?? 0) || 0;
+    }, [getInvoiceOrder]);
+
+    const getInvoiceFreight = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return Number(invoice?.freight ?? invoice?.frete ?? order?.frete ?? order?.taxaEntrega ?? 0) || 0;
+    }, [getInvoiceOrder]);
+
+    const getInvoiceChange = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return Number(invoice?.change ?? invoice?.troco ?? order?.troco ?? 0) || 0;
+    }, [getInvoiceOrder]);
+
+    const getInvoicePaidAmount = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return Number(invoice?.paidAmount ?? invoice?.payment?.amount ?? order?.valorPago ?? getInvoiceValue(invoice)) || 0;
+    }, [getInvoiceOrder, getInvoiceValue]);
+
+    const getOrderCustomerDocument = useCallback((order) => (
+      order?.clienteDocumento
+      || order?.cpf
+      || order?.documento
+      || order?.customer?.document
+      || order?.customer?.cpf
+      || order?.customer?.cnpj
+      || order?.fiscal?.customerDocument
+      || ''
+    ), []);
+
+    const getOrderValue = useCallback((order) => Number(order?.total ?? order?.valorTotal ?? order?.subtotal ?? 0) || 0, []);
+
+    const dateSearchValues = useCallback((value) => {
+      const date = getJSDate(value);
+      if (!date) return [];
+      return [
+        date.toLocaleDateString('pt-BR'),
+        date.toLocaleString('pt-BR'),
+        toDateInputValue(date)
+      ];
+    }, []);
+
+    const fiscalAddressText = (address = {}) => {
+      if (!address || typeof address !== 'object') return '-';
+      return [
+        [address.street || address.logradouro, address.number || address.numero].filter(Boolean).join(', '),
+        address.district || address.bairro,
+        address.zip || address.cep
+      ].filter(Boolean).join(' - ') || '-';
+    };
+
+    const fiscalCityText = (address = {}) => [address.city || address.cidade, address.state || address.uf].filter(Boolean).join('/') || '-';
+
+    const getOrderCustomerAddress = (invoice) => {
+      const order = getInvoiceOrder(invoice);
+      return invoice?.customer?.address
+        || order?.customer?.address
+        || order?.fiscal?.customerAddress
+        || order?.clienteEndereco
+        || order?.enderecoEntrega
+        || {};
+    };
+
+    const fiscalReturnReason = useCallback((invoice) => {
+      if (!invoice) return '';
+      const directReason = [
+        invoice.xMotivo,
+        invoice.serviceResult?.xMotivo,
+        invoice.error,
+        invoice.artifactError
+      ].find((value) => String(value || '').trim());
+      if (directReason) return String(directReason).trim();
+      if (Array.isArray(invoice.errors) && invoice.errors.length > 0) return invoice.errors.join(' ');
+      if (Array.isArray(invoice.serviceResult?.errors) && invoice.serviceResult.errors.length > 0) return invoice.serviceResult.errors.join(' ');
+      return '';
+    }, []);
+
+    const matchesInvoiceStatusFilter = useCallback((invoice) => {
+      const status = invoice?.status || '';
+      if (invoiceFilters.status === 'all') return true;
+      if (invoiceFilters.status === 'rejected') return ['rejected', 'denied'].includes(status);
+      if (invoiceFilters.status === 'pending') return ['validating', 'pending', 'pending_return'].includes(status);
+      if (invoiceFilters.status === 'inutilized') return ['inutilized', 'unused', 'voided'].includes(status);
+      return status === invoiceFilters.status;
+    }, [invoiceFilters.status]);
+
+    const matchesInvoiceFilterValue = (value, filterValue) => {
+      const filterText = normalizeSearchText(filterValue);
+      if (!filterText) return true;
+      const candidateText = normalizeSearchText(value);
+      const filterDigits = onlyDigitsText(filterValue);
+      const candidateDigits = onlyDigitsText(value);
+      return candidateText.includes(filterText) || (filterDigits && candidateDigits.includes(filterDigits));
+    };
+
+    const filteredInvoices = useMemo(() => {
+      const term = normalizeSearchText(invoiceFilters.search);
+      const termDigits = onlyDigitsText(invoiceFilters.search);
+      const minValue = invoiceFilters.minValue === '' ? null : Number(invoiceFilters.minValue);
+      const maxValue = invoiceFilters.maxValue === '' ? null : Number(invoiceFilters.maxValue);
+      return invoices
+        .filter((invoice) => isDateInRange(invoice.issuedAt || invoice.createdAt, invoiceFilters.start, invoiceFilters.end))
+        .filter(matchesInvoiceStatusFilter)
+        .filter((invoice) => {
+          const value = getInvoiceValue(invoice);
+          if (minValue !== null && Number.isFinite(minValue) && value < minValue) return false;
+          if (maxValue !== null && Number.isFinite(maxValue) && value > maxValue) return false;
+          return true;
+        })
+        .filter((invoice) => {
+          const reason = fiscalReturnReason(invoice);
+          if (!matchesInvoiceFilterValue(getInvoiceIssuerDocument(invoice), invoiceFilters.issuerDocument)) return false;
+          if (!matchesInvoiceFilterValue(invoice.key, invoiceFilters.key)) return false;
+          if (!matchesInvoiceFilterValue(formatFiscalNumber(invoice.number), invoiceFilters.number) && !matchesInvoiceFilterValue(invoice.number, invoiceFilters.number)) return false;
+          if (!matchesInvoiceFilterValue(formatFiscalSeries(invoice.series), invoiceFilters.series) && !matchesInvoiceFilterValue(invoice.series, invoiceFilters.series)) return false;
+          if (!matchesInvoiceFilterValue(invoice.orderId, invoiceFilters.orderId)) return false;
+          if (!matchesInvoiceFilterValue(getInvoiceCustomerDocument(invoice), invoiceFilters.customerDocument)) return false;
+          if (!matchesInvoiceFilterValue(getInvoiceCustomerName(invoice), invoiceFilters.customerName)) return false;
+          if (!matchesInvoiceFilterValue(invoice.protocol, invoiceFilters.protocol)) return false;
+          if (!matchesInvoiceFilterValue(getInvoicePaymentMethod(invoice), invoiceFilters.paymentMethod)) return false;
+          if (!matchesInvoiceFilterValue(reason, invoiceFilters.reason)) return false;
+          if (!term && !termDigits) return true;
+          const order = getInvoiceOrder(invoice);
+          const candidates = [
+            invoice.id,
+            invoice.orderId,
+            invoice.key,
+            invoice.number,
+            formatFiscalNumber(invoice.number),
+            invoice.series,
+            formatFiscalSeries(invoice.series),
+            invoice.model,
+            invoice.protocol,
+            getInvoiceIssuerDocument(invoice),
+            getInvoiceCustomerDocument(invoice),
+            getInvoiceCustomerName(invoice),
+            getInvoicePaymentMethod(invoice),
+            reason,
+            getInvoiceValue(invoice),
+            order?.id,
+            order?.clienteNome,
+            order?.codigo,
+            order?.codigoPedido,
+            order?.numeroPedido
+          ];
+          return candidates.some((value) => {
+            const text = normalizeSearchText(value);
+            const digits = onlyDigitsText(value);
+            return (term && text.includes(term)) || (termDigits && digits.includes(termDigits));
+          });
+        })
+        .sort((a, b) => (getJSDate(b.issuedAt || b.createdAt)?.getTime() || 0) - (getJSDate(a.issuedAt || a.createdAt)?.getTime() || 0));
+    }, [invoices, invoiceFilters, fiscalReturnReason, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceOrder, getInvoicePaymentMethod, getInvoiceValue, matchesInvoiceStatusFilter]);
+
+    const shouldShowFiscalReason = (invoice) => ['rejected', 'denied', 'pending_return'].includes(invoice?.status);
+
+    const fiscalStats = useMemo(() => ({
+      authorized: invoices.filter((item) => item.status === 'authorized').length,
+      rejected: invoices.filter((item) => item.status === 'rejected' || item.status === 'denied').length,
+      pending: invoices.filter((item) => item.status === 'validating' || item.status === 'pending_return').length,
+      products: fiscalProducts.length
+    }), [invoices, fiscalProducts]);
+
+    const eligibleOrders = useMemo(() => {
+      const term = normalizeSearchText(orderSearch);
+      const termDigits = onlyDigitsText(orderSearch);
+      return orders
+        .filter((order) => ['Finalizado', 'Aprovado', 'ready_for_invoice', 'approved'].includes(order.status) || order.approvedForInvoice)
+        .filter((order) => {
+          if (!term && !termDigits) return true;
+          const invoice = invoicesByOrderId.get(order.id);
+          const orderValue = getOrderValue(order);
+          const invoiceValue = invoice ? getInvoiceValue(invoice) : 0;
+          const candidates = [
+            order.id,
+            order.codigo,
+            order.codigoPedido,
+            order.numeroPedido,
+            order.clienteNome,
+            order.customer?.name,
+            order.cliente?.nome,
+            getOrderCustomerDocument(order),
+            getInvoiceCustomerDocument(invoice),
+            getInvoiceCustomerName(invoice),
+            getInvoiceIssuerDocument(invoice),
+            issuerForm.cnpj,
+            orderValue,
+            orderValue.toFixed(2),
+            formatCurrencyBR(orderValue),
+            invoiceValue,
+            invoiceValue ? invoiceValue.toFixed(2) : '',
+            invoiceValue ? formatCurrencyBR(invoiceValue) : '',
+            ...dateSearchValues(order.createdAt),
+            ...dateSearchValues(invoice?.createdAt),
+            ...dateSearchValues(invoice?.issuedAt),
+            order.formaPagamento,
+            order.status
+          ];
+          return candidates.some((value) => {
+            const text = normalizeSearchText(value);
+            const digits = onlyDigitsText(value);
+            return (term && text.includes(term)) || (termDigits && digits.includes(termDigits));
+          });
+        })
+        .sort((a, b) => (getJSDate(b.createdAt)?.getTime() || 0) - (getJSDate(a.createdAt)?.getTime() || 0));
+    }, [orders, orderSearch, dateSearchValues, invoicesByOrderId, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceValue, getOrderCustomerDocument, getOrderValue, issuerForm.cnpj]);
+
+    useEffect(() => {
+      if (!effectiveStoreId) return undefined;
+      setConfigLoading(true);
+      let cancelled = false;
+
+      const getConfiguration = httpsCallable(functions, 'fiscalGetConfiguration');
+      getConfiguration({ lojaId: effectiveStoreId }).then((response) => {
+        if (cancelled) return;
+        const configuration = response.data || {};
+        if (configuration.issuer) {
+          setIssuerForm((prev) => ({ ...prev, ...configuration.issuer, address: { ...prev.address, ...(configuration.issuer.address || {}) } }));
+        }
+        if (configuration.settings) {
+          setSettingsForm((prev) => ({ ...prev, ...configuration.settings, serviceUrl: '' }));
+        }
+        setCertificateInfo(configuration.certificate || null);
+        setPlatformService(configuration.platformService || null);
+      }).catch((error) => {
+        console.error('[NotaFiscal] Erro ao carregar configuração fiscal:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível carregar a configuração fiscal.' });
+      }).finally(() => {
+        if (!cancelled) setConfigLoading(false);
+      });
+
+      return () => { cancelled = true; };
+    }, [effectiveStoreId]);
+
+    const callablePayload = (extra = {}) => ({
+      lojaId: effectiveStoreId,
+      ...extra
+    });
+
+    const downloadInvoiceArtifact = async (invoiceId, type = 'danfePdf') => {
+      const fn = httpsCallable(functions, 'fiscalGetInvoiceArtifact');
+      const response = await fn(callablePayload({ invoiceId, type }));
+      const artifact = response.data || {};
+      downloadBase64File(artifact.base64, artifact.filename, artifact.contentType);
+      return artifact;
+    };
+
+    const setIssuerField = (field, value) => {
+      setIssuerForm((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const setIssuerAddressField = (field, value) => {
+      setIssuerForm((prev) => ({ ...prev, address: { ...(prev.address || {}), [field]: value } }));
+    };
+
+    const resetProductForm = () => {
+      setEditingFiscalProduct(null);
+      setProductForm({
+        productId: '',
+        code: '',
+        description: '',
+        ncm: DEFAULT_NCM_PRODUCT,
+        cfopNfe: DEFAULT_CFOP_OPERATION,
+        cfopNfce: DEFAULT_CFOP_OPERATION,
+        unit: 'un',
+        origin: 0,
+        csosn: '102',
+        pisCst: '49',
+        cofinsCst: '49',
+        cBenef: ''
+      });
+    };
+
+    const requestOrderValidation = async (order) => {
+      const fn = httpsCallable(functions, 'fiscalValidateOrder');
+      const response = await fn(callablePayload({
+        orderId: order.id,
+        modelOverride: modelOverride ? Number(modelOverride) : undefined,
+        operationCfop
+      }));
+      const result = response.data || {};
+      setValidationByOrder((prev) => ({ ...prev, [order.id]: result }));
+      return result;
+    };
+
+    const handleValidateOrder = async (order) => {
+      if (isReadOnly) return;
+      if (!effectiveStoreId) {
+        setMessage({ type: 'error', text: 'Selecione uma loja específica para validar notas.' });
+        return;
+      }
+      setBusyOrderId(`validate:${order.id}`);
+      setMessage(null);
+
+      try {
+        const result = await requestOrderValidation(order);
+        const hasErrors = Array.isArray(result.errors) && result.errors.length > 0;
+        setMessage({
+          type: hasErrors ? 'error' : 'success',
+          text: hasErrors ? result.errors.join(' ') : 'Pedido validado para emissão fiscal.'
+        });
+      } catch (error) {
+        console.error('[NotaFiscal] Validação fiscal falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível validar o pedido.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleIssueOrder = async (order) => {
+      if (isReadOnly) return;
+      if (!effectiveStoreId) {
+        setMessage({ type: 'error', text: 'Selecione uma loja específica para emitir notas.' });
+        return;
+      }
+      setBusyOrderId(`issue:${order.id}`);
+      setMessage(null);
+
+      try {
+        const validation = await requestOrderValidation(order);
+        if (Array.isArray(validation.errors) && validation.errors.length > 0) {
+          const hasItemIssues = Array.isArray(validation.itemIssues) && validation.itemIssues.length > 0;
+          setMessage({
+            type: 'error',
+            text: hasItemIssues
+              ? 'Corrija a classificação fiscal indicada abaixo antes de emitir a nota.'
+              : validation.errors.join(' ')
+          });
+          return;
+        }
+        setOrderToIssue(order);
+        setIssueAdditionalInfo(order.observacao || order.additionalInfo || '');
+        setIssueError('');
+      } catch (error) {
+        console.error('[NotaFiscal] Pré-validação da emissão falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível validar a nota antes da emissão.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleConfirmIssue = async (event) => {
+      event.preventDefault();
+      if (isReadOnly || !orderToIssue) return;
+      setBusyOrderId(`issue:${orderToIssue.id}`);
+      setMessage(null);
+      setIssueError('');
+
+      try {
+        const fn = httpsCallable(functions, 'fiscalIssueInvoice');
+        const response = await fn(callablePayload({
+          orderId: orderToIssue.id,
+          modelOverride: modelOverride ? Number(modelOverride) : undefined,
+          justification: 'Emissão manual pelo painel Nota Fiscal',
+          additionalInfo: issueAdditionalInfo.trim(),
+          operationCfop
+        }));
+        setOrderToIssue(null);
+        setIssueAdditionalInfo('');
+        const result = response.data || {};
+        if (result.status === 'authorized') {
+          setActiveTab('notas');
+          setMessage({ type: 'success', text: result.xMotivo || 'Nota autorizada. Baixando DANFE em PDF.' });
+          if (result.invoiceId && result.danfePdfReady) {
+            await downloadInvoiceArtifact(result.invoiceId, 'danfePdf');
+          }
+        } else {
+          setActiveTab('notas');
+          setMessage({ type: 'error', text: result.xMotivo || 'Retorno fiscal recebido. Consulte a nota em Notas emitidas.' });
+        }
+      } catch (error) {
+        console.error('[NotaFiscal] Emissão fiscal falhou:', error);
+        setIssueError(error?.message || 'Não foi possível emitir a nota.');
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível emitir a nota.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleRefreshInvoice = async (invoice) => {
+      if (isReadOnly || !invoice?.id) return;
+      setBusyOrderId(`refresh:${invoice.id}`);
+      setMessage(null);
+      try {
+        const fn = httpsCallable(functions, 'fiscalRefreshInvoice');
+        const response = await fn(callablePayload({ invoiceId: invoice.id }));
+        const result = response.data || {};
+        if (result.status === 'authorized') {
+          setMessage({ type: 'success', text: result.xMotivo || 'Nota autorizada. Baixando DANFE em PDF.' });
+          if (result.invoiceId && result.danfePdfReady) {
+            await downloadInvoiceArtifact(result.invoiceId, 'danfePdf');
+          }
+        } else {
+          setMessage({ type: result.status === 'pending_return' ? 'error' : 'success', text: result.xMotivo || 'Consulta fiscal concluída.' });
+        }
+      } catch (error) {
+        console.error('[NotaFiscal] Consulta de retorno fiscal falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível consultar o retorno da nota.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleDownloadInvoicePdf = async (invoice) => {
+      if (!invoice?.id) return;
+      setBusyOrderId(`pdf:${invoice.id}`);
+      setMessage(null);
+      try {
+        await downloadInvoiceArtifact(invoice.id, 'danfePdf');
+        setMessage({ type: 'success', text: 'DANFE em PDF baixado.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Download do DANFE falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'PDF da nota ainda não está disponível.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleDownloadInvoiceXml = async (invoice) => {
+      if (!invoice?.id) return;
+      setBusyOrderId(`xml:${invoice.id}`);
+      setMessage(null);
+      try {
+        await downloadInvoiceArtifact(invoice.id, 'authorizedXml');
+        setMessage({ type: 'success', text: 'XML autorizado baixado.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Download do XML falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'XML autorizado ainda não está disponível.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleCopyInvoiceKey = async (invoice) => {
+      const key = String(invoice?.key || '').trim();
+      if (!key) {
+        setMessage({ type: 'error', text: 'Esta nota ainda não possui chave de acesso.' });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(key);
+        setMessage({ type: 'success', text: 'Chave de acesso copiada.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Cópia da chave falhou:', error);
+        setMessage({ type: 'error', text: 'Não foi possível copiar a chave automaticamente.' });
+      }
+    };
+
+    const sefazConsultaUrl = (invoice) => {
+      const key = onlyDigitsText(invoice?.key);
+      return key ? `https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=d09fwabTnLk=&nfe=${key}` : '';
+    };
+
+    const handleOpenCancelInvoice = (invoice) => {
+      if (isReadOnly) return;
+      setInvoiceToCancel(invoice);
+      setCancelReason('');
+      setCancelError('');
+    };
+
+    const handleConfirmCancelInvoice = async (event) => {
+      event.preventDefault();
+      if (isReadOnly || !invoiceToCancel) return;
+      const normalizedReason = cancelReason.trim();
+      if (normalizedReason.length < 15) {
+        setCancelError('A justificativa de cancelamento precisa ter ao menos 15 caracteres.');
+        return;
+      }
+      setBusyOrderId(`cancel:${invoiceToCancel.id}`);
+      setMessage(null);
+      setCancelError('');
+
+      try {
+        const fn = httpsCallable(functions, 'fiscalCancelInvoice');
+        const response = await fn(callablePayload({ invoiceId: invoiceToCancel.id, reason: normalizedReason }));
+        setInvoiceToCancel(null);
+        setCancelReason('');
+        setMessage({ type: response.data?.cancellationAccepted ? 'success' : 'error', text: response.data?.xMotivo || 'Cancelamento processado.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Cancelamento fiscal falhou:', error);
+        setCancelError(error?.message || 'Não foi possível cancelar a nota.');
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível cancelar a nota.' });
+      } finally {
+        setBusyOrderId('');
+      }
+    };
+
+    const handleSaveFiscalConfig = async (event) => {
+      event.preventDefault();
+      if (isReadOnly) return;
+      if (!effectiveStoreId) return;
+      setConfigSaving(true);
+      setMessage(null);
+      try {
+        const saveConfiguration = httpsCallable(functions, 'fiscalSaveConfiguration');
+        await saveConfiguration(callablePayload({
+          issuer: {
+            ...issuerForm,
+            taxRegime: Number(issuerForm.taxRegime || 1)
+          },
+          settings: {
+            environment: settingsForm.environment,
+            nfeSeries: Number(settingsForm.nfeSeries || 1),
+            nfceSeries: Number(settingsForm.nfceSeries || 1),
+            operationNature: settingsForm.operationNature,
+            defaultPaymentMethodCode: settingsForm.defaultPaymentMethodCode,
+            defaultPresence: Number(settingsForm.defaultPresence || 2)
+          }
+        }));
+        setMessage({ type: 'success', text: 'Configuração fiscal salva.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Erro ao salvar configuração:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível salvar a configuração fiscal.' });
+      } finally {
+        setConfigSaving(false);
+      }
+    };
+
+    const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').split(',').pop());
+      reader.onerror = () => reject(reader.error || new Error('Não foi possível ler o certificado.'));
+      reader.readAsDataURL(file);
+    });
+
+    const handleUploadCertificate = async (event) => {
+      event?.preventDefault?.();
+      if (isReadOnly) return;
+      if (!effectiveStoreId) {
+        setMessage({ type: 'error', text: 'Selecione uma loja específica para enviar o certificado.' });
+        return;
+      }
+      if (!certificateForm.file) {
+        setMessage({ type: 'error', text: 'Selecione o arquivo .pfx do certificado A1.' });
+        return;
+      }
+      if (!certificateForm.password) {
+        setMessage({ type: 'error', text: 'Informe a senha do certificado A1.' });
+        return;
+      }
+
+      setCertificateUploading(true);
+      setMessage(null);
+      try {
+        const certificateBase64 = await readFileAsBase64(certificateForm.file);
+        const fn = httpsCallable(functions, 'fiscalUploadCertificate');
+        const response = await fn(callablePayload({
+          certificateBase64,
+          filename: certificateForm.file.name,
+          password: certificateForm.password,
+          cscId: certificateForm.cscId,
+          csc: certificateForm.csc
+        }));
+        setCertificateInfo(response.data?.certificate || null);
+        setCertificateForm({ file: null, password: '', cscId: '', csc: '' });
+        setMessage({ type: 'success', text: 'Certificado fiscal salvo com segurança.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Upload do certificado falhou:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível salvar o certificado.' });
+      } finally {
+        setCertificateUploading(false);
+      }
+    };
+
+    const handleEditFiscalProduct = (row) => {
+      setEditingFiscalProduct(row);
+      setProductForm({
+        productId: row.id || '',
+        code: row.code || '',
+        description: row.description || '',
+        ncm: normalizeFiscalCode(row.ncm || DEFAULT_NCM_PRODUCT),
+        cfopNfe: row.cfopNfe || row.cfop || DEFAULT_CFOP_OPERATION,
+        cfopNfce: row.cfopNfce || row.cfop || DEFAULT_CFOP_OPERATION,
+        unit: row.unit || 'un',
+        origin: Number(row.origin ?? 0),
+        csosn: row.csosn || '102',
+        pisCst: row.pisCst || '49',
+        cofinsCst: row.cofinsCst || '49',
+        cBenef: row.cBenef || ''
+      });
+      setShowProductModal(true);
+    };
+
+    const handleCorrectFiscalProduct = (orderId, issue) => {
+      const existing = fiscalProducts.find((item) => item.id === issue.productId || item.code === issue.code);
+      if (existing) {
+        setProductCorrectionOrderId(orderId);
+        handleEditFiscalProduct(existing);
+        return;
+      }
+
+      const product = (data.produtos || []).find((item) => item.id === issue.productId);
+      resetProductForm();
+      setProductCorrectionOrderId(orderId);
+      setProductForm((prev) => ({
+        ...prev,
+        productId: issue.productId || product?.id || '',
+        code: issue.code || product?.codigo || issue.productId || '',
+        description: issue.description || product?.nome || '',
+        ncm: normalizeFiscalCode(issue.ncm || DEFAULT_NCM_PRODUCT),
+        cfopNfe: DEFAULT_CFOP_OPERATION,
+        cfopNfce: DEFAULT_CFOP_OPERATION
+      }));
+      setShowProductModal(true);
+    };
+
+    const handleSaveFiscalProduct = async (event) => {
+      event.preventDefault();
+      if (isReadOnly) return;
+      if (!effectiveStoreId) return;
+      const productId = (editingFiscalProduct?.id || productForm.productId || productForm.code || productForm.description).trim();
+      if (!productId) {
+        setMessage({ type: 'error', text: 'Informe o produto ou código para salvar o cadastro fiscal.' });
+        return;
+      }
+      const normalizedNcm = normalizeFiscalCode(productForm.ncm);
+      if (normalizedNcm.length !== 8) {
+        setMessage({ type: 'error', text: 'Informe NCM com 8 dígitos. O CFOP é selecionado por operação na tela de emissão.' });
+        return;
+      }
+
+      const payload = {
+        code: productForm.code || productId,
+        description: productForm.description,
+        ncm: normalizedNcm,
+        unit: productForm.unit || 'un',
+        origin: Number(productForm.origin || 0),
+        csosn: productForm.csosn || '102',
+        pisCst: productForm.pisCst || '49',
+        cofinsCst: productForm.cofinsCst || '49',
+        cBenef: productForm.cBenef || '',
+        updatedAt: new Date()
+      };
+
+      try {
+        if (editingFiscalProduct) {
+          await updateItem('fiscalProducts', productId, payload, effectiveStoreId);
+        } else {
+          await setDoc(doc(db, 'lojas', effectiveStoreId, 'fiscalProducts', productId), {
+            ...payload,
+            createdAt: serverTimestamp()
+          }, { merge: true });
+        }
+        setShowProductModal(false);
+        resetProductForm();
+        if (productCorrectionOrderId) {
+          setActiveTab('emitir');
+          setMessage({ type: 'success', text: 'Cadastro fiscal salvo. Valide novamente o pedido para confirmar a emissão.' });
+          setProductCorrectionOrderId('');
+        } else {
+          setMessage({ type: 'success', text: 'Cadastro fiscal do produto salvo.' });
+        }
+      } catch (error) {
+        console.error('[NotaFiscal] Erro ao salvar produto fiscal:', error);
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível salvar o cadastro fiscal.' });
+      }
+    };
+
+    const orderColumns = [
+      { header: 'Pedido', render: (row) => <span className="font-mono text-xs text-gray-500">{row.id?.slice(0, 8) || '-'}</span> },
+      { header: 'Cliente', key: 'clienteNome' },
+      { header: 'Total', render: (row) => <span className="font-semibold text-green-600">R$ {(row.total || 0).toFixed(2)}</span> },
+      { header: 'Data', render: (row) => formatDateTime(row.createdAt) },
+      { header: 'Nota', render: (row) => {
+        const invoice = invoicesByOrderId.get(row.id);
+        if (!invoice) return <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Pendente</span>;
+        const reason = fiscalReturnReason(invoice);
+        return (
+          <div className="min-w-[150px]" title={reason || ''}>
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass[invoice.status] || 'bg-gray-100 text-gray-700'}`}>{statusLabel[invoice.status] || invoice.status}</span>
+            {reason && shouldShowFiscalReason(invoice) && <p className="mt-1 max-w-[260px] truncate text-xs text-red-700">{reason}</p>}
+          </div>
+        );
+      } }
+    ];
+
+    const orderActions = isReadOnly ? [] : [
+      { icon: RefreshCw, label: 'Validar', onClick: handleValidateOrder },
+      { icon: Printer, label: 'Emitir', onClick: handleIssueOrder }
+    ];
+
+    const invoiceColumns = [
+      { header: 'NFC-e', render: (row) => <span className="font-mono text-xs font-semibold text-gray-800">{formatFiscalNumber(row.number)}</span> },
+      { header: 'Série', render: (row) => <span className="font-mono text-xs text-gray-600">{formatFiscalSeries(row.series)}</span> },
+      { header: 'Pedido', render: (row) => <span className="font-mono text-xs">{row.orderId?.slice(0, 8) || '-'}</span> },
+      { header: 'Cliente', render: (row) => getInvoiceCustomerName(row) },
+      { header: 'CPF/CNPJ', render: (row) => <span className="font-mono text-xs text-gray-600">{maskCpfCnpj(getInvoiceCustomerDocument(row))}</span> },
+      { header: 'Status', render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass[row.status] || 'bg-gray-100 text-gray-700'}`}>{statusLabel[row.status] || row.status}</span> },
+      { header: 'Valor', render: (row) => <span className="font-semibold text-green-700">{formatCurrencyBR(getInvoiceValue(row))}</span> },
+      { header: 'Emissão', render: (row) => formatDateTime(row.issuedAt || row.createdAt) },
+      { header: 'Motivo', render: (row) => {
+        const reason = fiscalReturnReason(row);
+        return <span className="block max-w-[280px] truncate text-gray-700" title={reason || ''}>{reason || '-'}</span>;
+      } }
+    ];
+
+    const invoiceActions = [
+      { icon: Eye, label: 'Ver detalhes', onClick: (row) => setInvoiceToView(row) },
+      { icon: FileText, label: 'Baixar/visualizar DANFE PDF', onClick: handleDownloadInvoicePdf, isVisible: (row) => row.status === 'authorized' },
+      { icon: Download, label: 'Baixar XML', onClick: handleDownloadInvoiceXml, isVisible: (row) => row.status === 'authorized' },
+      { icon: RefreshCw, label: 'Consultar retorno', onClick: handleRefreshInvoice, isVisible: (row) => !isReadOnly && row.status === 'pending_return' },
+      { icon: X, label: 'Cancelar nota', onClick: handleOpenCancelInvoice, isVisible: (row) => !isReadOnly && row.status === 'authorized' }
+    ];
+
+    const fiscalProductColumns = [
+      { header: 'Produto', render: (row) => <div><p className="font-medium text-gray-800">{row.description || row.nome || row.id}</p><p className="text-xs text-gray-500">{row.code || row.id}</p></div> },
+      { header: 'NCM', key: 'ncm' },
+      { header: 'CSOSN/CST', render: (row) => row.csosn || row.cst || '-' },
+      { header: 'Un.', render: (row) => row.unit || 'un' }
+    ];
+
+    const productActions = isReadOnly ? [] : [
+      { icon: Edit, label: 'Editar', onClick: handleEditFiscalProduct },
+      { icon: Trash2, label: 'Excluir', onClick: (row) => setConfirmDelete({ isOpen: true, onConfirm: () => deleteItem('fiscalProducts', row.id, effectiveStoreId) }) }
+    ];
+
+    const DetailSection = ({ title, children }) => (
+      <section className="space-y-3 rounded-xl border border-gray-100 bg-white p-4">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-gray-700">{title}</h3>
+        {children}
+      </section>
+    );
+
+    const DetailField = ({ label, value, mono = false, full = false }) => (
+      <div className={full ? 'md:col-span-2 xl:col-span-3' : ''}>
+        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
+        <p className={`mt-1 break-words text-sm text-gray-800 ${mono ? 'font-mono' : ''}`}>{value || '-'}</p>
+      </div>
+    );
+
+    if (!effectiveStoreId) {
+      return (
+        <div className="p-4 md:p-6 min-h-screen bg-gradient-to-br from-pink-50/30 to-rose-50/30">
+          <div className="bg-white border border-yellow-200 rounded-2xl p-6 shadow-lg max-w-3xl">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-6 h-6 text-yellow-600 mt-1" />
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Nota Fiscal</h1>
+                <p className="text-gray-600 mt-2">Selecione uma loja específica no topo da tela para configurar e emitir NF-e/NFC-e.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/30 to-rose-50/30 min-h-screen">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Nota Fiscal</h1>
+            <p className="text-gray-600 mt-1">Emissão direta de NF-e/NFC-e para {storeName}</p>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2 bg-white border rounded-xl shadow-sm text-sm text-gray-700">
+            <CheckCircle className="w-4 h-4 text-green-600" />
+            {isReadOnly ? 'Consulta contábil' : `Ambiente: ${settingsForm.environment === 'production' ? 'Produção' : 'Homologação'}`}
+          </div>
+        </div>
+
+        {message && (
+          <div className={`p-4 rounded-xl border text-sm ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+            {message.text}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl shadow-lg border border-gray-100"><p className="text-sm text-gray-500">Autorizadas</p><p className="text-2xl font-bold text-green-600">{fiscalStats.authorized}</p></div>
+          <div className="bg-white p-5 rounded-2xl shadow-lg border border-gray-100"><p className="text-sm text-gray-500">Rejeitadas</p><p className="text-2xl font-bold text-red-600">{fiscalStats.rejected}</p></div>
+          <div className="bg-white p-5 rounded-2xl shadow-lg border border-gray-100"><p className="text-sm text-gray-500">Pendentes</p><p className="text-2xl font-bold text-yellow-600">{fiscalStats.pending}</p></div>
+          <div className="bg-white p-5 rounded-2xl shadow-lg border border-gray-100"><p className="text-sm text-gray-500">Produtos fiscais</p><p className="text-2xl font-bold text-pink-600">{fiscalStats.products}</p></div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 bg-white rounded-2xl p-2 shadow-lg border border-gray-100">
+          {[
+            ['emitir', isReadOnly ? 'Pedidos' : 'Emitir'],
+            ['notas', 'Notas emitidas'],
+            ['produtos', 'Produtos fiscais'],
+            ['configuracao', 'Configuração']
+          ].map(([id, label]) => (
+            <button key={id} onClick={() => setActiveTab(id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === id ? 'bg-pink-100 text-pink-700' : 'text-gray-600 hover:bg-pink-50'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'emitir' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(360px,1fr)_220px_minmax(280px,360px)_auto] gap-3 bg-white rounded-2xl p-4 shadow-lg border border-gray-100 items-end">
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Buscar pedidos para emissão</label>
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="Buscar por pedido, cliente, valor, data, CPF/CNPJ"
+                    className="w-full min-w-0 pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <Select value={modelOverride} onChange={(e) => setModelOverride(e.target.value)} className="md:w-56">
+                <option value="">Modelo automático</option>
+                <option value="55">Forçar NF-e 55</option>
+                <option value="65">Forçar NFC-e 65</option>
+              </Select>
+              <Select label="CFOP da operação" value={operationCfop} onChange={(e) => setOperationCfop(e.target.value)}>
+                {CFOP_OPERATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </Select>
+              <a href="https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_70_vigente" target="_blank" rel="noreferrer" className="self-end pb-3 text-sm text-pink-700 underline hover:text-pink-800">
+                Tabela CFOP
+              </a>
+            </div>
+            <Table columns={orderColumns} data={eligibleOrders} actions={orderActions} />
+            {Object.entries(validationByOrder).map(([orderId, result]) => (
+              <div key={orderId} className={`p-4 rounded-xl border text-sm ${result.ok === false ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                <p className="font-semibold">Validação do pedido {orderId.slice(0, 8)}</p>
+                {result.errors?.length ? <p>{result.errors.join(' ')}</p> : <p>Modelo {result.model}, série {result.series}, próximo número {result.number}. Total: R$ {(result.totals?.invoice || 0).toFixed(2)}</p>}
+                {!isReadOnly && result.itemIssues?.length ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="font-medium">Complete o cadastro fiscal do produto para liberar a emissão:</p>
+                    {result.itemIssues.map((issue) => (
+                      <div key={`${issue.productId || issue.code || issue.index}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-red-200 bg-white/70 p-3">
+                        <span>
+                          <strong>{issue.description}</strong> - pendente: {issue.fields.join(', ')}
+                          {issue.fields.length === 1 && issue.fields.includes('NCM') && (
+                            <span className="block text-xs text-red-700 mt-1">
+                              Clique para conferir e salvar o NCM. O padrão 1905.90.90 já será sugerido para confeitaria/pastelaria.
+                            </span>
+                          )}
+                        </span>
+                        <Button size="sm" variant="outline" onClick={() => handleCorrectFiscalProduct(orderId, issue)}>
+                          <Edit className="w-4 h-4" /> {issue.fields.length === 1 && issue.fields.includes('NCM') ? 'Configurar NCM' : 'Configurar produto'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {result.warnings?.length ? <p className="mt-1">{result.warnings.join(' ')}</p> : null}
+              </div>
+            ))}
+            {busyOrderId && <p className="text-sm text-gray-500">Processando operação fiscal...</p>}
+          </div>
+        )}
+
+        {activeTab === 'notas' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100 space-y-4">
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(320px,1fr)_170px_170px_190px] gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-gray-700">Busca rápida</label>
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      value={invoiceFilters.search}
+                      onChange={(e) => setInvoiceFilter('search', e.target.value)}
+                      placeholder="Buscar por número da NFC-e, pedido, cliente, CPF/CNPJ ou chave de acesso"
+                      className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <Input
+                  label="Data inicial"
+                  type="date"
+                  value={invoiceFilters.start}
+                  onChange={(e) => setInvoiceFilter('start', e.target.value)}
+                />
+                <Input
+                  label="Data final"
+                  type="date"
+                  value={invoiceFilters.end}
+                  onChange={(e) => setInvoiceFilter('end', e.target.value)}
+                />
+                <Select label="Status da nota" value={invoiceFilters.status} onChange={(e) => setInvoiceFilter('status', e.target.value)}>
+                  {invoiceStatusFilters.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </Select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input
+                  label="Emitente / CNPJ"
+                  value={invoiceFilters.issuerDocument}
+                  onChange={(e) => setInvoiceFilter('issuerDocument', e.target.value)}
+                  placeholder={issuerForm.cnpj ? maskCpfCnpj(issuerForm.cnpj) : 'CNPJ da loja'}
+                />
+                <Input
+                  label="Valor mínimo"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={invoiceFilters.minValue}
+                  onChange={(e) => setInvoiceFilter('minValue', e.target.value)}
+                  placeholder="R$ 0,00"
+                />
+                <Input
+                  label="Valor máximo"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={invoiceFilters.maxValue}
+                  onChange={(e) => setInvoiceFilter('maxValue', e.target.value)}
+                  placeholder="R$ 999,99"
+                />
+              </div>
+              {showAdvancedInvoiceFilters && (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    <Input label="Chave de acesso" value={invoiceFilters.key} onChange={(e) => setInvoiceFilter('key', e.target.value)} placeholder="522606..." />
+                    <Input label="Número da NFC-e" value={invoiceFilters.number} onChange={(e) => setInvoiceFilter('number', e.target.value)} placeholder="000000008" />
+                    <Input label="Série" value={invoiceFilters.series} onChange={(e) => setInvoiceFilter('series', e.target.value)} placeholder="001" />
+                    <Input label="Pedido interno" value={invoiceFilters.orderId} onChange={(e) => setInvoiceFilter('orderId', e.target.value)} placeholder="RQMWj9ap" />
+                    <Input label="CPF/CNPJ do consumidor" value={invoiceFilters.customerDocument} onChange={(e) => setInvoiceFilter('customerDocument', e.target.value)} placeholder="058.559.683-24" />
+                    <Input label="Nome do consumidor" value={invoiceFilters.customerName} onChange={(e) => setInvoiceFilter('customerName', e.target.value)} placeholder="Antonio Pedro" />
+                    <Input label="Protocolo de autorização" value={invoiceFilters.protocol} onChange={(e) => setInvoiceFilter('protocol', e.target.value)} />
+                    <Input label="Forma de pagamento" value={invoiceFilters.paymentMethod} onChange={(e) => setInvoiceFilter('paymentMethod', e.target.value)} placeholder="Cartão, Pix..." />
+                    <Input label="Motivo / rejeição" value={invoiceFilters.reason} onChange={(e) => setInvoiceFilter('reason', e.target.value)} />
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-sm text-gray-500">
+                  Mostrando <strong className="text-gray-800">{filteredInvoices.length}</strong> de <strong className="text-gray-800">{invoices.length}</strong> notas.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setShowAdvancedInvoiceFilters((prev) => !prev)}>
+                    <Search className="w-4 h-4" /> {showAdvancedInvoiceFilters ? 'Ocultar avançados' : 'Filtros avançados'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setInvoiceFilters((prev) => ({ ...prev, ...getCurrentMonthDateRange() }))}
+                  >
+                    <Calendar className="w-4 h-4" /> Mês atual
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={resetInvoiceFiltersToCurrentMonth}>
+                    <RefreshCw className="w-4 h-4" /> Limpar filtros
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <Table columns={invoiceColumns} data={filteredInvoices} actions={invoiceActions} />
+            {filteredInvoices.length === 0 && (
+              <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 text-center text-sm text-gray-500">
+                Nenhuma nota encontrada para os filtros selecionados.
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'produtos' && (
+          <div className="space-y-4">
+            {!isReadOnly && <div className="flex justify-end">
+              <Button onClick={() => { resetProductForm(); setShowProductModal(true); }}><Plus className="w-4 h-4" /> Produto fiscal</Button>
+            </div>}
+            <Table columns={fiscalProductColumns} data={fiscalProducts} actions={productActions} />
+          </div>
+        )}
+
+        {activeTab === 'configuracao' && (
+          <form onSubmit={handleSaveFiscalConfig} className="space-y-6">
+            {isReadOnly && (
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 text-sm text-blue-800">
+                Perfil Contador: consulta habilitada. Alterações fiscais, emissão e cancelamento não estão disponíveis.
+              </div>
+            )}
+            <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100 space-y-4">
+              <h3 className="text-lg font-bold text-gray-800">Emitente</h3>
+              {configLoading && <p className="text-sm text-gray-500">Carregando configuração...</p>}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input disabled={isReadOnly} label="CNPJ" value={issuerForm.cnpj || ''} onChange={(e) => setIssuerField('cnpj', e.target.value)} />
+                <Input disabled={isReadOnly} label="Razão social" value={issuerForm.legalName || ''} onChange={(e) => setIssuerField('legalName', e.target.value)} />
+                <Input disabled={isReadOnly} label="Nome fantasia" value={issuerForm.tradeName || ''} onChange={(e) => setIssuerField('tradeName', e.target.value)} />
+                <Input disabled={isReadOnly} label="Inscrição estadual" value={issuerForm.stateRegistration || ''} onChange={(e) => setIssuerField('stateRegistration', e.target.value)} />
+                <Select disabled={isReadOnly} label="Regime tributário" value={issuerForm.taxRegime || 1} onChange={(e) => setIssuerField('taxRegime', Number(e.target.value))}>
+                  <option value={1}>Simples Nacional</option>
+                  <option value={2}>Simples excesso sublimite</option>
+                  <option value={3}>Regime normal</option>
+                </Select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Input disabled={isReadOnly} label="Logradouro" value={issuerForm.address?.street || ''} onChange={(e) => setIssuerAddressField('street', e.target.value)} />
+                <Input disabled={isReadOnly} label="Número" value={issuerForm.address?.number || ''} onChange={(e) => setIssuerAddressField('number', e.target.value)} />
+                <Input disabled={isReadOnly} label="Bairro" value={issuerForm.address?.district || ''} onChange={(e) => setIssuerAddressField('district', e.target.value)} />
+                <Input disabled={isReadOnly} label="CEP" value={issuerForm.address?.zip || ''} onChange={(e) => setIssuerAddressField('zip', e.target.value)} />
+                <Input disabled={isReadOnly} label="Município" value={issuerForm.address?.city || ''} onChange={(e) => setIssuerAddressField('city', e.target.value)} />
+                <Input disabled={isReadOnly} label="Código IBGE" value={issuerForm.address?.cityCode || ''} onChange={(e) => setIssuerAddressField('cityCode', e.target.value)} />
+                <Input disabled={isReadOnly} label="UF" value={issuerForm.address?.state || ''} onChange={(e) => setIssuerAddressField('state', e.target.value.toUpperCase())} />
+                <Input disabled={isReadOnly} label="Telefone" value={issuerForm.address?.phone || ''} onChange={(e) => setIssuerAddressField('phone', e.target.value)} />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">Certificado digital A1</h3>
+                  <p className="text-sm text-gray-500">Envie o .pfx da loja. O arquivo e a senha ficam no Secret Manager.</p>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${certificateInfo?.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                  {certificateInfo?.status === 'active' ? 'Certificado ativo' : 'Certificado pendente'}
+                </span>
+              </div>
+              {certificateInfo?.status === 'active' && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm bg-gray-50 rounded-xl p-4">
+                  <p><strong>CNPJ:</strong> {certificateInfo.cnpj || '-'}</p>
+                  <p><strong>Validade:</strong> {certificateInfo.validUntil ? formatDateTime(certificateInfo.validUntil) : '-'}</p>
+                  <p><strong>Arquivo:</strong> {certificateInfo.filename || '-'}</p>
+                  <p><strong>NFC-e CSC:</strong> {certificateInfo.nfceCscSecretVersion || certificateInfo.hasCsc ? 'Configurado' : 'Pendente'}</p>
+                </div>
+              )}
+              {!isReadOnly && <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Certificado A1 (.pfx)</label>
+                  <input type="file" accept=".pfx,.p12,application/x-pkcs12" onChange={(e) => setCertificateForm({ ...certificateForm, file: e.target.files?.[0] || null })} className="w-full px-4 py-3 border rounded-xl border-gray-300 bg-white" />
+                </div>
+                <Input label="Senha do certificado" type="password" value={certificateForm.password} onChange={(e) => setCertificateForm({ ...certificateForm, password: e.target.value })} />
+                <Input label="ID CSC" value={certificateForm.cscId} onChange={(e) => setCertificateForm({ ...certificateForm, cscId: e.target.value })} />
+                <div className="md:col-span-3"><Input label="CSC NFC-e" type="password" value={certificateForm.csc} onChange={(e) => setCertificateForm({ ...certificateForm, csc: e.target.value })} /></div>
+                <div className="flex items-end">
+                  <Button type="button" disabled={certificateUploading} onClick={handleUploadCertificate} className="w-full">
+                    <Save className="w-4 h-4" /> {certificateUploading ? 'Enviando...' : 'Salvar certificado'}
+                  </Button>
+                </div>
+              </div>}
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100 space-y-4">
+              <h3 className="text-lg font-bold text-gray-800">Emissão</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Select disabled={isReadOnly} label="Ambiente" value={settingsForm.environment} onChange={(e) => setSettingsForm({ ...settingsForm, environment: e.target.value })}>
+                  <option value="homologation">Homologação</option>
+                  <option value="production">Produção</option>
+                </Select>
+                <Input disabled={isReadOnly} label="Série NF-e 55" type="number" value={settingsForm.nfeSeries || 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfeSeries: e.target.value })} />
+                <Input disabled={isReadOnly} label="Série NFC-e 65" type="number" value={settingsForm.nfceSeries || 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfceSeries: e.target.value })} />
+                <Input disabled={isReadOnly} label="Natureza da operação" value={settingsForm.operationNature || ''} onChange={(e) => setSettingsForm({ ...settingsForm, operationNature: e.target.value })} />
+                <Input disabled={isReadOnly} label="Pagamento padrão" value={settingsForm.defaultPaymentMethodCode || '99'} onChange={(e) => setSettingsForm({ ...settingsForm, defaultPaymentMethodCode: e.target.value })} />
+                <Input disabled={isReadOnly} label="Indicador de presença" type="number" value={settingsForm.defaultPresence || 2} onChange={(e) => setSettingsForm({ ...settingsForm, defaultPresence: e.target.value })} />
+                {isPlatformAdmin && (
+                  <div className="md:col-span-3">
+                    <Input
+                      disabled
+                      label="URL única do serviço fiscal (Cloud Run) - plataforma"
+                      value={platformService?.serviceUrl || 'Não configurada no backend'}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Configuração global protegida; não pertence a uma loja.</p>
+                  </div>
+                )}
+              </div>
+              {!isReadOnly && <div className="flex justify-end">
+                <Button type="submit" disabled={configSaving}><Save className="w-4 h-4" /> {configSaving ? 'Salvando...' : 'Salvar configuração fiscal'}</Button>
+              </div>}
+            </div>
+          </form>
+        )}
+
+        <Modal isOpen={showProductModal} onClose={() => { setShowProductModal(false); setProductCorrectionOrderId(''); resetProductForm(); }} title={editingFiscalProduct ? 'Editar produto fiscal' : 'Novo produto fiscal'} size="lg">
+          <form onSubmit={handleSaveFiscalProduct} className="space-y-4">
+            <p className="text-sm text-gray-600">Selecione a classificação fiscal validada pelo contador. O padrão é 1905.90.90 para itens típicos de confeitaria/pastelaria; o CFOP é escolhido na emissão.</p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <a href="https://www.gov.br/receitafederal/pt-br/assuntos/aduana-e-comercio-exterior/classificacao-fiscal-de-mercadorias/ncm" target="_blank" rel="noreferrer" className="text-pink-700 underline hover:text-pink-800">Consultar NCM na Receita Federal</a>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select label="Produto vinculado" value={productForm.productId} onChange={(e) => {
+                const product = (data.produtos || []).find((item) => item.id === e.target.value);
+                setProductForm({ ...productForm, productId: e.target.value, description: product?.nome || productForm.description, code: product?.codigo || e.target.value });
+              }} disabled={Boolean(editingFiscalProduct)}>
+                <option value="">Selecione ou preencha manualmente</option>
+                {(data.produtos || []).map((produto) => <option key={produto.id} value={produto.id}>{produto.nome}</option>)}
+              </Select>
+              <Input label="Código" value={productForm.code} onChange={(e) => setProductForm({ ...productForm, code: e.target.value })} />
+              <Input label="Descrição fiscal" value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} required />
+              <Select label="NCM do produto" value={normalizeFiscalCode(productForm.ncm)} onChange={(e) => setProductForm({ ...productForm, ncm: e.target.value })} required>
+                {productForm.ncm && !NCM_PRODUCT_OPTIONS.some((option) => option.value === normalizeFiscalCode(productForm.ncm)) && (
+                  <option value={normalizeFiscalCode(productForm.ncm)}>{formatNcmCode(productForm.ncm)} - NCM cadastrado</option>
+                )}
+                {NCM_PRODUCT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </Select>
+              <Input label="Unidade" value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} />
+              <Input label="Origem" type="number" value={productForm.origin} onChange={(e) => setProductForm({ ...productForm, origin: e.target.value })} />
+              <Input label="CSOSN" value={productForm.csosn} onChange={(e) => setProductForm({ ...productForm, csosn: e.target.value })} />
+              <Input label="PIS CST" value={productForm.pisCst} onChange={(e) => setProductForm({ ...productForm, pisCst: e.target.value })} />
+              <Input label="COFINS CST" value={productForm.cofinsCst} onChange={(e) => setProductForm({ ...productForm, cofinsCst: e.target.value })} />
+              <Input label="cBenef" value={productForm.cBenef} onChange={(e) => setProductForm({ ...productForm, cBenef: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" type="button" onClick={() => { setShowProductModal(false); resetProductForm(); }}>Cancelar</Button>
+              <Button type="submit"><Save className="w-4 h-4" /> Salvar</Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal isOpen={Boolean(orderToIssue)} onClose={() => { if (!busyOrderId) { setOrderToIssue(null); setIssueAdditionalInfo(''); setIssueError(''); } }} title="Emitir nota fiscal" size="lg">
+          <form onSubmit={handleConfirmIssue} className="space-y-4">
+            <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-sm text-gray-700">
+              <p><strong>Pedido:</strong> {orderToIssue?.id?.slice(0, 8) || '-'}</p>
+              <p><strong>Cliente:</strong> {orderToIssue?.clienteNome || '-'}</p>
+              <p><strong>Total:</strong> R$ {(orderToIssue?.total || 0).toFixed(2)}</p>
+            </div>
+            <Textarea
+              label="Informações adicionais da nota fiscal"
+              rows={4}
+              maxLength={5000}
+              value={issueAdditionalInfo}
+              onChange={(event) => setIssueAdditionalInfo(event.target.value)}
+            />
+            {issueError && <div className="p-3 rounded-xl border border-red-200 bg-red-50 text-sm text-red-800">{issueError}</div>}
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" type="button" disabled={Boolean(busyOrderId)} onClick={() => { setOrderToIssue(null); setIssueAdditionalInfo(''); setIssueError(''); }}>Cancelar</Button>
+              <Button type="submit" disabled={Boolean(busyOrderId)}><Printer className="w-4 h-4" /> {busyOrderId ? 'Emitindo...' : 'Confirmar emissão'}</Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal isOpen={Boolean(invoiceToView)} onClose={() => setInvoiceToView(null)} title="Detalhes da NFC-e" size="xl">
+          {invoiceToView && (() => {
+            const invoice = invoiceToView;
+            const order = getInvoiceOrder(invoice);
+            const items = getInvoiceItems(invoice);
+            const customerDocument = getInvoiceCustomerDocument(invoice);
+            const displayedCustomerDocument = canViewFullFiscalDocument ? (customerDocument || '-') : maskCpfCnpj(customerDocument);
+            const customerAddress = getOrderCustomerAddress(invoice);
+            const issuerAddress = issuerForm.address || {};
+            const reason = fiscalReturnReason(invoice);
+            const value = getInvoiceValue(invoice);
+            const discount = getInvoiceDiscount(invoice);
+            const freight = getInvoiceFreight(invoice);
+            const paidAmount = getInvoicePaidAmount(invoice);
+            const change = getInvoiceChange(invoice);
+            const sefazUrl = sefazConsultaUrl(invoice);
+            const statusBadge = <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${statusClass[invoice.status] || 'bg-gray-100 text-gray-700'}`}>{statusLabel[invoice.status] || invoice.status || '-'}</span>;
+
+            return (
+              <div className="space-y-4 bg-gray-50/60">
+                <DetailSection title="Identificação da nota">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <DetailField label="Chave de acesso" value={invoice.key || '-'} mono full />
+                    <DetailField label="Número da NFC-e" value={formatFiscalNumber(invoice.number)} mono />
+                    <DetailField label="Série" value={formatFiscalSeries(invoice.series)} mono />
+                    <DetailField label="Modelo" value={invoice.model || '-'} />
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Status</p>
+                      <div className="mt-1">{statusBadge}</div>
+                    </div>
+                    <DetailField label="Emissão" value={formatDateTime(invoice.issuedAt || invoice.createdAt)} />
+                    <DetailField label="Protocolo de autorização" value={invoice.protocol || '-'} mono />
+                    <DetailField label="Autorização" value={formatDateTime(invoice.authorizedAt || invoice.serviceResult?.authorizedAt || (invoice.status === 'authorized' ? invoice.updatedAt : null))} />
+                    <DetailField label="Motivo/status SEFAZ" value={reason || '-'} full />
+                    <DetailField label="Observação" value={invoice.additionalInfo || '-'} full />
+                    <DetailField label="Justificativa de cancelamento" value={invoice.cancelReason || '-'} full />
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button size="sm" variant="secondary" onClick={() => handleCopyInvoiceKey(invoice)}><Key className="w-4 h-4" /> Copiar chave</Button>
+                    {sefazUrl && (
+                      <a href={sefazUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-md transition-all hover:bg-gray-50" title="Consultar esta NFC-e na SEFAZ pela chave de acesso">
+                        <Search className="w-4 h-4" /> Consultar na SEFAZ
+                      </a>
+                    )}
+                  </div>
+                </DetailSection>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <DetailSection title="Emitente">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <DetailField label="Razão social" value={issuerForm.legalName || '-'} />
+                      <DetailField label="CNPJ" value={getInvoiceIssuerDocument(invoice) || '-'} mono />
+                      <DetailField label="Inscrição Estadual" value={issuerForm.stateRegistration || '-'} mono />
+                      <DetailField label="Telefone" value={issuerAddress.phone || '-'} />
+                      <DetailField label="Endereço" value={fiscalAddressText(issuerAddress)} full />
+                      <DetailField label="Cidade/UF" value={fiscalCityText(issuerAddress)} />
+                    </div>
+                  </DetailSection>
+
+                  <DetailSection title="Consumidor">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <DetailField label="Nome" value={getInvoiceCustomerName(invoice)} />
+                      <DetailField label="CPF/CNPJ" value={displayedCustomerDocument} mono />
+                      <DetailField label="Endereço" value={fiscalAddressText(customerAddress)} full />
+                      <DetailField label="Cidade/UF" value={fiscalCityText(customerAddress)} />
+                    </div>
+                  </DetailSection>
+                </div>
+
+                <DetailSection title="Itens da nota">
+                  <div className="overflow-x-auto rounded-xl border border-gray-100">
+                    <table className="w-full bg-white text-sm">
+                      <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2">Código</th>
+                          <th className="px-3 py-2">Descrição</th>
+                          <th className="px-3 py-2">Quantidade</th>
+                          <th className="px-3 py-2">Unidade</th>
+                          <th className="px-3 py-2">Valor unitário</th>
+                          <th className="px-3 py-2">Valor total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {items.length ? items.map((item, index) => {
+                          const quantity = Number(item.quantity ?? item.quantidade ?? item.qCom ?? 1) || 1;
+                          const unitValue = Number(item.unitValue ?? item.valorUnitario ?? item.preco ?? item.valor ?? 0) || 0;
+                          const totalValue = Number(item.total ?? item.valorTotal ?? item.vProd ?? unitValue * quantity) || 0;
+                          return (
+                            <tr key={`${item.id || item.productId || item.code || index}`}>
+                              <td className="px-3 py-2 font-mono text-xs text-gray-600">{item.code || item.codigo || item.productId || item.id || index + 1}</td>
+                              <td className="px-3 py-2">{item.description || item.nome || item.produto || 'Produto'}</td>
+                              <td className="px-3 py-2">{quantity}</td>
+                              <td className="px-3 py-2">{item.unit || item.unidade || 'un'}</td>
+                              <td className="px-3 py-2">{formatCurrencyBR(unitValue)}</td>
+                              <td className="px-3 py-2 font-semibold text-gray-800">{formatCurrencyBR(totalValue)}</td>
+                            </tr>
+                          );
+                        }) : (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-6 text-center text-gray-500">Nenhum item detalhado encontrado para esta nota.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </DetailSection>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <DetailSection title="Totais">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <DetailField label="Quantidade total de itens" value={items.length || '-'} />
+                      <DetailField label="Valor total" value={formatCurrencyBR(value)} />
+                      <DetailField label="Desconto" value={formatCurrencyBR(discount)} />
+                      <DetailField label="Frete" value={formatCurrencyBR(freight)} />
+                      <DetailField label="Valor a pagar" value={formatCurrencyBR(value)} />
+                      <DetailField label="Troco" value={formatCurrencyBR(change)} />
+                    </div>
+                  </DetailSection>
+
+                  <DetailSection title="Pagamento">
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-800">
+                      <p><strong>{getInvoicePaymentMethod(invoice)}</strong> — {formatCurrencyBR(paidAmount)}</p>
+                    </div>
+                  </DetailSection>
+                </div>
+
+                <DetailSection title="Arquivos e ações fiscais">
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => handleDownloadInvoicePdf(invoice)} disabled={invoice.status !== 'authorized'} title="Visualizar ou baixar DANFE/PDF"><FileText className="w-4 h-4" /> DANFE/PDF</Button>
+                    <Button size="sm" variant="secondary" onClick={() => handleDownloadInvoiceXml(invoice)} disabled={invoice.status !== 'authorized'} title="Baixar XML autorizado"><Download className="w-4 h-4" /> XML</Button>
+                    <Button size="sm" variant="secondary" onClick={() => handleCopyInvoiceKey(invoice)} title="Copiar chave de acesso"><Key className="w-4 h-4" /> Copiar chave</Button>
+                    {sefazUrl && (
+                      <a href={sefazUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-md transition-all hover:bg-gray-50" title="Consultar na SEFAZ pela chave de acesso">
+                        <Search className="w-4 h-4" /> SEFAZ
+                      </a>
+                    )}
+                    {!isReadOnly && invoice.status === 'authorized' && (
+                      <Button size="sm" variant="danger" onClick={() => { setInvoiceToView(null); handleOpenCancelInvoice(invoice); }} title="Cancelar NFC-e autorizada"><X className="w-4 h-4" /> Cancelar NFC-e</Button>
+                    )}
+                  </div>
+                </DetailSection>
+              </div>
+            );
+          })()}
+        </Modal>
+
+        <Modal isOpen={Boolean(invoiceToCancel)} onClose={() => { if (!busyOrderId) { setInvoiceToCancel(null); setCancelReason(''); setCancelError(''); } }} title="Cancelar nota fiscal" size="md">
+          <form onSubmit={handleConfirmCancelInvoice} className="space-y-4">
+            <div className="rounded-xl bg-red-50 border border-red-100 p-4 text-sm text-red-800">
+              <p><strong>Nota:</strong> {invoiceToCancel ? `${invoiceToCancel.model || '-'} / ${invoiceToCancel.series || '-'} / ${invoiceToCancel.number || '-'}` : '-'}</p>
+              <p><strong>Chave:</strong> {invoiceToCancel?.key || '-'}</p>
+            </div>
+            <Textarea
+              label="Justificativa do cancelamento"
+              rows={4}
+              minLength={15}
+              maxLength={255}
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              required
+            />
+            {cancelError && <div className="p-3 rounded-xl border border-red-200 bg-red-50 text-sm text-red-800">{cancelError}</div>}
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" type="button" disabled={Boolean(busyOrderId)} onClick={() => { setInvoiceToCancel(null); setCancelReason(''); setCancelError(''); }}>Voltar</Button>
+              <Button variant="danger" type="submit" disabled={Boolean(busyOrderId)}><X className="w-4 h-4" /> {busyOrderId ? 'Cancelando...' : 'Confirmar cancelamento'}</Button>
+            </div>
+          </form>
+        </Modal>
+      </div>
+    );
+  };
+
   const PlaceholderPage = ({ title }) => (<div className="p-6"><h1 className="text-3xl font-bold text-pink-600">{title}</h1><p>Em desenvolvimento...</p></div>);
   const userHasPermission = useCallback((menuId) => {
     if (!user) return menuId === 'pagina-inicial';
@@ -12330,6 +14042,19 @@ const handleSubmit = async (e) => {
               user={user}
             />
           ) : homePage();
+      case 'nota-fiscal': return userHasPermission('nota-fiscal')
+        ? inlinePage('nota-fiscal', () => NotaFiscal({
+            data,
+            addItem,
+            updateItem,
+            deleteItem,
+            setConfirmDelete,
+            effectiveStoreId,
+            selectedStoreId,
+            storeInfoMap,
+            currentUser: user
+          }))
+        : homePage();
       case 'configuracoes': return userHasPermission('configuracoes')
         ? inlinePage('configuracoes', () => Configuracoes({ user, setConfirmDelete, data, addItem, updateItem, deleteItem, availableStores, storeInfoMap, resolveActiveStoreForWrite, selectedStoreId }))
         : homePage();
