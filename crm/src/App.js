@@ -12448,8 +12448,13 @@ const handleSubmit = async (e) => {
       csosn: '102',
       pisCst: '49',
       cofinsCst: '49',
+      cest: '',
       cBenef: ''
     });
+    const [selectedFiscalProductIds, setSelectedFiscalProductIds] = useState([]);
+    const [fiscalProductSearchTerm, setFiscalProductSearchTerm] = useState('');
+    const [fiscalProductConflictMode, setFiscalProductConflictMode] = useState('fill-empty');
+    const [savingFiscalProducts, setSavingFiscalProducts] = useState(false);
     const [issuerForm, setIssuerForm] = useState({
       cnpj: '37185245000140',
       legalName: 'ANA GUIMARAES DOCERIA LTDA',
@@ -12497,7 +12502,37 @@ const handleSubmit = async (e) => {
 
     const invoices = data.invoices || [];
     const fiscalProducts = data.fiscalProducts || [];
+    const storeProducts = data.produtos || [];
     const orders = data.pedidos || [];
+    const fiscalProductsById = useMemo(() => {
+      const map = new Map();
+      fiscalProducts.forEach((item) => {
+        if (item.id) map.set(String(item.id), item);
+        if (item.productId) map.set(String(item.productId), item);
+      });
+      return map;
+    }, [fiscalProducts]);
+    const selectedFiscalProductIdSet = useMemo(() => new Set(selectedFiscalProductIds), [selectedFiscalProductIds]);
+    const filteredFiscalProductOptions = useMemo(() => {
+      const term = normalizeSearchText(fiscalProductSearchTerm);
+      return storeProducts
+        .filter((produto) => {
+          if (!produto?.id) return false;
+          if (!term) return true;
+          return [
+            produto.nome,
+            produto.codigo,
+            produto.categoria,
+            produto.categoriaPrincipal,
+            produto.id
+          ].some((value) => normalizeSearchText(value).includes(term));
+        })
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+    }, [storeProducts, fiscalProductSearchTerm]);
+    const selectedExistingFiscalProductCount = useMemo(() => (
+      selectedFiscalProductIds.filter((id) => fiscalProductsById.has(String(id))).length
+    ), [selectedFiscalProductIds, fiscalProductsById]);
+    const hasMultipleFiscalProductsSelected = selectedFiscalProductIds.length > 1 && !editingFiscalProduct;
 
     const ordersById = useMemo(() => {
       const map = new Map();
@@ -12866,7 +12901,11 @@ const handleSubmit = async (e) => {
           setIssuerForm((prev) => ({ ...prev, ...configuration.issuer, address: { ...prev.address, ...(configuration.issuer.address || {}) } }));
         }
         if (configuration.settings) {
-          setSettingsForm((prev) => ({ ...prev, ...configuration.settings, serviceUrl: '' }));
+          setSettingsForm((prev) => ({
+            ...prev,
+            ...configuration.settings,
+            serviceUrl: configuration.platformService?.serviceUrl || configuration.settings.serviceUrl || ''
+          }));
         }
         setCertificateInfo(configuration.certificate || null);
         setPlatformService(configuration.platformService || null);
@@ -12903,6 +12942,9 @@ const handleSubmit = async (e) => {
 
     const resetProductForm = () => {
       setEditingFiscalProduct(null);
+      setSelectedFiscalProductIds([]);
+      setFiscalProductSearchTerm('');
+      setFiscalProductConflictMode('fill-empty');
       setProductForm({
         productId: '',
         code: '',
@@ -12915,8 +12957,55 @@ const handleSubmit = async (e) => {
         csosn: '102',
         pisCst: '49',
         cofinsCst: '49',
+        cest: '',
         cBenef: ''
       });
+    };
+
+    const applyFiscalProductSelection = (nextIds) => {
+      const normalizedIds = [...new Set(nextIds.filter(Boolean).map(String))];
+      setSelectedFiscalProductIds(normalizedIds);
+      setProductForm((prev) => {
+        if (normalizedIds.length === 1) {
+          const product = storeProducts.find((item) => String(item.id) === normalizedIds[0]);
+          return {
+            ...prev,
+            productId: normalizedIds[0],
+            code: product?.codigo || normalizedIds[0],
+            description: product?.nome || prev.description
+          };
+        }
+        if (normalizedIds.length > 1) {
+          return {
+            ...prev,
+            productId: '',
+            code: '',
+            description: ''
+          };
+        }
+        return { ...prev, productId: '' };
+      });
+    };
+
+    const toggleFiscalProductSelection = (productId) => {
+      if (editingFiscalProduct) return;
+      const normalizedId = String(productId || '');
+      if (!normalizedId) return;
+      const nextIds = selectedFiscalProductIdSet.has(normalizedId)
+        ? selectedFiscalProductIds.filter((id) => id !== normalizedId)
+        : [...selectedFiscalProductIds, normalizedId];
+      applyFiscalProductSelection(nextIds);
+    };
+
+    const toggleAllVisibleFiscalProducts = (checked) => {
+      if (editingFiscalProduct) return;
+      const visibleIds = filteredFiscalProductOptions.map((produto) => String(produto.id)).filter(Boolean);
+      if (checked) {
+        applyFiscalProductSelection([...selectedFiscalProductIds, ...visibleIds]);
+      } else {
+        const visibleIdSet = new Set(visibleIds);
+        applyFiscalProductSelection(selectedFiscalProductIds.filter((id) => !visibleIdSet.has(id)));
+      }
     };
 
     const requestOrderValidation = async (order) => {
@@ -13152,9 +13241,19 @@ const handleSubmit = async (e) => {
             nfceSeries: Number(settingsForm.nfceSeries || 1),
             operationNature: settingsForm.operationNature,
             defaultPaymentMethodCode: settingsForm.defaultPaymentMethodCode,
-            defaultPresence: Number(settingsForm.defaultPresence || 2)
+            defaultPresence: Number(settingsForm.defaultPresence || 2),
+            ...(isPlatformAdmin ? { serviceUrl: settingsForm.serviceUrl || '' } : {})
           }
         }));
+        if (isPlatformAdmin) {
+          const normalizedServiceUrl = String(settingsForm.serviceUrl || '').trim();
+          setPlatformService((prev) => ({
+            ...(prev || {}),
+            serviceUrl: normalizedServiceUrl,
+            configured: Boolean(normalizedServiceUrl),
+            source: normalizedServiceUrl ? 'integrations/fiscal' : ''
+          }));
+        }
         setMessage({ type: 'success', text: 'Configuração fiscal salva.' });
       } catch (error) {
         console.error('[NotaFiscal] Erro ao salvar configuração:', error);
@@ -13212,6 +13311,9 @@ const handleSubmit = async (e) => {
 
     const handleEditFiscalProduct = (row) => {
       setEditingFiscalProduct(row);
+      setSelectedFiscalProductIds(row.id ? [String(row.id)] : []);
+      setFiscalProductSearchTerm('');
+      setFiscalProductConflictMode('overwrite');
       setProductForm({
         productId: row.id || '',
         code: row.code || '',
@@ -13224,6 +13326,7 @@ const handleSubmit = async (e) => {
         csosn: row.csosn || '102',
         pisCst: row.pisCst || '49',
         cofinsCst: row.cofinsCst || '49',
+        cest: row.cest || '',
         cBenef: row.cBenef || ''
       });
       setShowProductModal(true);
@@ -13240,6 +13343,7 @@ const handleSubmit = async (e) => {
       const product = (data.produtos || []).find((item) => item.id === issue.productId);
       resetProductForm();
       setProductCorrectionOrderId(orderId);
+      applyFiscalProductSelection(issue.productId || product?.id ? [issue.productId || product?.id] : []);
       setProductForm((prev) => ({
         ...prev,
         productId: issue.productId || product?.id || '',
@@ -13256,51 +13360,182 @@ const handleSubmit = async (e) => {
       event.preventDefault();
       if (isReadOnly) return;
       if (!effectiveStoreId) return;
-      const productId = (editingFiscalProduct?.id || productForm.productId || productForm.code || productForm.description).trim();
-      if (!productId) {
-        setMessage({ type: 'error', text: 'Informe o produto ou código para salvar o cadastro fiscal.' });
-        return;
-      }
       const normalizedNcm = normalizeFiscalCode(productForm.ncm);
       if (normalizedNcm.length !== 8) {
         setMessage({ type: 'error', text: 'Informe NCM com 8 dígitos. O CFOP é selecionado por operação na tela de emissão.' });
         return;
       }
 
-      const payload = {
-        code: productForm.code || productId,
-        description: productForm.description,
+      const selectedIds = editingFiscalProduct?.id
+        ? [String(editingFiscalProduct.id)]
+        : selectedFiscalProductIds;
+      const selectedProducts = selectedIds
+        .map((productId) => storeProducts.find((item) => String(item.id) === String(productId)))
+        .filter(Boolean);
+      const manualProductId = String(editingFiscalProduct?.id || productForm.productId || productForm.code || productForm.description || '').trim();
+      const isManualSave = selectedProducts.length === 0;
+
+      if (isManualSave && !manualProductId) {
+        setMessage({ type: 'error', text: 'Selecione ao menos um produto ou informe código/descrição para salvar o cadastro fiscal.' });
+        return;
+      }
+
+      const commonFiscalPayload = {
         ncm: normalizedNcm,
         unit: productForm.unit || 'un',
         origin: Number(productForm.origin || 0),
         csosn: productForm.csosn || '102',
         pisCst: productForm.pisCst || '49',
         cofinsCst: productForm.cofinsCst || '49',
+        cest: productForm.cest || '',
         cBenef: productForm.cBenef || '',
-        updatedAt: new Date()
+        updatedAt: serverTimestamp()
       };
 
-      try {
-        if (editingFiscalProduct) {
-          await updateItem('fiscalProducts', productId, payload, effectiveStoreId);
-        } else {
-          await setDoc(doc(db, 'lojas', effectiveStoreId, 'fiscalProducts', productId), {
-            ...payload,
-            createdAt: serverTimestamp()
-          }, { merge: true });
+      const isEmptyFiscalValue = (value) => value === undefined || value === null || value === '';
+      const buildProductPayload = (product, existing = null) => {
+        const productId = String(product?.id || manualProductId || '').trim();
+        const isMulti = selectedProducts.length > 1;
+        const basePayload = {
+          code: isMulti ? (product?.codigo || productId) : (productForm.code || product?.codigo || productId),
+          description: isMulti ? (product?.nome || productForm.description || productId) : (productForm.description || product?.nome || productId),
+          ...commonFiscalPayload
+        };
+
+        if (!existing) {
+          return {
+            payload: {
+              ...basePayload,
+              productId,
+              createdAt: serverTimestamp()
+            },
+            action: 'created'
+          };
         }
+
+        if (fiscalProductConflictMode === 'ignore' && !editingFiscalProduct) {
+          return { payload: null, action: 'skipped' };
+        }
+
+        if (fiscalProductConflictMode === 'fill-empty' && !editingFiscalProduct) {
+          const patch = {};
+          Object.entries({ productId, ...basePayload }).forEach(([field, value]) => {
+            if (field === 'updatedAt') return;
+            if (!isEmptyFiscalValue(value) && isEmptyFiscalValue(existing[field])) {
+              patch[field] = value;
+            }
+          });
+          if (Object.keys(patch).length === 0) {
+            return { payload: null, action: 'skipped' };
+          }
+          return {
+            payload: {
+              ...patch,
+              updatedAt: serverTimestamp()
+            },
+            action: 'updated'
+          };
+        }
+
+        return {
+          payload: {
+            ...basePayload,
+            productId
+          },
+          action: 'updated'
+        };
+      };
+
+      const targets = isManualSave
+        ? [{
+            id: manualProductId,
+            product: { id: manualProductId, nome: productForm.description, codigo: productForm.code || manualProductId },
+            existing: editingFiscalProduct || fiscalProductsById.get(manualProductId)
+          }]
+        : selectedProducts.map((product) => ({
+            id: String(product.id),
+            product,
+            existing: fiscalProductsById.get(String(product.id))
+          }));
+
+      const affectedCount = targets.length;
+      const existingCount = targets.filter((target) => target.existing).length;
+      const conflictLabel = {
+        overwrite: 'sobrescrever os dados existentes',
+        ignore: 'ignorar produtos que já possuem cadastro',
+        'fill-empty': 'atualizar apenas campos vazios'
+      }[fiscalProductConflictMode] || 'atualizar apenas campos vazios';
+      const confirmText = [
+        `Você está prestes a salvar cadastro fiscal para ${affectedCount} produto(s).`,
+        existingCount > 0 ? `${existingCount} produto(s) já possuem cadastro fiscal; a regra escolhida é: ${conflictLabel}.` : 'Nenhum produto selecionado possui cadastro fiscal anterior.',
+        'Deseja continuar?'
+      ].join('\n\n');
+
+      if (!window.confirm(confirmText)) return;
+
+      setSavingFiscalProducts(true);
+      setMessage(null);
+      try {
+        const writes = [];
+        let skipped = 0;
+        targets.forEach((target) => {
+          const { payload, action } = buildProductPayload(target.product, target.existing);
+          if (!payload) {
+            skipped += 1;
+            return;
+          }
+          writes.push({
+            id: target.id,
+            payload,
+            action
+          });
+        });
+
+        if (writes.length === 0) {
+          setShowProductModal(false);
+          resetProductForm();
+          setMessage({ type: 'success', text: `Nenhum produto alterado. ${skipped} produto(s) foram ignorados pela regra escolhida.` });
+          return;
+        }
+
+        const chunks = [];
+        for (let index = 0; index < writes.length; index += 450) {
+          chunks.push(writes.slice(index, index + 450));
+        }
+
+        const summary = { created: 0, updated: 0, errors: 0 };
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          chunk.forEach((item) => {
+            batch.set(doc(db, 'lojas', effectiveStoreId, 'fiscalProducts', item.id), item.payload, { merge: true });
+          });
+          try {
+            await batch.commit();
+            chunk.forEach((item) => {
+              if (item.action === 'created') summary.created += 1;
+              if (item.action === 'updated') summary.updated += 1;
+            });
+          } catch (error) {
+            summary.errors += chunk.length;
+            console.error('[NotaFiscal] Erro ao salvar lote de produtos fiscais:', error);
+          }
+        }
+
         setShowProductModal(false);
         resetProductForm();
+        const summaryText = `Produtos fiscais: ${summary.created} cadastrado(s), ${summary.updated} atualizado(s), ${summary.errors} com erro${skipped ? `, ${skipped} ignorado(s)` : ''}.`;
         if (productCorrectionOrderId) {
           setActiveTab('emitir');
-          setMessage({ type: 'success', text: 'Cadastro fiscal salvo. Valide novamente o pedido para confirmar a emissão.' });
+          setMessage({ type: summary.errors ? 'error' : 'success', text: `${summaryText} Valide novamente o pedido para confirmar a emissão.` });
           setProductCorrectionOrderId('');
         } else {
-          setMessage({ type: 'success', text: 'Cadastro fiscal do produto salvo.' });
+          setMessage({ type: summary.errors ? 'error' : 'success', text: summaryText });
         }
       } catch (error) {
         console.error('[NotaFiscal] Erro ao salvar produto fiscal:', error);
         setMessage({ type: 'error', text: error?.message || 'Não foi possível salvar o cadastro fiscal.' });
+      } finally {
+        setSavingFiscalProducts(false);
       }
     };
 
@@ -13353,7 +13588,8 @@ const handleSubmit = async (e) => {
     const fiscalProductColumns = [
       { header: 'Produto', render: (row) => <div><p className="font-medium text-gray-800">{row.description || row.nome || row.id}</p><p className="text-xs text-gray-500">{row.code || row.id}</p></div> },
       { header: 'NCM', key: 'ncm' },
-      { header: 'CSOSN/CST', render: (row) => row.csosn || row.cst || '-' },
+      { header: 'ICMS/CST', render: (row) => row.csosn || row.cst || '-' },
+      { header: 'CEST', render: (row) => row.cest || '-' },
       { header: 'Un.', render: (row) => row.unit || 'un' }
     ];
 
@@ -13684,11 +13920,16 @@ const handleSubmit = async (e) => {
                 {isPlatformAdmin && (
                   <div className="md:col-span-3">
                     <Input
-                      disabled
+                      disabled={isReadOnly}
                       label="URL única do serviço fiscal (Cloud Run) - plataforma"
-                      value={platformService?.serviceUrl || 'Não configurada no backend'}
+                      value={settingsForm.serviceUrl || ''}
+                      placeholder="https://fiscal-service-xxxxx-rj.a.run.app"
+                      onChange={(e) => setSettingsForm({ ...settingsForm, serviceUrl: e.target.value })}
                     />
-                    <p className="mt-1 text-xs text-gray-500">Configuração global protegida; não pertence a uma loja.</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Configuração global protegida; não pertence a uma loja.
+                      {platformService?.configured ? ` Origem atual: ${platformService.source || 'backend'}.` : ' Ainda não configurada.'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -13706,15 +13947,103 @@ const handleSubmit = async (e) => {
               <a href="https://www.gov.br/receitafederal/pt-br/assuntos/aduana-e-comercio-exterior/classificacao-fiscal-de-mercadorias/ncm" target="_blank" rel="noreferrer" className="text-pink-700 underline hover:text-pink-800">Consultar NCM na Receita Federal</a>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select label="Produto vinculado" value={productForm.productId} onChange={(e) => {
-                const product = (data.produtos || []).find((item) => item.id === e.target.value);
-                setProductForm({ ...productForm, productId: e.target.value, description: product?.nome || productForm.description, code: product?.codigo || e.target.value });
-              }} disabled={Boolean(editingFiscalProduct)}>
-                <option value="">Selecione ou preencha manualmente</option>
-                {(data.produtos || []).map((produto) => <option key={produto.id} value={produto.id}>{produto.nome}</option>)}
-              </Select>
-              <Input label="Código" value={productForm.code} onChange={(e) => setProductForm({ ...productForm, code: e.target.value })} />
-              <Input label="Descrição fiscal" value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} required />
+              <div className="md:col-span-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-sm font-medium text-gray-700">Produto vinculado</label>
+                  <span className="text-xs font-medium text-gray-500">{selectedFiscalProductIds.length} selecionado(s)</span>
+                </div>
+                <div className="rounded-xl border border-gray-300 bg-white">
+                  <div className="relative border-b border-gray-100 p-3">
+                    <Search className="absolute left-6 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      disabled={Boolean(editingFiscalProduct)}
+                      value={fiscalProductSearchTerm}
+                      onChange={(event) => setFiscalProductSearchTerm(event.target.value)}
+                      placeholder="Pesquisar produto pelo nome"
+                      className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm focus:border-transparent focus:ring-2 focus:ring-pink-500 disabled:bg-gray-50"
+                    />
+                  </div>
+                  {!editingFiscalProduct && (
+                    <label className="flex cursor-pointer items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-pink-50">
+                      <span className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={filteredFiscalProductOptions.length > 0 && filteredFiscalProductOptions.every((produto) => selectedFiscalProductIdSet.has(String(produto.id)))}
+                          onChange={(event) => toggleAllVisibleFiscalProducts(event.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                        />
+                        Selecionar todos
+                      </span>
+                      <span className="text-xs text-gray-500">{filteredFiscalProductOptions.length} produto(s)</span>
+                    </label>
+                  )}
+                  <div className="max-h-64 overflow-y-auto">
+                    {filteredFiscalProductOptions.length ? filteredFiscalProductOptions.map((produto) => {
+                      const isSelected = selectedFiscalProductIdSet.has(String(produto.id));
+                      const alreadyRegistered = fiscalProductsById.has(String(produto.id));
+                      return (
+                        <label key={produto.id} className={`flex cursor-pointer items-start justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-pink-50 ${isSelected ? 'bg-pink-50' : ''}`}>
+                          <span className="flex min-w-0 items-start gap-3">
+                            <input
+                              type="checkbox"
+                              disabled={Boolean(editingFiscalProduct)}
+                              checked={isSelected}
+                              onChange={() => toggleFiscalProductSelection(produto.id)}
+                              className="mt-1 h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500 disabled:opacity-60"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-gray-800">{produto.nome || produto.id}</span>
+                              <span className="block truncate text-xs text-gray-500">{produto.categoriaPrincipal || produto.categoria || 'Produto da loja'}</span>
+                            </span>
+                          </span>
+                          {alreadyRegistered && <span className="shrink-0 rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700">Cadastrado</span>}
+                        </label>
+                      );
+                    }) : (
+                      <div className="px-4 py-6 text-center text-sm text-gray-500">Nenhum produto encontrado.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {selectedExistingFiscalProductCount > 0 && !editingFiscalProduct && (
+                <div className="md:col-span-2 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                  <p className="text-sm font-medium text-yellow-900">{selectedExistingFiscalProductCount} produto(s) selecionado(s) já possuem cadastro fiscal.</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-yellow-950 md:grid-cols-3">
+                    {[
+                      ['fill-empty', 'Atualizar campos vazios'],
+                      ['ignore', 'Ignorar existentes'],
+                      ['overwrite', 'Sobrescrever existentes']
+                    ].map(([value, label]) => (
+                      <label key={value} className="flex cursor-pointer items-center gap-2 rounded-lg bg-white/70 px-3 py-2">
+                        <input
+                          type="radio"
+                          name="fiscalProductConflictMode"
+                          value={value}
+                          checked={fiscalProductConflictMode === value}
+                          onChange={(event) => setFiscalProductConflictMode(event.target.value)}
+                          className="text-pink-600 focus:ring-pink-500"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Input
+                label="Código"
+                value={productForm.code}
+                disabled={hasMultipleFiscalProductsSelected}
+                placeholder={hasMultipleFiscalProductsSelected ? 'Automático por produto' : ''}
+                onChange={(e) => setProductForm({ ...productForm, code: e.target.value })}
+              />
+              <Input
+                label="Descrição fiscal"
+                value={productForm.description}
+                disabled={hasMultipleFiscalProductsSelected}
+                placeholder={hasMultipleFiscalProductsSelected ? 'Usa o nome de cada produto' : ''}
+                onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                required={!hasMultipleFiscalProductsSelected}
+              />
               <Select label="NCM do produto" value={normalizeFiscalCode(productForm.ncm)} onChange={(e) => setProductForm({ ...productForm, ncm: e.target.value })} required>
                 {productForm.ncm && !NCM_PRODUCT_OPTIONS.some((option) => option.value === normalizeFiscalCode(productForm.ncm)) && (
                   <option value={normalizeFiscalCode(productForm.ncm)}>{formatNcmCode(productForm.ncm)} - NCM cadastrado</option>
@@ -13723,14 +14052,15 @@ const handleSubmit = async (e) => {
               </Select>
               <Input label="Unidade" value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} />
               <Input label="Origem" type="number" value={productForm.origin} onChange={(e) => setProductForm({ ...productForm, origin: e.target.value })} />
-              <Input label="CSOSN" value={productForm.csosn} onChange={(e) => setProductForm({ ...productForm, csosn: e.target.value })} />
+              <Input label="ICMS/CST" value={productForm.csosn} onChange={(e) => setProductForm({ ...productForm, csosn: e.target.value })} />
+              <Input label="CEST" value={productForm.cest} onChange={(e) => setProductForm({ ...productForm, cest: e.target.value })} />
               <Input label="PIS CST" value={productForm.pisCst} onChange={(e) => setProductForm({ ...productForm, pisCst: e.target.value })} />
               <Input label="COFINS CST" value={productForm.cofinsCst} onChange={(e) => setProductForm({ ...productForm, cofinsCst: e.target.value })} />
-              <Input label="cBenef" value={productForm.cBenef} onChange={(e) => setProductForm({ ...productForm, cBenef: e.target.value })} />
+              <Input label="Código de benefício" value={productForm.cBenef} onChange={(e) => setProductForm({ ...productForm, cBenef: e.target.value })} />
             </div>
             <div className="flex justify-end gap-3 pt-4">
-              <Button variant="secondary" type="button" onClick={() => { setShowProductModal(false); resetProductForm(); }}>Cancelar</Button>
-              <Button type="submit"><Save className="w-4 h-4" /> Salvar</Button>
+              <Button variant="secondary" type="button" disabled={savingFiscalProducts} onClick={() => { setShowProductModal(false); resetProductForm(); }}>Cancelar</Button>
+              <Button type="submit" disabled={savingFiscalProducts}><Save className="w-4 h-4" /> {savingFiscalProducts ? 'Salvando...' : 'Salvar'}</Button>
             </div>
           </form>
         </Modal>

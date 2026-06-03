@@ -276,9 +276,34 @@ const publicCertificateInfo = (certificate = {}) => ({
   updatedAt: certificate.updatedAt || null,
 });
 
-const getServiceConfig = () => ({
-  serviceUrl: cleanText(process.env.FISCAL_SERVICE_URL),
-  sharedSecret: cleanText(process.env.FISCAL_SHARED_SECRET),
+const validateFiscalServiceUrl = (value) => {
+  const text = cleanText(value);
+  if (!text) return '';
+
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch (error) {
+    const wrapped = new Error('Informe uma URL válida para o serviço fiscal no Cloud Run.');
+    wrapped.code = 'invalid-argument';
+    throw wrapped;
+  }
+
+  const isLocalhost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
+    const error = new Error('A URL do serviço fiscal precisa usar HTTPS em produção.');
+    error.code = 'invalid-argument';
+    throw error;
+  }
+
+  parsed.hash = '';
+  parsed.search = '';
+  return parsed.toString().replace(/\/+$/, '');
+};
+
+const getServiceConfig = (settings = {}) => ({
+  serviceUrl: cleanText(settings.serviceUrl || settings.fiscalServiceUrl) || cleanText(process.env.FISCAL_SERVICE_URL),
+  sharedSecret: cleanText(settings.sharedSecret || settings.fiscalSharedSecret) || cleanText(process.env.FISCAL_SHARED_SECRET),
 });
 
 const fiscalServiceErrorCode = (status) => {
@@ -323,8 +348,8 @@ const parseFiscalServicePayload = (data) => {
   return {};
 };
 
-const callFiscalService = async (path, body) => {
-  const {serviceUrl, sharedSecret} = getServiceConfig();
+const callFiscalService = async (path, body, serviceSettings = {}) => {
+  const {serviceUrl, sharedSecret} = getServiceConfig(serviceSettings);
   if (!serviceUrl) {
     const error = new Error('A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
     error.code = 'failed-precondition';
@@ -431,8 +456,8 @@ const createFiscalFunctions = ({
       throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
     }
     const lojaId = String(request.data?.lojaId || '').trim();
-    await requireStoreAccess(uid, lojaId);
-    return {uid, lojaId};
+    const requester = await requireStoreAccess(uid, lojaId);
+    return {uid, lojaId, requester};
   };
 
   const requireReadContext = async (request) => {
@@ -446,6 +471,43 @@ const createFiscalFunctions = ({
   };
 
   const artifactPath = (lojaId, invoiceId, filename) => `fiscal/${lojaId}/invoices/${invoiceId}/${filename}`;
+
+  const loadPlatformServiceConfig = async () => {
+    const snap = await db.collection('integrations').doc('fiscal').get();
+    const data = snap.exists ? snap.data() || {} : {};
+    return {
+      serviceUrl: cleanText(data.serviceUrl || data.fiscalServiceUrl),
+      sharedSecret: cleanText(data.sharedSecret || data.fiscalSharedSecret),
+      updatedAt: data.updatedAt || null,
+      updatedByUid: data.updatedByUid || '',
+      source: data.serviceUrl || data.fiscalServiceUrl ? 'integrations/fiscal' : '',
+    };
+  };
+
+  const publicPlatformServiceConfig = (platformConfig = {}) => {
+    const resolved = getServiceConfig(platformConfig);
+    const source = platformConfig.serviceUrl
+      ? 'integrations/fiscal'
+      : (cleanText(process.env.FISCAL_SERVICE_URL) ? 'FISCAL_SERVICE_URL' : '');
+    return {
+      serviceUrl: resolved.serviceUrl,
+      configured: Boolean(resolved.serviceUrl),
+      source,
+      updatedAt: platformConfig.updatedAt || null,
+      updatedByUid: platformConfig.updatedByUid || '',
+    };
+  };
+
+  const savePlatformServiceConfig = async ({uid, serviceUrl}) => {
+    const normalizedUrl = validateFiscalServiceUrl(serviceUrl);
+    await db.collection('integrations').doc('fiscal').set({
+      serviceUrl: normalizedUrl || FieldValue.delete(),
+      fiscalServiceUrl: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedByUid: uid,
+    }, {merge: true});
+    return normalizedUrl;
+  };
 
   const saveInvoiceArtifact = async ({lojaId, invoiceId, filename, contentType, content, encoding = 'utf8'}) => {
     if (!content) return null;
@@ -568,6 +630,7 @@ const createFiscalFunctions = ({
   const loadSettings = async (lojaId) => {
     const snap = await db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('settings').get();
     const settings = snap.exists ? snap.data() || {} : {};
+    const platformService = await loadPlatformServiceConfig();
     return {
       environment: process.env.FISCAL_ENVIRONMENT || settings.environment || 'homologation',
       nfeSeries: Number(settings.nfeSeries || 1),
@@ -576,6 +639,8 @@ const createFiscalFunctions = ({
       defaultPresence: Number(settings.defaultPresence || 2),
       defaultPaymentMethodCode: settings.defaultPaymentMethodCode || '99',
       processVersion: settings.processVersion || 'ana-doceria-1.0',
+      serviceUrl: platformService.serviceUrl,
+      sharedSecret: platformService.sharedSecret,
     };
   };
 
@@ -944,10 +1009,11 @@ const createFiscalFunctions = ({
     fiscalGetConfiguration: onCall(async (request) => {
       try {
         const {lojaId, requester} = await requireReadContext(request);
-        const [issuerSnap, settingsSnap, certificate] = await Promise.all([
+        const [issuerSnap, settingsSnap, certificate, platformService] = await Promise.all([
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('issuer').get(),
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('settings').get(),
           loadCertificate(lojaId),
+          loadPlatformServiceConfig(),
         ]);
         const rawSettings = settingsSnap.exists ? settingsSnap.data() || {} : {};
 
@@ -961,15 +1027,18 @@ const createFiscalFunctions = ({
           }, {merge: true});
         }
 
+        const loadedSettings = await loadSettings(lojaId);
+        const publicSettings = {...loadedSettings};
+        delete publicSettings.sharedSecret;
+        delete publicSettings.fiscalSharedSecret;
+
         return {
           issuer: issuerSnap.exists ? issuerSnap.data() || {} : null,
-          settings: await loadSettings(lojaId),
+          settings: publicSettings,
           certificate: publicCertificateInfo(certificate),
-          platformService: requester.role === 'dono' && requester.allStores ? {
-            serviceUrl: getServiceConfig().serviceUrl,
-            configured: Boolean(getServiceConfig().serviceUrl),
-            source: 'FISCAL_SERVICE_URL',
-          } : null,
+          platformService: requester.role === 'dono' && requester.allStores
+            ? publicPlatformServiceConfig(platformService)
+            : null,
         };
       } catch (error) {
         logger.error('fiscalGetConfiguration failed', error);
@@ -979,10 +1048,10 @@ const createFiscalFunctions = ({
 
     fiscalSaveConfiguration: onCall(async (request) => {
       try {
-        const {uid, lojaId} = await requireCallableContext(request);
+        const {uid, lojaId, requester} = await requireCallableContext(request);
         const issuer = request.data?.issuer || {};
         const settings = request.data?.settings || {};
-        await Promise.all([
+        const operations = [
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('issuer').set({
             ...issuer,
             taxRegime: Number(issuer.taxRegime || 1),
@@ -1003,7 +1072,13 @@ const createFiscalFunctions = ({
             updatedAt: FieldValue.serverTimestamp(),
             updatedByUid: uid,
           }, {merge: true}),
-        ]);
+        ];
+
+        if (requester.role === 'dono' && requester.allStores && Object.prototype.hasOwnProperty.call(settings, 'serviceUrl')) {
+          operations.push(savePlatformServiceConfig({uid, serviceUrl: settings.serviceUrl}));
+        }
+
+        await Promise.all(operations);
         return {ok: true};
       } catch (error) {
         logger.error('fiscalSaveConfiguration failed', error);
