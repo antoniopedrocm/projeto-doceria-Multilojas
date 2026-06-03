@@ -1428,6 +1428,160 @@ const normalizeSearchText = (value) => String(value || '')
   .toLowerCase()
   .trim();
 
+const EMPTY_CLIENT_FORM = {
+  nome: '',
+  email: '',
+  telefone: '',
+  cpf: '',
+  documento: '',
+  aniversario: '',
+  cep: '',
+  endereco: '',
+  bairro: '',
+  cidade: 'Goiânia',
+  uf: 'GO',
+  codigoIbge: '5208707',
+  status: 'Ativo'
+};
+
+const readFirstAddress = (client = {}) => {
+  if (Array.isArray(client.enderecos) && client.enderecos[0] && typeof client.enderecos[0] === 'object') {
+    return client.enderecos[0];
+  }
+  return {};
+};
+
+const readObjectAddress = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+const pickClientAddressValue = (sources, keys, fallback = '') => {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const key of keys) {
+      const value = source[key];
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+  }
+  return fallback;
+};
+
+const normalizeClientDateInput = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+
+    const brDate = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (brDate) return `${brDate[3]}-${brDate[2]}-${brDate[1]}`;
+  }
+
+  const date = getJSDate(value);
+  if (date) return toDateInputValue(date);
+
+  return '';
+};
+
+const normalizeClientForForm = (client = {}) => {
+  const firstAddress = readFirstAddress(client);
+  const address = readObjectAddress(client.address);
+  const enderecoObject = readObjectAddress(client.endereco);
+  const sources = [address, firstAddress, enderecoObject, client];
+  const documentValue = client.documento || client.cpfCnpj || client.cpf_cnpj || client.cpf || client.cnpj || '';
+  const streetValue = typeof client.endereco === 'string'
+    ? client.endereco
+    : pickClientAddressValue(sources, ['street', 'logradouro', 'rua', 'endereco', 'enderecoCompleto']);
+
+  return {
+    ...EMPTY_CLIENT_FORM,
+    ...client,
+    nome: client.nome || '',
+    email: client.email || '',
+    telefone: client.telefone || client.phone || '',
+    cpf: documentValue,
+    documento: documentValue,
+    aniversario: normalizeClientDateInput(client.aniversario || client.dataAniversario || client.birthDate),
+    cep: onlyDigitsText(pickClientAddressValue(sources, ['cep', 'zip', 'enderecoCep'])),
+    endereco: streetValue || '',
+    bairro: pickClientAddressValue(sources, ['bairro', 'district', 'bairroFiscal', 'neighborhood']),
+    cidade: pickClientAddressValue(sources, ['cidade', 'city', 'municipio'], EMPTY_CLIENT_FORM.cidade),
+    uf: String(pickClientAddressValue(sources, ['uf', 'state'], EMPTY_CLIENT_FORM.uf)).toUpperCase().slice(0, 2),
+    codigoIbge: onlyDigitsText(pickClientAddressValue(sources, ['codigoIbge', 'codigoMunicipio', 'cityCode', 'ibge'], EMPTY_CLIENT_FORM.codigoIbge)),
+    status: client.status || EMPTY_CLIENT_FORM.status
+  };
+};
+
+const buildClientFiscalPayload = (formData, originalClient = null) => {
+  const nome = String(formData.nome || '').trim();
+  const email = String(formData.email || '').trim();
+  const telefone = onlyDigitsText(formData.telefone);
+  const documento = onlyDigitsText(formData.cpf || formData.documento);
+  const cep = onlyDigitsText(formData.cep);
+  const endereco = String(formData.endereco || '').trim();
+  const bairro = String(formData.bairro || '').trim();
+  const cidade = String(formData.cidade || '').trim();
+  const uf = String(formData.uf || '').trim().toUpperCase().slice(0, 2);
+  const codigoIbge = onlyDigitsText(formData.codigoIbge);
+  const firstAddress = readFirstAddress(originalClient || formData);
+  const otherAddresses = Array.isArray(originalClient?.enderecos) ? originalClient.enderecos.slice(1) : [];
+  const existingAddress = readObjectAddress(originalClient?.address || formData.address);
+  const address = {
+    ...existingAddress,
+    street: endereco,
+    logradouro: endereco,
+    endereco,
+    zip: cep,
+    cep,
+    district: bairro,
+    bairro,
+    city: cidade,
+    cidade,
+    state: uf,
+    uf,
+    cityCode: codigoIbge,
+    codigoMunicipio: codigoIbge,
+    codigoIbge
+  };
+  const primaryAddress = {
+    ...firstAddress,
+    enderecoCompleto: endereco,
+    endereco,
+    rua: endereco,
+    logradouro: endereco,
+    cep,
+    bairro,
+    cidade,
+    uf,
+    cityCode: codigoIbge,
+    codigoMunicipio: codigoIbge,
+    codigoIbge,
+    principal: firstAddress.principal ?? true
+  };
+  const payload = {
+    ...formData,
+    nome,
+    email,
+    telefone,
+    cpf: documento,
+    documento,
+    cpfCnpj: documento,
+    aniversario: formData.aniversario || '',
+    cep,
+    endereco,
+    bairro,
+    cidade,
+    uf,
+    codigoIbge,
+    codigoMunicipio: codigoIbge,
+    address,
+    enderecos: [primaryAddress, ...otherAddresses],
+    status: formData.status || EMPTY_CLIENT_FORM.status
+  };
+
+  delete payload.id;
+  return payload;
+};
+
 const formatFiscalNumber = (value, size = 9) => {
   const digits = onlyDigitsText(value);
   return digits ? digits.padStart(size, '0') : '-';
@@ -6127,13 +6281,13 @@ function App() {
     const [searchTerm, setSearchTerm] = usePersistentState("clientes_searchTerm", "");
     const [showModal, setShowModal] = useState(false);
     const [editingClient, setEditingClient] = useState(null);
-    const [formData, setFormData] = useState({ nome: "", email: "", telefone: "", endereco: "", aniversario: "", status: "Ativo" });
+    const [formData, setFormData] = useState(EMPTY_CLIENT_FORM);
 
     const filteredClients = useMemo(() => (clientes || []).filter(c => (c.nome && c.nome.toLowerCase().includes(searchTerm.toLowerCase())) || (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ), [clientes, searchTerm]);
     
     const resetForm = () => {
       setEditingClient(null);
-      setFormData({ nome: "", email: "", telefone: "", endereco: "", aniversario: "", status: "Ativo" });
+      setFormData(EMPTY_CLIENT_FORM);
     };
 
     const handleNewClient = () => {
@@ -6143,16 +6297,20 @@ function App() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const payload = buildClientFiscalPayload(formData, editingClient);
         if (editingClient) {
-            const { id, ...updateData } = formData;
-            await updateItem('clientes', editingClient.id, updateData);
+            await updateItem('clientes', editingClient.id, payload);
         } else {
-            await addItem('clientes', { ...formData, numeroDeCompras: 0, valorEmCompras: 0 });
+            await addItem('clientes', { ...payload, numeroDeCompras: 0, valorEmCompras: 0 });
         }
         setShowModal(false);
         resetForm();
     };
-    const handleEdit = (client) => { setEditingClient(client); setFormData(client); setShowModal(true); };
+    const handleEdit = (client) => {
+      setEditingClient(client);
+      setFormData(normalizeClientForForm(client));
+      setShowModal(true);
+    };
     const columns = [
         { header: "Cliente", render: (row) => (<div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white font-bold shadow-md">{row.nome.charAt(0).toUpperCase()}</div><div><p className="font-semibold text-gray-800">{row.nome}</p><p className="text-sm text-gray-500">{row.email}</p></div></div>) },
         { header: "Telefone", key: 'telefone' },
@@ -6176,7 +6334,104 @@ function App() {
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4"><div><h1 className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-rose-600 bg-clip-text text-transparent">Gestão de Clientes</h1><p className="text-gray-600 mt-1">Gerencie seus clientes</p></div><Button onClick={handleNewClient} className="w-full md:w-auto"><Plus className="w-4 h-4" /> Novo Cliente</Button></div>
         <div className="relative max-w-md"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Buscar clientes..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500" /></div>
         <Table columns={columns} data={filteredClients} actions={actions} />
-        <Modal isOpen={showModal} onClose={() => { setShowModal(false); resetForm(); }} title={editingClient ? "Editar Cliente" : "Novo Cliente"} size="lg"><form onSubmit={handleSubmit} className="space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Input label="Nome Completo" type="text" value={formData.nome} onChange={(e) => setFormData({...formData, nome: e.target.value})} required /><Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /><Input label="Telefone" type="tel" value={formData.telefone} onChange={(e) => setFormData({...formData, telefone: e.target.value})} /><Input label="Data de Aniversário" type="date" value={formData.aniversario} onChange={(e) => setFormData({...formData, aniversario: e.target.value})} /></div><Input label="Endereço" type="text" value={formData.endereco} onChange={(e) => setFormData({...formData, endereco: e.target.value})} /><div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4" />{editingClient ? "Salvar Alterações" : "Criar Cliente"}</Button></div></form></Modal>
+        <Modal isOpen={showModal} onClose={() => { setShowModal(false); resetForm(); }} title={editingClient ? "Editar Cliente" : "Novo Cliente"} size="lg">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <Input
+                label="Nome Completo"
+                type="text"
+                value={formData.nome || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, nome: e.target.value }))}
+                required
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={formData.email || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+              />
+              <Input
+                label="Telefone"
+                type="tel"
+                inputMode="numeric"
+                value={formData.telefone || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, telefone: onlyDigitsText(e.target.value) }))}
+                required
+              />
+              <Input
+                label="CPF"
+                type="text"
+                inputMode="numeric"
+                maxLength={14}
+                value={formData.cpf || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, cpf: onlyDigitsText(e.target.value), documento: onlyDigitsText(e.target.value) }))}
+                required
+              />
+              <Input
+                label="Data de Aniversário"
+                type="date"
+                value={formData.aniversario || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, aniversario: e.target.value }))}
+              />
+              <Input
+                label="CEP"
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                value={formData.cep || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, cep: onlyDigitsText(e.target.value) }))}
+                required
+              />
+              <Input
+                label="Endereço"
+                type="text"
+                value={formData.endereco || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, endereco: e.target.value }))}
+                required
+              />
+              <Input
+                label="Bairro"
+                type="text"
+                value={formData.bairro || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, bairro: e.target.value }))}
+                required
+              />
+              <Input
+                label="Cidade"
+                type="text"
+                value={formData.cidade || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, cidade: e.target.value }))}
+                required
+              />
+              <Input
+                label="UF"
+                type="text"
+                maxLength={2}
+                value={formData.uf || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, uf: e.target.value.toUpperCase().slice(0, 2) }))}
+                required
+              />
+              <Input
+                label="Código IBGE"
+                type="text"
+                inputMode="numeric"
+                maxLength={7}
+                value={formData.codigoIbge || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, codigoIbge: onlyDigitsText(e.target.value) }))}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" type="button" onClick={() => { setShowModal(false); resetForm(); }}>
+                Cancelar
+              </Button>
+              <Button type="submit">
+                <Save className="w-4 h-4" />
+                {editingClient ? "Salvar Alterações" : "Criar Cliente"}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       </div>
     );
   };
