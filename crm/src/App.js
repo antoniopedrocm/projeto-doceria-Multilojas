@@ -12436,6 +12436,23 @@ const handleSubmit = async (e) => {
     const [invoiceToView, setInvoiceToView] = useState(null);
     const [cancelReason, setCancelReason] = useState('');
     const [cancelError, setCancelError] = useState('');
+    const [orderToEditBeforeInvoice, setOrderToEditBeforeInvoice] = useState(null);
+    const [orderEditProductSearch, setOrderEditProductSearch] = useState('');
+    const [orderEditSaving, setOrderEditSaving] = useState(false);
+    const [orderEditError, setOrderEditError] = useState('');
+    const [orderEditForm, setOrderEditForm] = useState({
+      clienteId: '',
+      clienteNome: '',
+      telefone: '',
+      clienteEndereco: '',
+      formaPagamento: 'Pix',
+      observacao: '',
+      itens: [],
+      desconto: 0,
+      valorFrete: 0,
+      subtotal: 0,
+      total: 0
+    });
     const [productForm, setProductForm] = useState({
       productId: '',
       code: '',
@@ -12533,6 +12550,23 @@ const handleSubmit = async (e) => {
       selectedFiscalProductIds.filter((id) => fiscalProductsById.has(String(id))).length
     ), [selectedFiscalProductIds, fiscalProductsById]);
     const hasMultipleFiscalProductsSelected = selectedFiscalProductIds.length > 1 && !editingFiscalProduct;
+    const orderEditFilteredProducts = useMemo(() => {
+      const term = normalizeSearchText(orderEditProductSearch);
+      return storeProducts
+        .filter((produto) => {
+          if (!produto?.id) return false;
+          if (!term) return true;
+          return [
+            produto.nome,
+            produto.codigo,
+            produto.descricao,
+            produto.categoria,
+            produto.subcategoria,
+            produto.id
+          ].some((value) => normalizeSearchText(value).includes(term));
+        })
+        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+    }, [storeProducts, orderEditProductSearch]);
 
     const ordersById = useMemo(() => {
       const map = new Map();
@@ -12887,6 +12921,250 @@ const handleSubmit = async (e) => {
         })
         .sort((a, b) => (getJSDate(b.createdAt)?.getTime() || 0) - (getJSDate(a.createdAt)?.getTime() || 0));
     }, [orders, orderSearch, dateSearchValues, invoicesByOrderId, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceValue, getOrderCustomerDocument, getOrderValue, issuerForm.cnpj]);
+
+    const getPreInvoiceLockedReason = useCallback((order) => {
+      const invoice = invoicesByOrderId.get(order?.id);
+      if (!invoice) return '';
+      if (invoice.status === 'authorized') return 'Este pedido já possui nota autorizada.';
+      if (invoice.status === 'cancelled') return 'Este pedido já possui nota cancelada.';
+      if (invoice.status === 'validating' || invoice.status === 'pending_return') return 'Este pedido possui nota em processamento.';
+      return '';
+    }, [invoicesByOrderId]);
+
+    const buildOrderEditItemFromProduct = useCallback((product, previous = {}) => {
+      const productId = String(product?.id || previous.produtoId || previous.productId || previous.id || '').trim();
+      const quantity = Number(previous.quantity ?? previous.quantidade ?? 1);
+      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      const unitPrice = roundCurrency(product?.preco ?? previous.preco ?? previous.unitPrice ?? 0);
+      return {
+        ...previous,
+        id: productId,
+        produtoId: productId,
+        productId,
+        codigo: product?.codigo || previous.codigo || productId,
+        sku: product?.sku || previous.sku || '',
+        nome: product?.nome || previous.nome || previous.description || 'Produto',
+        description: product?.nome || previous.description || previous.nome || 'Produto',
+        preco: unitPrice,
+        unitPrice,
+        quantity: safeQuantity,
+        quantidade: safeQuantity,
+        categoria: product?.categoria || previous.categoria || '',
+        subcategoria: product?.subcategoria || previous.subcategoria || '',
+        imageUrl: product?.imageUrl || previous.imageUrl || '',
+        estoque: product?.estoque ?? previous.estoque ?? null
+      };
+    }, []);
+
+    const buildOrderEditFormWithTotals = useCallback((draft) => {
+      const items = (draft.itens || []).map((item) => {
+        const quantity = Number(item.quantity ?? item.quantidade ?? 1);
+        const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+        const unitPrice = roundCurrency(item.preco ?? item.unitPrice ?? 0);
+        return {
+          ...item,
+          quantity: safeQuantity,
+          quantidade: safeQuantity,
+          preco: unitPrice,
+          unitPrice
+        };
+      });
+      const subtotal = roundCurrency(items.reduce((sum, item) => sum + (Number(item.preco || 0) * Number(item.quantity || 1)), 0));
+      const desconto = roundCurrency(Math.min(Math.max(Number(draft.desconto || 0), 0), subtotal));
+      const valorFrete = roundCurrency(Math.max(Number(draft.valorFrete ?? draft.frete ?? 0), 0));
+      return {
+        ...draft,
+        itens: items,
+        subtotal,
+        desconto,
+        valorFrete,
+        frete: valorFrete,
+        total: roundCurrency(subtotal - desconto + valorFrete)
+      };
+    }, []);
+
+    const normalizeOrderForPreInvoiceEdit = useCallback((order) => {
+      const items = (order?.itens || []).map((item) => {
+        const productId = getOrderItemProductId(item);
+        const product = storeProducts.find((produto) => String(produto.id) === String(productId));
+        return buildOrderEditItemFromProduct(product || { id: productId, nome: item.nome, codigo: item.codigo, preco: item.preco }, item);
+      });
+
+      return buildOrderEditFormWithTotals({
+        clienteId: order?.clienteId || '',
+        clienteNome: order?.clienteNome || '',
+        telefone: order?.telefone || '',
+        clienteEndereco: order?.clienteEndereco || '',
+        formaPagamento: order?.formaPagamento || order?.paymentMethod || 'Pix',
+        observacao: order?.observacao || order?.additionalInfo || '',
+        itens: items,
+        desconto: Number(order?.desconto || order?.cupom?.valorDesconto || 0) || 0,
+        valorFrete: Number(order?.valorFrete ?? order?.frete ?? 0) || 0,
+        subtotal: Number(order?.subtotal || 0) || 0,
+        total: Number(order?.total || 0) || 0,
+        cupom: order?.cupom || null,
+        categoria: order?.categoria || 'Delivery',
+        status: order?.status || 'Finalizado',
+        origem: order?.origem || 'Manual',
+        dataEntrega: order?.dataEntrega || ''
+      });
+    }, [buildOrderEditFormWithTotals, buildOrderEditItemFromProduct, storeProducts]);
+
+    const handleOpenPreInvoiceOrderEdit = useCallback((order) => {
+      const lockReason = getPreInvoiceLockedReason(order);
+      if (lockReason) {
+        setMessage({ type: 'error', text: `${lockReason} Não é seguro alterar o pedido nesta etapa.` });
+        return;
+      }
+      setOrderToEditBeforeInvoice(order);
+      setOrderEditForm(normalizeOrderForPreInvoiceEdit(order));
+      setOrderEditProductSearch('');
+      setOrderEditError('');
+    }, [getPreInvoiceLockedReason, normalizeOrderForPreInvoiceEdit]);
+
+    const setOrderEditDraft = (updater) => {
+      setOrderEditForm((prev) => buildOrderEditFormWithTotals(typeof updater === 'function' ? updater(prev) : updater));
+    };
+
+    const handleOrderEditClientChange = (clienteId) => {
+      const cliente = (data.clientes || []).find((item) => item.id === clienteId);
+      setOrderEditDraft((prev) => ({
+        ...prev,
+        clienteId,
+        clienteNome: cliente?.nome || prev.clienteNome,
+        telefone: cliente?.telefone || prev.telefone || '',
+        clienteEndereco: getClientPrimaryAddressText(cliente) || prev.clienteEndereco || ''
+      }));
+    };
+
+    const handleAddProductToPreInvoiceOrder = (product) => {
+      setOrderEditDraft((prev) => {
+        const productId = String(product?.id || '');
+        if (!productId) return prev;
+        const existingIndex = (prev.itens || []).findIndex((item) => String(getOrderItemProductId(item)) === productId);
+        if (existingIndex >= 0) {
+          return {
+            ...prev,
+            itens: prev.itens.map((item, index) => (
+              index === existingIndex
+                ? { ...item, quantity: Number(item.quantity || 1) + 1, quantidade: Number(item.quantity || 1) + 1 }
+                : item
+            ))
+          };
+        }
+        return {
+          ...prev,
+          itens: [...(prev.itens || []), buildOrderEditItemFromProduct(product)]
+        };
+      });
+    };
+
+    const handleReplacePreInvoiceOrderItem = (index, productId) => {
+      const product = storeProducts.find((item) => String(item.id) === String(productId));
+      if (!product) return;
+      setOrderEditDraft((prev) => ({
+        ...prev,
+        itens: (prev.itens || []).map((item, itemIndex) => (
+          itemIndex === index ? buildOrderEditItemFromProduct(product, { quantity: item.quantity || 1 }) : item
+        ))
+      }));
+    };
+
+    const handleUpdatePreInvoiceOrderItem = (index, field, value) => {
+      setOrderEditDraft((prev) => ({
+        ...prev,
+        itens: (prev.itens || []).map((item, itemIndex) => {
+          if (itemIndex !== index) return item;
+          if (field === 'quantity') {
+            const quantity = Number(value);
+            return {
+              ...item,
+              quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : '',
+              quantidade: Number.isFinite(quantity) && quantity > 0 ? quantity : ''
+            };
+          }
+          if (field === 'preco') {
+            const unitPrice = value === '' ? '' : Math.max(Number(value), 0);
+            return {
+              ...item,
+              preco: unitPrice,
+              unitPrice
+            };
+          }
+          return { ...item, [field]: value };
+        })
+      }));
+    };
+
+    const handleRemovePreInvoiceOrderItem = (index) => {
+      setOrderEditDraft((prev) => ({
+        ...prev,
+        itens: (prev.itens || []).filter((_, itemIndex) => itemIndex !== index)
+      }));
+    };
+
+    const handleSavePreInvoiceOrderEdit = async (event) => {
+      event.preventDefault();
+      if (isReadOnly || !orderToEditBeforeInvoice?.id || !effectiveStoreId) return;
+      setOrderEditError('');
+      const currentLockReason = getPreInvoiceLockedReason(orderToEditBeforeInvoice);
+      if (currentLockReason) {
+        setOrderEditError(currentLockReason);
+        return;
+      }
+
+      const normalizedForm = buildOrderEditFormWithTotals(orderEditForm);
+      if (!String(normalizedForm.clienteNome || '').trim()) {
+        setOrderEditError('Informe o nome do cliente antes de salvar.');
+        return;
+      }
+      if (!Array.isArray(normalizedForm.itens) || normalizedForm.itens.length === 0) {
+        setOrderEditError('Adicione ao menos um produto ao pedido.');
+        return;
+      }
+      const invalidItem = normalizedForm.itens.find((item) => (
+        !getOrderItemProductId(item)
+        || !String(item.nome || item.description || '').trim()
+        || Number(item.quantity || 0) <= 0
+        || Number(item.preco ?? item.unitPrice ?? -1) < 0
+      ));
+      if (invalidItem) {
+        setOrderEditError('Revise os produtos: todos precisam ter produto, quantidade válida e valor igual ou maior que zero.');
+        return;
+      }
+
+      setOrderEditSaving(true);
+      setMessage(null);
+      try {
+        const payload = {
+          clienteId: normalizedForm.clienteId || '',
+          clienteNome: String(normalizedForm.clienteNome || '').trim(),
+          telefone: normalizedForm.telefone || '',
+          clienteEndereco: normalizedForm.clienteEndereco || '',
+          formaPagamento: normalizedForm.formaPagamento || 'Pix',
+          observacao: normalizedForm.observacao || '',
+          additionalInfo: normalizedForm.observacao || '',
+          itens: normalizedForm.itens,
+          subtotal: normalizedForm.subtotal,
+          desconto: normalizedForm.desconto,
+          valorFrete: normalizedForm.valorFrete,
+          frete: normalizedForm.valorFrete,
+          total: normalizedForm.total,
+          cupom: null,
+          updatedAt: new Date()
+        };
+        await updateItem('pedidos', orderToEditBeforeInvoice.id, payload, effectiveStoreId);
+        setOrderToEditBeforeInvoice(null);
+        setOrderEditProductSearch('');
+        setOrderEditError('');
+        setMessage({ type: 'success', text: 'Pedido atualizado. Agora valide novamente antes de emitir a nota.' });
+      } catch (error) {
+        console.error('[NotaFiscal] Erro ao editar pedido antes da nota:', error);
+        setOrderEditError(error?.message || 'Não foi possível salvar o pedido antes da emissão.');
+      } finally {
+        setOrderEditSaving(false);
+      }
+    };
 
     useEffect(() => {
       if (!effectiveStoreId) return undefined;
@@ -13558,6 +13836,12 @@ const handleSubmit = async (e) => {
     ];
 
     const orderActions = isReadOnly ? [] : [
+      {
+        icon: Edit,
+        label: 'Editar pedido antes da nota',
+        onClick: handleOpenPreInvoiceOrderEdit,
+        isVisible: (row) => !getPreInvoiceLockedReason(row)
+      },
       { icon: RefreshCw, label: 'Validar', onClick: handleValidateOrder },
       { icon: Printer, label: 'Emitir', onClick: handleIssueOrder }
     ];
@@ -14061,6 +14345,161 @@ const handleSubmit = async (e) => {
             <div className="flex justify-end gap-3 pt-4">
               <Button variant="secondary" type="button" disabled={savingFiscalProducts} onClick={() => { setShowProductModal(false); resetProductForm(); }}>Cancelar</Button>
               <Button type="submit" disabled={savingFiscalProducts}><Save className="w-4 h-4" /> {savingFiscalProducts ? 'Salvando...' : 'Salvar'}</Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal
+          isOpen={Boolean(orderToEditBeforeInvoice)}
+          onClose={() => {
+            if (orderEditSaving) return;
+            setOrderToEditBeforeInvoice(null);
+            setOrderEditProductSearch('');
+            setOrderEditError('');
+          }}
+          title="Editar pedido antes da nota"
+          size="xl"
+        >
+          <form onSubmit={handleSavePreInvoiceOrderEdit} data-unsaved-changes={Boolean(orderToEditBeforeInvoice)} className="space-y-5">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Ajuste aqui os dados que serão usados na emissão fiscal. Depois de salvar, valide o pedido novamente antes de emitir a nota.
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select label="Cliente cadastrado" value={orderEditForm.clienteId || ''} onChange={(event) => handleOrderEditClientChange(event.target.value)}>
+                <option value="">Cliente manual / não vinculado</option>
+                {(data.clientes || []).map((cliente) => <option key={cliente.id} value={cliente.id}>{cliente.nome}</option>)}
+              </Select>
+              <Input label="Nome do cliente na nota" value={orderEditForm.clienteNome || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, clienteNome: event.target.value }))} required />
+              <Input label="Telefone" value={orderEditForm.telefone || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, telefone: event.target.value }))} />
+              <Select label="Forma de pagamento" value={orderEditForm.formaPagamento || 'Pix'} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, formaPagamento: event.target.value }))}>
+                <option>Pix</option>
+                <option>Cartão de Crédito</option>
+                <option>Cartão de Débito</option>
+                <option>Dinheiro</option>
+                <option>Link de Pagamento</option>
+              </Select>
+              <div className="md:col-span-2">
+                <Input label="Endereço do cliente" value={orderEditForm.clienteEndereco || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, clienteEndereco: event.target.value }))} />
+              </div>
+              <div className="md:col-span-2">
+                <Textarea
+                  label="Observação da nota/pedido"
+                  rows={3}
+                  value={orderEditForm.observacao || ''}
+                  onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, observacao: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.1fr)] gap-5">
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-800">Adicionar ou trocar produtos</h3>
+                <Input
+                  label="Buscar produto"
+                  placeholder="Buscar por nome, código ou categoria"
+                  value={orderEditProductSearch}
+                  onChange={(event) => setOrderEditProductSearch(event.target.value)}
+                />
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2">
+                  {orderEditFilteredProducts.length ? orderEditFilteredProducts.map((product) => (
+                    <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg p-2 hover:bg-pink-50">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-gray-800">{product.nome}</p>
+                        <p className="text-xs text-gray-500">{product.categoria || 'Produto'} - {formatCurrencyBR(product.preco || 0)}</p>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => handleAddProductToPreInvoiceOrder(product)}>+</Button>
+                    </div>
+                  )) : (
+                    <p className="p-4 text-center text-sm text-gray-500">Nenhum produto encontrado.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-gray-800">Itens do pedido</h3>
+                  <span className="text-sm text-gray-500">{(orderEditForm.itens || []).length} item(ns)</span>
+                </div>
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white">
+                  {(orderEditForm.itens || []).length ? (orderEditForm.itens || []).map((item, index) => {
+                    const productId = String(getOrderItemProductId(item) || '');
+                    const selectedProductExists = storeProducts.some((product) => String(product.id) === productId);
+                    return (
+                      <div key={`${productId || item.nome || index}-${index}`} className="grid grid-cols-1 gap-3 border-b border-gray-100 p-3 last:border-b-0">
+                        <Select label="Produto" value={productId} onChange={(event) => handleReplacePreInvoiceOrderItem(index, event.target.value)}>
+                          {!selectedProductExists && productId && <option value={productId}>{item.nome || productId}</option>}
+                          {storeProducts.map((product) => <option key={product.id} value={product.id}>{product.nome}</option>)}
+                        </Select>
+                        <div className="grid grid-cols-[120px_1fr_auto] gap-3 items-end">
+                          <Input
+                            label="Qtd."
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.quantity ?? item.quantidade ?? 1}
+                            onChange={(event) => handleUpdatePreInvoiceOrderItem(index, 'quantity', event.target.value)}
+                          />
+                          <Input
+                            label="Valor unitário"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.preco ?? item.unitPrice ?? 0}
+                            onChange={(event) => handleUpdatePreInvoiceOrderItem(index, 'preco', event.target.value)}
+                          />
+                          <button type="button" onClick={() => handleRemovePreInvoiceOrderItem(index)} className="mb-1 rounded-lg p-3 text-red-500 hover:bg-red-50" title="Remover item">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p className="text-right text-sm font-semibold text-gray-700">
+                          Total do item: {formatCurrencyBR((Number(item.preco || item.unitPrice || 0) || 0) * (Number(item.quantity || item.quantidade || 1) || 1))}
+                        </p>
+                      </div>
+                    );
+                  }) : (
+                    <p className="p-6 text-center text-sm text-gray-500">Nenhum produto no pedido.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <Input label="Desconto (R$)" type="number" min="0" step="0.01" value={orderEditForm.desconto || 0} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, desconto: event.target.value, cupom: null }))} />
+                <Input label="Frete (R$)" type="number" min="0" step="0.01" value={orderEditForm.valorFrete || 0} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, valorFrete: event.target.value, frete: event.target.value }))} />
+                <div className="rounded-xl bg-white p-3 text-sm text-gray-700">
+                  <p>Subtotal</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrencyBR(orderEditForm.subtotal || 0)}</p>
+                </div>
+                <div className="rounded-xl bg-pink-50 p-3 text-sm text-pink-700">
+                  <p>Total</p>
+                  <p className="text-lg font-bold">{formatCurrencyBR(orderEditForm.total || 0)}</p>
+                </div>
+              </div>
+            </div>
+
+            {orderEditError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {orderEditError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="secondary"
+                type="button"
+                disabled={orderEditSaving}
+                onClick={() => {
+                  setOrderToEditBeforeInvoice(null);
+                  setOrderEditProductSearch('');
+                  setOrderEditError('');
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={orderEditSaving}>
+                <Save className="w-4 h-4" /> {orderEditSaving ? 'Salvando...' : 'Salvar pedido'}
+              </Button>
             </div>
           </form>
         </Modal>
