@@ -136,6 +136,247 @@ const isSafariBrowser = () => {
   return hasSafariToken && isAppleVendor && !excludedBrowsersRegex.test(userAgent);
 };
 
+const GEOLOCATION_MESSAGES = {
+  permissionDenied: 'Não foi possível acessar sua localização. Verifique se a localização está ativada no celular e se este site tem permissão de localização no navegador. Caso esteja usando o app Google, WhatsApp ou outro navegador interno, abra o sistema diretamente pelo Chrome.',
+  timeout: 'Não conseguimos obter sua localização a tempo. Verifique se o GPS está ativado, saia de locais fechados ou tente novamente.',
+  unsupported: 'Este navegador não oferece suporte adequado à localização. Atualize o Chrome ou abra o sistema em outro navegador compatível.',
+  unavailable: 'Sua localização está indisponível no momento. Verifique se o GPS está ativado no celular, aguarde alguns segundos e tente novamente. Caso esteja usando um navegador interno, abra o sistema diretamente pelo Chrome.',
+  insecure: 'Por segurança, a localização só funciona em uma conexão segura. Acesse o sistema pelo endereço HTTPS ou abra diretamente pelo Chrome atualizado.',
+  unknown: 'Não foi possível obter sua localização. Verifique a permissão de localização do site no navegador e tente novamente.'
+};
+
+const GEOLOCATION_ATTEMPTS = [
+  {
+    label: 'baixa-precisao-cache-recente',
+    options: {
+      enableHighAccuracy: false,
+      timeout: 25000,
+      maximumAge: 60000
+    }
+  },
+  {
+    label: 'alta-precisao-fallback',
+    options: {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 0
+    }
+  }
+];
+
+const getBrowserEnvironment = () => {
+  if (typeof navigator === 'undefined') {
+    return {
+      userAgent: '',
+      isEmbeddedBrowser: false,
+      isLegacyAndroid: false,
+      isSecureContext: false,
+      browserHint: 'unknown'
+    };
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const lowerUserAgent = userAgent.toLowerCase();
+  const isEmbeddedBrowser = /;\s*wv\)|\bwv\b|fban|fbav|instagram|whatsapp|gsa\/|googleapp|line\/|micromessenger|twitter/i.test(userAgent);
+  const androidVersionMatch = userAgent.match(/Android\s+(\d+)/i);
+  const isLegacyAndroid = Boolean(androidVersionMatch && Number(androidVersionMatch[1]) > 0 && Number(androidVersionMatch[1]) <= 7);
+  const browserHint = isEmbeddedBrowser
+    ? 'navegador-interno-ou-webview'
+    : lowerUserAgent.includes('chrome')
+      ? 'chrome'
+      : lowerUserAgent.includes('firefox')
+        ? 'firefox'
+        : lowerUserAgent.includes('safari')
+          ? 'safari'
+          : 'desconhecido';
+
+  return {
+    userAgent,
+    isEmbeddedBrowser,
+    isLegacyAndroid,
+    isSecureContext: typeof window !== 'undefined' ? window.isSecureContext : false,
+    browserHint
+  };
+};
+
+const isGeolocationSecureContext = () => {
+  if (typeof window === 'undefined') return false;
+  const hostname = window.location?.hostname || '';
+  const isLocalDevelopment = ['localhost', '127.0.0.1', '::1'].includes(hostname);
+  return Boolean(window.isSecureContext || window.location?.protocol === 'https:' || isLocalDevelopment);
+};
+
+const getGeolocationPermissionState = async () => {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+    return 'unsupported';
+  }
+
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    return status?.state || 'unknown';
+  } catch (error) {
+    console.warn('[Geolocation] Não foi possível consultar a permissão do site.', {
+      message: error?.message
+    });
+    return 'unknown';
+  }
+};
+
+const buildGeolocationError = (message, details = {}) => {
+  const error = new Error(message);
+  error.code = details.code || 'GEOLOCATION_ERROR';
+  error.details = details;
+  return error;
+};
+
+const appendEmbeddedBrowserGuidance = (message, environment) => {
+  if (!environment?.isEmbeddedBrowser || /chrome/i.test(message)) {
+    return message;
+  }
+  return `${message} Caso esteja usando o app Google, WhatsApp ou outro navegador interno, abra o sistema diretamente pelo Chrome atualizado.`;
+};
+
+const getFriendlyGeolocationMessage = (error, environment = null) => {
+  const code = Number(error?.code);
+
+  if (code === 1 || error?.code === 'PERMISSION_DENIED') {
+    return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.permissionDenied, environment);
+  }
+  if (code === 2 || error?.code === 'POSITION_UNAVAILABLE') {
+    return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.unavailable, environment);
+  }
+  if (code === 3 || error?.code === 'TIMEOUT') {
+    return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.timeout, environment);
+  }
+  if (error?.code === 'GEOLOCATION_UNSUPPORTED' || error?.code === 'EMBEDDED_BROWSER_UNSUPPORTED') {
+    return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.unsupported, environment);
+  }
+  if (error?.code === 'INSECURE_CONTEXT') {
+    return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.insecure, environment);
+  }
+
+  return appendEmbeddedBrowserGuidance(GEOLOCATION_MESSAGES.unknown, environment);
+};
+
+const getCurrentPositionWithLog = ({ source, attempt, environment, permissionState }) => {
+  const startedAt = Date.now();
+
+  console.info('[Geolocation] Solicitando localização', {
+    source,
+    attempt: attempt.label,
+    options: attempt.options,
+    permissionState,
+    userAgent: environment.userAgent,
+    browserHint: environment.browserHint,
+    isEmbeddedBrowser: environment.isEmbeddedBrowser,
+    isLegacyAndroid: environment.isLegacyAndroid,
+    isSecureContext: environment.isSecureContext,
+    timestamp: new Date().toISOString()
+  });
+
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.info('[Geolocation] Localização obtida', {
+          source,
+          attempt: attempt.label,
+          durationMs: Date.now() - startedAt,
+          accuracy: position?.coords?.accuracy,
+          timestamp: new Date().toISOString()
+        });
+        resolve(position);
+      },
+      (error) => {
+        console.warn('[Geolocation] Falha ao obter localização', {
+          source,
+          attempt: attempt.label,
+          durationMs: Date.now() - startedAt,
+          code: error?.code,
+          message: error?.message,
+          friendlyMessage: getFriendlyGeolocationMessage(error, environment),
+          options: attempt.options,
+          permissionState,
+          userAgent: environment.userAgent,
+          browserHint: environment.browserHint,
+          isEmbeddedBrowser: environment.isEmbeddedBrowser,
+          isLegacyAndroid: environment.isLegacyAndroid,
+          isSecureContext: environment.isSecureContext,
+          timestamp: new Date().toISOString()
+        });
+        reject(error);
+      },
+      attempt.options
+    );
+  });
+};
+
+const requestCompatibleGeolocation = async ({ source = 'app' } = {}) => {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    throw buildGeolocationError(GEOLOCATION_MESSAGES.unsupported, {
+      code: 'GEOLOCATION_UNSUPPORTED',
+      source
+    });
+  }
+
+  const environment = getBrowserEnvironment();
+
+  if (!isGeolocationSecureContext()) {
+    console.warn('[Geolocation] Contexto inseguro para geolocalização', {
+      source,
+      userAgent: environment.userAgent,
+      protocol: typeof window !== 'undefined' ? window.location?.protocol : '',
+      hostname: typeof window !== 'undefined' ? window.location?.hostname : ''
+    });
+    throw buildGeolocationError(GEOLOCATION_MESSAGES.insecure, {
+      code: 'INSECURE_CONTEXT',
+      source
+    });
+  }
+
+  const permissionState = await getGeolocationPermissionState();
+  if (permissionState === 'denied') {
+    console.warn('[Geolocation] Permissão de localização negada para este site', {
+      source,
+      permissionState,
+      userAgent: environment.userAgent,
+      browserHint: environment.browserHint,
+      isEmbeddedBrowser: environment.isEmbeddedBrowser
+    });
+    throw buildGeolocationError(GEOLOCATION_MESSAGES.permissionDenied, {
+      code: 'PERMISSION_DENIED',
+      source,
+      permissionState
+    });
+  }
+
+  let lastError = null;
+  for (let index = 0; index < GEOLOCATION_ATTEMPTS.length; index += 1) {
+    const attempt = GEOLOCATION_ATTEMPTS[index];
+    try {
+      return await getCurrentPositionWithLog({ source, attempt, environment, permissionState });
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = [2, 3].includes(Number(error?.code));
+      if (!shouldRetry || index === GEOLOCATION_ATTEMPTS.length - 1) {
+        break;
+      }
+      console.info('[Geolocation] Tentando novamente com configuração alternativa', {
+        source,
+        previousAttempt: attempt.label,
+        nextAttempt: GEOLOCATION_ATTEMPTS[index + 1]?.label,
+        previousCode: error?.code,
+        previousMessage: error?.message
+      });
+    }
+  }
+
+  throw buildGeolocationError(getFriendlyGeolocationMessage(lastError, environment), {
+    code: lastError?.code || 'UNKNOWN',
+    source,
+    originalMessage: lastError?.message
+  });
+};
+
 const isIOSBrowser = () => {
   if (typeof navigator === 'undefined') return false;
   const userAgent = navigator.userAgent || '';
@@ -3899,40 +4140,21 @@ function App() {
         return;
       }
 
-      const requestGeolocation = async () => {
-        if (!navigator.geolocation) {
-          return;
-        }
-
-        return new Promise((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position),
-            (error) => {
-              console.warn('[App.js] Permissão de geolocalização negada ou indisponível:', error);
-              resolve(null);
-            },
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-          );
-        });
-      };
-
       try {
-        if (navigator.permissions?.query) {
-          try {
-            const geoStatus = await navigator.permissions.query({ name: 'geolocation' });
-            if (geoStatus.state === 'granted') {
-              await requestGeolocation();
-            } else if (geoStatus.state === 'prompt') {
-              await requestGeolocation();
-            }
-          } catch (error) {
-            await requestGeolocation();
-          }
-        } else {
-          await requestGeolocation();
+        const geoStatus = await getGeolocationPermissionState();
+        console.info('[App.js] Estado da permissão de geolocalização do site:', {
+          state: geoStatus,
+          userAgent: navigator.userAgent || ''
+        });
+        if (geoStatus === 'granted') {
+          await requestCompatibleGeolocation({ source: 'app-capabilities' });
         }
       } catch (error) {
-        console.warn('[App.js] Erro ao solicitar geolocalização:', error);
+        console.warn('[App.js] Erro ao preparar geolocalização:', {
+          message: error?.message,
+          code: error?.code,
+          details: error?.details
+        });
       }
 	};
 
@@ -5523,13 +5745,7 @@ function App() {
 
     const todayRecord = todayRecordData;
 
-    const requestLocation = () => new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Seu navegador não suporta geolocalização.'));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
-    });
+    const requestLocation = () => requestCompatibleGeolocation({ source: 'meu-espaco-registro-ponto' });
 
     const getAddressFromCoordinates = async ({ latitude, longitude }) => {
       if (typeof latitude !== 'number' || typeof longitude !== 'number') return '';
@@ -7024,6 +7240,7 @@ function App() {
 
     // States para Usuários
     const [usuarios, setUsuarios] = useState([]);
+    const [selectedUserIds, setSelectedUserIds] = useState([]);
     const [userSearchTerm, setUserSearchTerm] = useState('');
     const [userExcludeTerm, setUserExcludeTerm] = useState('');
     const [userEmailFilter, setUserEmailFilter] = useState('any');
@@ -7044,6 +7261,8 @@ function App() {
         uid: ''
     });
     const [newPassword, setNewPassword] = useState("");
+
+    const getUsuarioId = useCallback((usuario) => usuario?.uid || usuario?.id || '', []);
 	
 	const effectiveStoreId = useMemo(() => {
 	if (!user) return null;
@@ -7099,6 +7318,27 @@ const effectiveStoreName = useMemo(() => {
         });
     }, [usuarios, userSearchTerm, userExcludeTerm, userEmailFilter, userRoleFilter]);
 
+    const visibleUserIds = useMemo(() => {
+        return (filteredUsuarios || []).map(getUsuarioId).filter(Boolean);
+    }, [filteredUsuarios, getUsuarioId]);
+
+    const selectedVisibleUsers = useMemo(() => {
+        const selectedSet = new Set(selectedUserIds);
+        return (filteredUsuarios || []).filter((usuario) => selectedSet.has(getUsuarioId(usuario)));
+    }, [filteredUsuarios, selectedUserIds, getUsuarioId]);
+
+    const allVisibleUsersSelected = useMemo(() => {
+        return visibleUserIds.length > 0 && visibleUserIds.every((userId) => selectedUserIds.includes(userId));
+    }, [visibleUserIds, selectedUserIds]);
+
+    useEffect(() => {
+        const visibleSet = new Set(visibleUserIds);
+        setSelectedUserIds((currentIds) => {
+            const nextIds = currentIds.filter((userId) => visibleSet.has(userId));
+            return nextIds.length === currentIds.length ? currentIds : nextIds;
+        });
+    }, [visibleUserIds]);
+
     const hasUserFilters = useMemo(() => {
         return Boolean(
             userSearchTerm.trim() ||
@@ -7114,6 +7354,28 @@ const effectiveStoreName = useMemo(() => {
         setUserEmailFilter('any');
         setUserRoleFilter('all');
     }, []);
+
+    const handleToggleUserSelection = useCallback((usuario, checked) => {
+        const userId = getUsuarioId(usuario);
+        if (!userId) return;
+
+        setSelectedUserIds((currentIds) => {
+            if (checked) {
+                return Array.from(new Set([...currentIds, userId]));
+            }
+            return currentIds.filter((id) => id !== userId);
+        });
+    }, [getUsuarioId]);
+
+    const handleToggleVisibleUsers = useCallback((checked) => {
+        setSelectedUserIds((currentIds) => {
+            if (!checked) {
+                const visibleSet = new Set(visibleUserIds);
+                return currentIds.filter((id) => !visibleSet.has(id));
+            }
+            return Array.from(new Set([...currentIds, ...visibleUserIds]));
+        });
+    }, [visibleUserIds]);
 
     // 🔄 Carregar dados da aba ativa
     useEffect(() => {
@@ -7554,17 +7816,77 @@ const effectiveStoreName = useMemo(() => {
           }
 	};
 
-    const handleDeleteUser = async (userToDelete) => {
+    const deleteUserAccount = useCallback(async (userToDelete) => {
+        const uid = userToDelete?.uid || userToDelete?.id;
+        if (!uid) {
+            throw new Error('UID do usuário não encontrado.');
+        }
+
         const deleteUserFn = httpsCallable(functions, "deleteUser");
+        await deleteUserFn({ uid });
+
         try {
-            await deleteUserFn({ uid: userToDelete.uid || userToDelete.id });
-            // A remoção do Firestore já pode ser feita pela cloud function ou aqui como fallback
-            await deleteDoc(doc(db, "users", userToDelete.id));
+            await deleteDoc(doc(db, "users", uid));
+        } catch (firestoreError) {
+            console.warn('Usuário removido no Authentication, mas o fallback local do Firestore falhou:', firestoreError);
+        }
+
+        return uid;
+    }, []);
+
+    const handleDeleteUser = async (userToDelete) => {
+        try {
+            const deletedUserId = await deleteUserAccount(userToDelete);
+            setUsuarios((currentUsers) => currentUsers.filter((usuario) => getUsuarioId(usuario) !== deletedUserId));
+            setSelectedUserIds((currentIds) => currentIds.filter((id) => id !== deletedUserId));
             setConfirmDelete({ isOpen: false, onConfirm: () => {} });
         } catch (err) {
             alert("Erro ao deletar usuário: " + err.message);
         }
     };
+
+    const handleDeleteSelectedUsers = useCallback(async () => {
+        const usersToDelete = [...selectedVisibleUsers];
+        if (!usersToDelete.length) return;
+
+        const deletedIds = [];
+        const failures = [];
+
+        for (const usuario of usersToDelete) {
+            try {
+                const deletedUserId = await deleteUserAccount(usuario);
+                deletedIds.push(deletedUserId);
+            } catch (error) {
+                failures.push(`${usuario.nome || usuario.email || 'Usuário'}: ${error.message}`);
+            }
+        }
+
+        if (deletedIds.length) {
+            const deletedSet = new Set(deletedIds);
+            setUsuarios((currentUsers) => currentUsers.filter((usuario) => !deletedSet.has(getUsuarioId(usuario))));
+            setSelectedUserIds((currentIds) => currentIds.filter((id) => !deletedSet.has(id)));
+        }
+
+        if (failures.length) {
+            alert(`Alguns usuários não puderam ser excluídos:\n${failures.join('\n')}`);
+            return;
+        }
+
+        alert(`${deletedIds.length} usuário${deletedIds.length === 1 ? '' : 's'} excluído${deletedIds.length === 1 ? '' : 's'} com sucesso!`);
+    }, [deleteUserAccount, getUsuarioId, selectedVisibleUsers]);
+
+    const handleConfirmBulkDeleteUsers = useCallback(() => {
+        const count = selectedVisibleUsers.length;
+        if (!count) return;
+
+        setConfirmDelete({
+            isOpen: true,
+            title: 'Excluir usuários selecionados',
+            message: `Tem certeza que deseja excluir ${count} usuário${count === 1 ? '' : 's'} selecionado${count === 1 ? '' : 's'}? Esta ação remove o acesso à plataforma e não pode ser desfeita.`,
+            confirmLabel: count === 1 ? 'Excluir usuário' : `Excluir ${count} usuários`,
+            onConfirm: handleDeleteSelectedUsers
+        });
+    }, [handleDeleteSelectedUsers, selectedVisibleUsers.length, setConfirmDelete]);
     
     const handlePasswordChange = async (e) => {
         e.preventDefault();
@@ -7851,21 +8173,30 @@ const effectiveStoreName = useMemo(() => {
 
     }, [data, storeInfoMap, effectiveStoreName]);
 
-    const userColumns = [
-        { header: "Nome", key: "nome" },
-        { header: "Email", key: "email" },
-        { header: "Permissão", render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${normalizeRole(row.role) === ROLE_OWNER ? 'bg-purple-100 text-purple-800' : normalizeRole(row.role) === ROLE_MANAGER ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{normalizeRole(row.role)}</span> },
-        { header: "Loja", render: (row) => {
-            const lojas = Array.isArray(row.lojaIds) ? row.lojaIds : (row.lojaId ? [row.lojaId] : []);
-            if (normalizeRole(row.role) === ROLE_OWNER && lojas.length === 0) {
-                return 'Todas as lojas';
-            }
-            if (!lojas.length) {
-                return 'Não definida';
-            }
-            return lojas.map((id) => storeInfoMap[id]?.nome || id).join(', ');
-        } }
-    ];
+    const renderUserRoleBadge = (row) => {
+        const normalizedRole = normalizeRole(row.role);
+        const roleClass = normalizedRole === ROLE_OWNER
+            ? 'bg-purple-100 text-purple-800'
+            : normalizedRole === ROLE_MANAGER
+                ? 'bg-blue-100 text-blue-800'
+                : normalizedRole === ROLE_ACCOUNTANT
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-gray-100 text-gray-800';
+
+        return <span className={`px-3 py-1 rounded-full text-xs font-medium ${roleClass}`}>{normalizedRole}</span>;
+    };
+
+    const getUserStoreLabel = (row) => {
+        const lojas = Array.isArray(row.lojaIds) ? row.lojaIds : (row.lojaId ? [row.lojaId] : []);
+        if (normalizeRole(row.role) === ROLE_OWNER && lojas.length === 0) {
+            return 'Todas as lojas';
+        }
+        if (!lojas.length) {
+            return 'Não definida';
+        }
+        return lojas.map((id) => storeInfoMap[id]?.nome || id).join(', ');
+    };
+
     const userActions = [ 
         { icon: Edit, label: "Editar", onClick: handleEditUser }, 
         { icon: Key, label: "Alterar Senha", onClick: (u) => { setEditingUser(u); setShowPasswordModal(true); } },
@@ -7978,8 +8309,40 @@ const effectiveStoreName = useMemo(() => {
                     </div>
                 </div>
 
-                <div className="flex justify-end my-4">
-                    <Button onClick={handleNewUser}><Plus className="w-4 h-4" /> Novo Usuário</Button>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 my-4">
+                    {usuarios && usuarios.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                            <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm">
+                                <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                                    checked={allVisibleUsersSelected}
+                                    onChange={(event) => handleToggleVisibleUsers(event.target.checked)}
+                                    disabled={!visibleUserIds.length}
+                                    aria-label="Selecionar todos os usuários visíveis"
+                                />
+                                Selecionar todos visíveis
+                            </label>
+                            <span className="text-sm text-gray-500">
+                                {selectedVisibleUsers.length > 0
+                                    ? `${selectedVisibleUsers.length} selecionado${selectedVisibleUsers.length === 1 ? '' : 's'}`
+                                    : `${filteredUsuarios.length} ${filteredUsuarios.length === 1 ? 'usuário visível' : 'usuários visíveis'}`}
+                            </span>
+                        </div>
+                    ) : (
+                        <div />
+                    )}
+                    <div className="flex flex-wrap justify-end gap-3">
+                        <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={handleConfirmBulkDeleteUsers}
+                            disabled={selectedVisibleUsers.length === 0}
+                        >
+                            <Trash2 className="w-4 h-4" /> Excluir selecionados
+                        </Button>
+                        <Button onClick={handleNewUser}><Plus className="w-4 h-4" /> Novo Usuário</Button>
+                    </div>
                 </div>
 				
                 {(!usuarios || usuarios.length === 0) ? (
@@ -7994,7 +8357,118 @@ const effectiveStoreName = useMemo(() => {
                         <p className="text-sm text-gray-400 mt-2">Ajuste os filtros ou limpe-os para visualizar todos os usuários.</p>
                     </div>								
                 ) : (
-					<Table columns={userColumns} data={filteredUsuarios} actions={userActions} />
+                    <>
+                        <div className="hidden md:block bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                                        <tr>
+                                            <th className="px-4 py-4 text-left w-12">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                                                    checked={allVisibleUsersSelected}
+                                                    onChange={(event) => handleToggleVisibleUsers(event.target.checked)}
+                                                    aria-label="Selecionar todos os usuários visíveis"
+                                                />
+                                            </th>
+                                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Nome</th>
+                                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Email</th>
+                                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Permissão</th>
+                                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Loja</th>
+                                            <th className="px-6 py-4 text-right text-sm font-semibold text-gray-700">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredUsuarios.map((usuario, rowIndex) => {
+                                            const usuarioId = getUsuarioId(usuario);
+                                            const isSelected = selectedUserIds.includes(usuarioId);
+
+                                            return (
+                                                <tr key={usuarioId || rowIndex} className="hover:bg-gradient-to-r hover:from-pink-50/50 hover:to-rose-50/50 transition-all">
+                                                    <td className="px-4 py-4">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                                                            checked={isSelected}
+                                                            onChange={(event) => handleToggleUserSelection(usuario, event.target.checked)}
+                                                            disabled={!usuarioId}
+                                                            aria-label={`Selecionar usuário ${usuario.nome || usuario.email || usuarioId}`}
+                                                        />
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{usuario.nome}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{usuario.email}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{renderUserRoleBadge(usuario)}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{getUserStoreLabel(usuario)}</td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            {userActions.map((action, actionIndex) => {
+                                                                const actionLabel = typeof action.label === 'function' ? action.label(usuario) : action.label;
+                                                                return (
+                                                                    <button key={actionIndex} onClick={() => action.onClick(usuario)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title={actionLabel}>
+                                                                        <action.icon className="w-4 h-4 text-gray-600" />
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="block md:hidden space-y-4">
+                            {filteredUsuarios.map((usuario, rowIndex) => {
+                                const usuarioId = getUsuarioId(usuario);
+                                const isSelected = selectedUserIds.includes(usuarioId);
+
+                                return (
+                                    <div key={usuarioId || rowIndex} className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4 space-y-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                                                    checked={isSelected}
+                                                    onChange={(event) => handleToggleUserSelection(usuario, event.target.checked)}
+                                                    disabled={!usuarioId}
+                                                    aria-label={`Selecionar usuário ${usuario.nome || usuario.email || usuarioId}`}
+                                                />
+                                                Selecionar
+                                            </label>
+                                            <div className="flex justify-end gap-2">
+                                                {userActions.map((action, actionIndex) => {
+                                                    const actionLabel = typeof action.label === 'function' ? action.label(usuario) : action.label;
+                                                    return (
+                                                        <button key={actionIndex} onClick={() => action.onClick(usuario)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-700" title={actionLabel}>
+                                                            <action.icon className="w-4 h-4" />
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div className="text-sm">
+                                            <p className="font-bold text-lg text-pink-600">{usuario.nome}</p>
+                                            <p className="text-gray-700 mt-1">{usuario.email}</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2 text-sm">
+                                            <div>
+                                                <p className="text-xs text-gray-500">Permissão</p>
+                                                <div className="mt-1">{renderUserRoleBadge(usuario)}</div>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-gray-500">Loja</p>
+                                                <p className="mt-1 text-gray-900">{getUserStoreLabel(usuario)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 ))}
                   
               </div>
@@ -15383,15 +15857,15 @@ const handleSubmit = async (e) => {
         )}
       </Modal>
 
-      <Modal isOpen={confirmDelete.isOpen} onClose={() => setConfirmDelete({ isOpen: false, onConfirm: ()=>{} })} title="Confirmar Exclusão" size="sm">
+      <Modal isOpen={confirmDelete.isOpen} onClose={() => setConfirmDelete({ isOpen: false, onConfirm: ()=>{} })} title={confirmDelete.title || "Confirmar Exclusão"} size="sm">
         <div className="space-y-6">
-            <p className="text-gray-600">Tem certeza que deseja excluir este item? Esta ação não pode ser desfeita.</p>
+            <p className="text-gray-600">{confirmDelete.message || 'Tem certeza que deseja excluir este item? Esta ação não pode ser desfeita.'}</p>
             <div className="flex justify-end gap-3">
                 <Button variant="secondary" onClick={() => setConfirmDelete({ isOpen: false, onConfirm: ()=>{} })}>Cancelar</Button>
-                <Button variant="danger" onClick={() => {
-                  confirmDelete.onConfirm();
+                <Button variant="danger" onClick={async () => {
+                  await confirmDelete.onConfirm();
                   setConfirmDelete({ isOpen: false, onConfirm: () => {} });
-                }}>Excluir</Button>
+                }}>{confirmDelete.confirmLabel || 'Excluir'}</Button>
             </div>
         </div>
       </Modal>
