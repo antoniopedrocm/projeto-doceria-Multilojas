@@ -7286,6 +7286,25 @@ const effectiveStoreName = useMemo(() => {
 	return 'Selecione uma loja para gerenciar';
 }, [effectiveStoreId, storeInfoMap, user, selectedStoreId]);
 
+const userBelongsToSelectedStore = useCallback((usuario, storeId) => {
+	if (!storeId) return true;
+
+	const lojas = Array.isArray(usuario?.lojaIds)
+		? usuario.lojaIds
+		: (usuario?.lojaId ? [usuario.lojaId] : []);
+
+	if (normalizeRole(usuario?.role) === ROLE_OWNER && lojas.length === 0) {
+		return true;
+	}
+
+	return lojas.includes(storeId);
+}, []);
+
+const filterUsersBySelectedStore = useCallback((usersList = []) => {
+	if (!effectiveStoreId) return usersList;
+	return usersList.filter((usuario) => userBelongsToSelectedStore(usuario, effectiveStoreId));
+}, [effectiveStoreId, userBelongsToSelectedStore]);
+
     // States para Cupons
     const [cupons, setCupons] = useState([]);
     const [showCupomModal, setShowCupomModal] = useState(false);
@@ -7402,11 +7421,7 @@ const effectiveStoreName = useMemo(() => {
                             };
                         });
 
-                        const filteredUsers = (!effectiveStoreId || user.role === ROLE_OWNER)
-                            ? normalizedUsers
-                            : normalizedUsers.filter(u => (u.lojaIds || []).includes(effectiveStoreId));
-
-                        setUsuarios(filteredUsers)
+                        setUsuarios(filterUsersBySelectedStore(normalizedUsers))
                     }
                 })
                 .catch((error) => {
@@ -7459,7 +7474,7 @@ const effectiveStoreName = useMemo(() => {
                 unsubscribe();
             }
         };
-    }, [activeTab, effectiveStoreId, user]);
+    }, [activeTab, effectiveStoreId, filterUsersBySelectedStore, user]);
     
     // States para Configuração de Frete
     const [freteConfig, setFreteConfig] = useState({ enderecoLoja: '', lat: '', lng: '', valorPorKm: '' });
@@ -7803,11 +7818,7 @@ const effectiveStoreName = useMemo(() => {
                         };
                     });
 
-                    const filteredUsers = (!effectiveStoreId || user.role === ROLE_OWNER)
-                        ? normalizedUsers
-                        : normalizedUsers.filter(u => (u.lojaIds || []).includes(effectiveStoreId));
-
-                    setUsuarios(filteredUsers);
+                    setUsuarios(filterUsersBySelectedStore(normalizedUsers));
                 }
 
           } catch (error) {
