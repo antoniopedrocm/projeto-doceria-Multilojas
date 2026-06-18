@@ -25,8 +25,31 @@ const environmentCode = (environment) => (environment === 'production' ? 1 : 2);
 const counterId = (environment, model, series) => `${environment}_${model}_${series}`;
 
 const paymentMethodToNFeCode = (method) => {
-  const value = String(method || '').toLowerCase();
-  if (value.includes('pix')) return '17';
+  const value = String(method || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const isPix = value.includes('pix');
+  const isFixedPix = (
+    value.includes('pix fixo')
+    || value.includes('qr code fixo')
+    || value.includes('qrcode fixo')
+    || value.includes('qr-code fixo')
+    || value.includes('estatico')
+    || value.includes('chave pix')
+    || value.includes('chave fixa')
+  );
+  if (isFixedPix) return '20';
+  const isDynamicPix = isPix && (
+    value.includes('link')
+    || value.includes('dinamico')
+    || value.includes('gerado')
+    || value.includes('venda')
+    || value.includes('copia e cola')
+  );
+  if (isDynamicPix) return '17';
+  if (isPix) return '20';
   if (value.includes('crédito') || value.includes('credito')) return '03';
   if (value.includes('débito') || value.includes('debito')) return '04';
   if (value.includes('dinheiro')) return '01';
