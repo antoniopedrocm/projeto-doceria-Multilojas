@@ -422,6 +422,7 @@ const publicCertificateInfo = (certificate = {}) => ({
 const getServiceConfig = () => ({
   serviceUrl: cleanText(process.env.FISCAL_SERVICE_URL),
   sharedSecret: cleanText(process.env.FISCAL_SHARED_SECRET),
+  source: cleanText(process.env.FISCAL_SERVICE_URL) ? 'FISCAL_SERVICE_URL' : '',
 });
 
 const fiscalServiceErrorCode = (status) => {
@@ -466,8 +467,8 @@ const parseFiscalServicePayload = (data) => {
   return {};
 };
 
-const callFiscalService = async (path, body) => {
-  const {serviceUrl, sharedSecret} = getServiceConfig();
+const callFiscalService = async (path, body, serviceConfigOverride = null) => {
+  const {serviceUrl, sharedSecret} = serviceConfigOverride || getServiceConfig();
   if (!serviceUrl) {
     const error = new Error('A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
     error.code = 'failed-precondition';
@@ -530,6 +531,23 @@ const createFiscalFunctions = ({
   STORE_ALL_KEY,
 }) => {
   const FieldValue = admin.firestore.FieldValue;
+  const isPlatformFiscalAdmin = (requester) => requester?.role === 'dono';
+
+  const loadPlatformServiceConfig = async () => {
+    const envConfig = getServiceConfig();
+    const snap = await db.collection('integrations').doc('fiscal').get();
+    const data = snap.exists ? snap.data() || {} : {};
+    const storedServiceUrl = cleanText(data.serviceUrl || data.fiscalServiceUrl);
+    const storedSharedSecret = cleanText(data.sharedSecret || data.fiscalSharedSecret);
+    const serviceUrl = storedServiceUrl || envConfig.serviceUrl;
+    const sharedSecret = storedSharedSecret || envConfig.sharedSecret;
+    return {
+      serviceUrl,
+      sharedSecret,
+      configured: Boolean(serviceUrl),
+      source: storedServiceUrl ? 'integrations/fiscal' : envConfig.source,
+    };
+  };
 
   const normalizeHttpsError = (error) => {
     if (error instanceof HttpsError) return error;
@@ -574,8 +592,8 @@ const createFiscalFunctions = ({
       throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
     }
     const lojaId = String(request.data?.lojaId || '').trim();
-    await requireStoreAccess(uid, lojaId);
-    return {uid, lojaId};
+    const requester = await requireStoreAccess(uid, lojaId);
+    return {uid, lojaId, requester};
   };
 
   const requireReadContext = async (request) => {
@@ -1397,15 +1415,16 @@ const createFiscalFunctions = ({
             updatedAt: FieldValue.serverTimestamp(),
           }, {merge: true});
         }
+        const platformConfig = isPlatformFiscalAdmin(requester) ? await loadPlatformServiceConfig() : null;
 
         return {
           issuer: issuerSnap.exists ? issuerSnap.data() || {} : null,
           settings: await loadSettings(lojaId),
           certificate: publicCertificateInfo(certificate),
-          platformService: requester.role === 'dono' && requester.allStores ? {
-            serviceUrl: getServiceConfig().serviceUrl,
-            configured: Boolean(getServiceConfig().serviceUrl),
-            source: 'FISCAL_SERVICE_URL',
+          platformService: platformConfig ? {
+            serviceUrl: platformConfig.serviceUrl,
+            configured: platformConfig.configured,
+            source: platformConfig.source,
           } : null,
         };
       } catch (error) {
@@ -1416,10 +1435,17 @@ const createFiscalFunctions = ({
 
     fiscalSaveConfiguration: onCall(async (request) => {
       try {
-        const {uid, lojaId} = await requireCallableContext(request);
+        const {uid, lojaId, requester} = await requireCallableContext(request);
         const issuer = request.data?.issuer || {};
         const settings = request.data?.settings || {};
-        await Promise.all([
+        const shouldUpdatePlatformService = Object.prototype.hasOwnProperty.call(settings, 'serviceUrl')
+          || Object.prototype.hasOwnProperty.call(settings, 'fiscalServiceUrl')
+          || Object.prototype.hasOwnProperty.call(settings, 'sharedSecret')
+          || Object.prototype.hasOwnProperty.call(settings, 'fiscalSharedSecret');
+        if (shouldUpdatePlatformService && !isPlatformFiscalAdmin(requester)) {
+          throw new HttpsError('permission-denied', 'Somente o dono pode alterar a URL global do serviço fiscal.');
+        }
+        const writes = [
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('issuer').set({
             ...issuer,
             taxRegime: Number(issuer.taxRegime || 1),
@@ -1440,7 +1466,19 @@ const createFiscalFunctions = ({
             updatedAt: FieldValue.serverTimestamp(),
             updatedByUid: uid,
           }, {merge: true}),
-        ]);
+        ];
+        if (shouldUpdatePlatformService) {
+          const serviceUrl = cleanText(settings.serviceUrl || settings.fiscalServiceUrl);
+          const sharedSecret = cleanText(settings.sharedSecret || settings.fiscalSharedSecret);
+          writes.push(db.collection('integrations').doc('fiscal').set({
+            serviceUrl: serviceUrl || FieldValue.delete(),
+            sharedSecret: sharedSecret || FieldValue.delete(),
+            configured: Boolean(serviceUrl),
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedByUid: uid,
+          }, {merge: true}));
+        }
+        await Promise.all(writes);
         return {ok: true};
       } catch (error) {
         logger.error('fiscalSaveConfiguration failed', error);
@@ -1466,13 +1504,14 @@ const createFiscalFunctions = ({
           ...prepared.payload,
           invoice: {...prepared.payload.invoice, number: nextNumber},
         };
+        const serviceConfig = await loadPlatformServiceConfig();
 
         const localResult = {
           ok: prepared.errors.length === 0,
           errors: prepared.errors,
           itemIssues: collectFiscalItemIssues(payload),
           warnings: [
-            ...(getServiceConfig(prepared.settings).serviceUrl ? [] : ['Serviço fiscal ainda não configurado; validação feita apenas localmente.']),
+            ...(serviceConfig.serviceUrl ? [] : ['Serviço fiscal ainda não configurado; validação feita apenas localmente.']),
             ...(prepared.certificate.ready ? [] : ['Certificado A1 da loja ainda não foi enviado.']),
             ...(prepared.model === 65 && (!prepared.certificate.nfceCscSecretVersion || !prepared.certificate.nfceCscIdSecretVersion) ? ['CSC e ID CSC da NFC-e ainda não foram cadastrados.'] : []),
           ],
@@ -1490,8 +1529,8 @@ const createFiscalFunctions = ({
           totals: payload.totals,
         };
 
-        if (prepared.errors.length || !getServiceConfig(prepared.settings).serviceUrl) return localResult;
-        return await callFiscalService('/validate', payload, prepared.settings);
+        if (prepared.errors.length || !serviceConfig.serviceUrl) return localResult;
+        return await callFiscalService('/validate', payload, serviceConfig);
       } catch (error) {
         logger.error('fiscalValidateOrder failed', error);
         throw normalizeHttpsError(error);
@@ -1621,7 +1660,8 @@ const createFiscalFunctions = ({
         if (prepared.errors.length) {
           throw new HttpsError('failed-precondition', prepared.errors.join(' '));
         }
-        if (!getServiceConfig(prepared.settings).serviceUrl) {
+        const serviceConfig = await loadPlatformServiceConfig();
+        if (!serviceConfig.serviceUrl) {
           throw new HttpsError('failed-precondition', 'A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
         }
         if (!prepared.certificate.ready) {
@@ -1651,7 +1691,7 @@ const createFiscalFunctions = ({
         };
 
         try {
-          const result = await callFiscalService('/issue', payload, prepared.settings);
+          const result = await callFiscalService('/issue', payload, serviceConfig);
           return await updateInvoiceAfterIssue({
             lojaId,
             invoiceId: reservation.invoiceId,
@@ -1707,7 +1747,8 @@ const createFiscalFunctions = ({
         if (prepared.errors.length) {
           throw new HttpsError('failed-precondition', prepared.errors.join(' '));
         }
-        if (!getServiceConfig(prepared.settings).serviceUrl) {
+        const serviceConfig = await loadPlatformServiceConfig();
+        if (!serviceConfig.serviceUrl) {
           throw new HttpsError('failed-precondition', 'A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
         }
         if (!prepared.certificate.ready) {
@@ -1737,7 +1778,7 @@ const createFiscalFunctions = ({
         };
 
         try {
-          const result = await callFiscalService('/issue', payload, prepared.settings);
+          const result = await callFiscalService('/issue', payload, serviceConfig);
           return await updateInvoiceAfterIssue({
             lojaId,
             invoiceId: reservation.invoiceId,
@@ -1793,7 +1834,8 @@ const createFiscalFunctions = ({
           loadSettings(lojaId),
           loadIssuer(lojaId),
         ]);
-        if (!getServiceConfig(settings).serviceUrl) {
+        const serviceConfig = await loadPlatformServiceConfig();
+        if (!serviceConfig.serviceUrl) {
           throw new HttpsError('failed-precondition', 'A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
         }
         const certificate = await loadCertificate(lojaId);
@@ -1810,7 +1852,7 @@ const createFiscalFunctions = ({
           environment: environmentCode(settings.environment),
           issuer,
           fiscalSecrets: certificate.fiscalSecrets,
-        }, settings);
+        }, serviceConfig);
 
         const cancellationAccepted = result.status === INVOICE_STATUS.CANCELLED;
         const invoiceStatus = cancellationAccepted ? INVOICE_STATUS.CANCELLED : INVOICE_STATUS.AUTHORIZED;
@@ -1868,11 +1910,12 @@ const createFiscalFunctions = ({
           additionalInfo: invoice.additionalInfo,
           operationCfop: invoice.operationCfop,
         });
+        const serviceConfig = await loadPlatformServiceConfig();
         const result = await callFiscalService('/receipt', {
           ...prepared.payload,
           receipt: invoice.receipt,
           signedXml,
-        }, prepared.settings);
+        }, serviceConfig);
         return await updateInvoiceAfterIssue({
           lojaId,
           invoiceId,

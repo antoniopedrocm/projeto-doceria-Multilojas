@@ -13980,7 +13980,7 @@ const handleSubmit = async (e) => {
       csc: ''
     });
     const isReadOnly = currentUser?.role === ROLE_ACCOUNTANT;
-    const isPlatformAdmin = currentUser?.role === ROLE_OWNER && currentUser?.canAccessAllStores;
+    const isPlatformAdmin = currentUser?.role === ROLE_OWNER;
     const canViewFullFiscalDocument = [ROLE_OWNER, ROLE_MANAGER, ROLE_ACCOUNTANT].includes(currentUser?.role);
 
     const storeName = effectiveStoreId
