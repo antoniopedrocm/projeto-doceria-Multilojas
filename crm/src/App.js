@@ -71,6 +71,53 @@ const CFOP_OPERATION_OPTIONS = [
   { value: '6102', label: '6102 - Revenda interestadual' },
   { value: '6108', label: '6108 - Revenda interestadual para não contribuinte' },
 ];
+const CODE128_PATTERNS = [
+  '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
+  '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
+  '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211',
+  '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313',
+  '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331',
+  '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111',
+  '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214',
+  '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111',
+  '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141',
+  '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141',
+  '114131', '311141', '411131', '211412', '211214', '211232', '2331112'
+];
+const createManualInvoiceItemDraft = () => ({
+  draftId: `manual-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  source: 'manual',
+  productId: '',
+  code: '',
+  description: '',
+  ncm: DEFAULT_NCM_PRODUCT,
+  unit: 'un',
+  quantity: 1,
+  unitPrice: '',
+  discount: 0,
+  origin: 0,
+  csosn: '102',
+  pisCst: '49',
+  cofinsCst: '49',
+  cBenef: ''
+});
+const createManualInvoiceCustomerDraft = () => ({
+  id: '',
+  name: '',
+  document: '',
+  email: '',
+  phone: '',
+  stateRegistration: '',
+  address: {
+    street: '',
+    number: '',
+    district: '',
+    city: 'Goiania',
+    cityCode: '5208707',
+    state: 'GO',
+    zip: ''
+  }
+});
 const DEFAULT_FORNECEDOR_CATEGORIES = ['Insumos', 'Embalagens', 'Bebidas', 'Decoração', 'Serviços'];
 const DEFAULT_RECEITA_CATEGORIES = ['Bolos', 'Doces', 'Salgados', 'Bebidas', 'Outros'];
 const TRANSFER_TABLE_COLUMN_OPTIONS = [
@@ -121,6 +168,57 @@ const downloadBase64File = (base64, filename, contentType = 'application/octet-s
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+};
+const loadBrowserScript = (id, src, isReady, errorMessage) => {
+  if (isReady()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let script = document.getElementById(id);
+    if (script && !isReady()) {
+      script.remove();
+      script = null;
+    }
+    let timeoutId = null;
+    const cleanup = () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+    const resolveReady = () => {
+      settled = true;
+      cleanup();
+      if (script) script.dataset.loaded = 'true';
+      resolve();
+    };
+    const rejectLoad = () => {
+      settled = true;
+      cleanup();
+      reject(new Error(errorMessage));
+    };
+    const finish = () => {
+      if (settled) return;
+      if (isReady()) {
+        resolveReady();
+      }
+    };
+    const fail = () => {
+      if (settled) return;
+      rejectLoad();
+    };
+    if (!script) {
+      script = document.createElement('script');
+      script.id = id;
+      script.src = src;
+      script.async = true;
+      document.body.appendChild(script);
+    }
+    script.addEventListener('load', finish, { once: true });
+    script.addEventListener('error', fail, { once: true });
+    timeoutId = window.setTimeout(() => {
+      if (!settled) {
+        if (isReady()) finish();
+        else fail();
+      }
+    }, 10000);
+  });
 };
 
 const isSafariBrowser = () => {
@@ -754,6 +852,19 @@ const getClientPrimaryAddressText = (cliente = {}) => {
     firstAddress.cep,
   ].filter(Boolean).join(', ');
 };
+
+const ORDER_PAYMENT_OPTIONS = [
+  'Pix dinâmico / link gerado',
+  'Pix fixo / QR Code fixo',
+  'Link de cartão de crédito',
+  'Link de cartão de débito',
+  'Cartão de Crédito',
+  'Cartão de Débito',
+  'Dinheiro',
+  'Link de Pagamento',
+  'Pix',
+];
+const DEFAULT_ORDER_PAYMENT_METHOD = ORDER_PAYMENT_OPTIONS[0];
 
 const isProductInactive = (product = {}) => {
   const status = product.status || 'Ativo';
@@ -13744,6 +13855,10 @@ const handleSubmit = async (e) => {
   }) => {
     const [activeTab, setActiveTab] = usePersistentState('nota_fiscal_activeTab', 'emitir');
     const [orderSearch, setOrderSearch] = usePersistentState('nota_fiscal_orderSearch', '');
+    const [orderFilters, setOrderFilters] = useState(() => ({
+      status: 'all',
+      ...getCurrentMonthDateRange()
+    }));
     const [invoiceFilters, setInvoiceFilters] = useState(() => ({
       search: '',
       status: 'all',
@@ -13759,6 +13874,7 @@ const handleSubmit = async (e) => {
       protocol: '',
       paymentMethod: '',
       reason: '',
+      origin: 'all',
       ...getCurrentMonthDateRange()
     }));
     const [showAdvancedInvoiceFilters, setShowAdvancedInvoiceFilters] = useState(false);
@@ -13775,6 +13891,19 @@ const handleSubmit = async (e) => {
     const [issueError, setIssueError] = useState('');
     const [invoiceToCancel, setInvoiceToCancel] = useState(null);
     const [invoiceToView, setInvoiceToView] = useState(null);
+    const [showManualInvoiceModal, setShowManualInvoiceModal] = useState(false);
+    const [manualInvoiceSaving, setManualInvoiceSaving] = useState(false);
+    const [manualInvoiceError, setManualInvoiceError] = useState('');
+    const [manualInvoiceForm, setManualInvoiceForm] = useState(() => ({
+      customerMode: 'existing',
+      customer: createManualInvoiceCustomerDraft(),
+      modelOverride: '',
+      operationCfop: DEFAULT_CFOP_OPERATION,
+      paymentMethodCode: '',
+      additionalInfo: '',
+      stockMovementRequested: false,
+      items: [createManualInvoiceItemDraft()]
+    }));
     const [cancelReason, setCancelReason] = useState('');
     const [cancelError, setCancelError] = useState('');
     const [orderToEditBeforeInvoice, setOrderToEditBeforeInvoice] = useState(null);
@@ -13786,7 +13915,7 @@ const handleSubmit = async (e) => {
       clienteNome: '',
       telefone: '',
       clienteEndereco: '',
-      formaPagamento: 'Pix',
+      formaPagamento: DEFAULT_ORDER_PAYMENT_METHOD,
       observacao: '',
       itens: [],
       desconto: 0,
@@ -13862,6 +13991,7 @@ const handleSubmit = async (e) => {
     const fiscalProducts = data.fiscalProducts || [];
     const storeProducts = data.produtos || [];
     const orders = data.pedidos || [];
+    const clients = data.clientes || [];
     const fiscalProductsById = useMemo(() => {
       const map = new Map();
       fiscalProducts.forEach((item) => {
@@ -13908,6 +14038,64 @@ const handleSubmit = async (e) => {
         })
         .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
     }, [storeProducts, orderEditProductSearch]);
+    const manualProductOptions = useMemo(() => {
+      const options = [];
+      const seen = new Set();
+      storeProducts.forEach((product) => {
+        if (!product?.id) return;
+        const productId = String(product.id);
+        const fiscal = fiscalProductsById.get(productId) || {};
+        seen.add(productId);
+        options.push({
+          id: productId,
+          label: product.nome || fiscal.description || productId,
+          code: fiscal.code || product.codigo || productId,
+          description: fiscal.description || product.nome || productId,
+          ncm: normalizeFiscalCode(fiscal.ncm || product.fiscal?.ncm || DEFAULT_NCM_PRODUCT),
+          unit: fiscal.unit || fiscal.unidade || product.unidade || 'un',
+          unitPrice: Number(product.precoIfood ?? product.preco ?? 0) || 0,
+          origin: Number(fiscal.origin ?? fiscal.origem ?? product.fiscal?.origin ?? 0),
+          csosn: fiscal.csosn || product.fiscal?.csosn || '102',
+          pisCst: fiscal.pisCst || product.fiscal?.pisCst || '49',
+          cofinsCst: fiscal.cofinsCst || product.fiscal?.cofinsCst || '49',
+          cBenef: fiscal.cBenef || product.fiscal?.cBenef || '',
+          source: 'catalog'
+        });
+      });
+      fiscalProducts.forEach((fiscal) => {
+        const id = String(fiscal.productId || fiscal.id || '');
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        options.push({
+          id,
+          label: fiscal.description || fiscal.nome || id,
+          code: fiscal.code || id,
+          description: fiscal.description || fiscal.nome || id,
+          ncm: normalizeFiscalCode(fiscal.ncm || DEFAULT_NCM_PRODUCT),
+          unit: fiscal.unit || fiscal.unidade || 'un',
+          unitPrice: 0,
+          origin: Number(fiscal.origin ?? fiscal.origem ?? 0),
+          csosn: fiscal.csosn || '102',
+          pisCst: fiscal.pisCst || '49',
+          cofinsCst: fiscal.cofinsCst || '49',
+          cBenef: fiscal.cBenef || '',
+          source: 'catalog'
+        });
+      });
+      return options.sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'pt-BR'));
+    }, [storeProducts, fiscalProducts, fiscalProductsById]);
+
+    const manualInvoiceTotals = useMemo(() => {
+      const products = (manualInvoiceForm.items || []).reduce((sum, item) => (
+        sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0))
+      ), 0);
+      const discount = (manualInvoiceForm.items || []).reduce((sum, item) => sum + Number(item.discount || 0), 0);
+      return {
+        products: roundCurrency(products),
+        discount: roundCurrency(discount),
+        invoice: roundCurrency(Math.max(products - discount, 0))
+      };
+    }, [manualInvoiceForm.items]);
 
     const ordersById = useMemo(() => {
       const map = new Map();
@@ -13916,6 +14104,30 @@ const handleSubmit = async (e) => {
       });
       return map;
     }, [orders]);
+
+    const clientsLookup = useMemo(() => {
+      const byId = new Map();
+      const byDocument = new Map();
+      const byEmail = new Map();
+      const byPhone = new Map();
+      const byName = new Map();
+      const add = (map, key, client) => {
+        const normalizedKey = String(key || '').trim();
+        if (normalizedKey && !map.has(normalizedKey)) map.set(normalizedKey, client);
+      };
+
+      clients.forEach((client) => {
+        if (!client) return;
+        add(byId, client.id, client);
+        add(byId, client.clienteId, client);
+        add(byDocument, onlyDigitsText(client.cpfCnpj || client.cpf || client.cnpj || client.documento), client);
+        add(byEmail, String(client.email || '').toLowerCase(), client);
+        add(byPhone, onlyDigitsText(client.telefone || client.phone || client.celular || client.whatsapp), client);
+        add(byName, normalizeSearchText(client.nome || client.name), client);
+      });
+
+      return { byId, byDocument, byEmail, byPhone, byName };
+    }, [clients]);
 
     const invoicesByOrderId = useMemo(() => {
       const map = new Map();
@@ -13969,6 +14181,18 @@ const handleSubmit = async (e) => {
       setInvoiceFilters((prev) => ({ ...prev, [field]: value }));
     };
 
+    const setOrderFilter = (field, value) => {
+      setOrderFilters((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const resetOrderFiltersToCurrentMonth = () => {
+      setOrderSearch('');
+      setOrderFilters({
+        status: 'all',
+        ...getCurrentMonthDateRange()
+      });
+    };
+
     const resetInvoiceFiltersToCurrentMonth = () => {
       setInvoiceFilters({
         search: '',
@@ -13985,38 +14209,119 @@ const handleSubmit = async (e) => {
         protocol: '',
         paymentMethod: '',
         reason: '',
+        origin: 'all',
         ...getCurrentMonthDateRange()
       });
     };
 
     const getInvoiceOrder = useCallback((invoice) => ordersById.get(invoice?.orderId) || null, [ordersById]);
 
+    const getInvoiceOrigin = useCallback((invoice) => (
+      invoice?.origin === 'manual' || invoice?.manualInvoice || !invoice?.orderId ? 'manual' : 'order'
+    ), []);
+
+    const getInvoiceOriginLabel = useCallback((invoice) => (
+      getInvoiceOrigin(invoice) === 'manual' ? 'Manual / Avulsa' : 'Pedido'
+    ), [getInvoiceOrigin]);
+
+    const findInvoiceClient = useCallback((invoice) => {
+      const order = getInvoiceOrder(invoice);
+      const pickFromMap = (map, candidates, normalize = (value) => String(value || '').trim()) => {
+        for (const candidate of candidates) {
+          const key = normalize(candidate);
+          if (key && map.has(key)) return map.get(key);
+        }
+        return null;
+      };
+
+      return pickFromMap(clientsLookup.byId, [
+        invoice?.customerId,
+        invoice?.clienteId,
+        invoice?.customer?.id,
+        invoice?.customer?.clienteId,
+        order?.clienteId,
+        order?.customerId,
+        order?.cliente?.id,
+        order?.customer?.id
+      ])
+        || pickFromMap(clientsLookup.byDocument, [
+          invoice?.customerDocument,
+          invoice?.customer?.document,
+          invoice?.customer?.cpf,
+          invoice?.customer?.cnpj,
+          order?.clienteDocumento,
+          order?.cpf,
+          order?.documento,
+          order?.customer?.document,
+          order?.customer?.cpf,
+          order?.customer?.cnpj,
+          order?.fiscal?.customerDocument
+        ], onlyDigitsText)
+        || pickFromMap(clientsLookup.byEmail, [
+          invoice?.customer?.email,
+          invoice?.customerEmail,
+          order?.clienteEmail,
+          order?.email,
+          order?.customer?.email
+        ], (value) => String(value || '').toLowerCase().trim())
+        || pickFromMap(clientsLookup.byPhone, [
+          invoice?.customer?.phone,
+          invoice?.customer?.telefone,
+          invoice?.customerPhone,
+          order?.clienteTelefone,
+          order?.telefone,
+          order?.customer?.phone,
+          order?.customer?.telefone
+        ], onlyDigitsText)
+        || pickFromMap(clientsLookup.byName, [
+          invoice?.customerName,
+          invoice?.clienteNome,
+          invoice?.customer?.name,
+          invoice?.customer?.nome,
+          order?.clienteNome,
+          order?.customer?.name,
+          order?.cliente?.nome
+        ], normalizeSearchText);
+    }, [clientsLookup, getInvoiceOrder]);
+
     const getInvoiceCustomerName = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
+      const client = findInvoiceClient(invoice);
       return invoice?.customerName
         || invoice?.clienteNome
         || invoice?.customer?.name
         || invoice?.customer?.nome
+        || client?.nome
+        || client?.name
         || order?.clienteNome
         || order?.customer?.name
         || order?.cliente?.nome
         || '-';
-    }, [getInvoiceOrder]);
+    }, [findInvoiceClient, getInvoiceOrder]);
 
     const getInvoiceCustomerDocument = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
-      return invoice?.customerDocument
-        || invoice?.customer?.document
-        || invoice?.customer?.cpf
-        || invoice?.customer?.cnpj
-        || order?.clienteDocumento
-        || order?.cpf
-        || order?.documento
-        || order?.customer?.document
-        || order?.customer?.cpf
-        || order?.fiscal?.customerDocument
-        || '';
-    }, [getInvoiceOrder]);
+      const client = findInvoiceClient(invoice);
+      const documentCandidates = [
+        invoice?.customerDocument,
+        invoice?.customer?.document,
+        invoice?.customer?.cpf,
+        invoice?.customer?.cnpj,
+        client?.cpfCnpj,
+        client?.cpf,
+        client?.cnpj,
+        client?.documento,
+        order?.clienteDocumento,
+        order?.cpf,
+        order?.documento,
+        order?.customer?.document,
+        order?.customer?.cpf,
+        order?.customer?.cnpj,
+        order?.fiscal?.customerDocument
+      ];
+      const validDocument = documentCandidates.find((value) => [11, 14].includes(onlyDigitsText(value).length));
+      return validDocument || documentCandidates.find((value) => String(value || '').trim() && String(value || '').trim() !== '-') || '';
+    }, [findInvoiceClient, getInvoiceOrder]);
 
     const getInvoiceIssuerDocument = useCallback((invoice) => (
       invoice?.issuerDocument
@@ -14041,13 +14346,22 @@ const handleSubmit = async (e) => {
 
     const getInvoicePaymentMethod = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
-      return invoice?.paymentMethod
+      const method = invoice?.paymentMethod
         || invoice?.payment?.method
         || invoice?.serviceResult?.payment?.method
         || order?.formaPagamento
         || order?.paymentMethod
         || '-';
+      const code = invoice?.paymentMethodCode || invoice?.payment?.methodCode || invoice?.serviceResult?.payment?.methodCode || '';
+      return code ? `${method} (${code})` : method;
     }, [getInvoiceOrder]);
+
+    const getInvoicePaymentCode = useCallback((invoice) => (
+      invoice?.paymentMethodCode
+      || invoice?.payment?.methodCode
+      || invoice?.serviceResult?.payment?.methodCode
+      || ''
+    ), []);
 
     const getInvoiceItems = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
@@ -14142,6 +14456,16 @@ const handleSubmit = async (e) => {
       return status === invoiceFilters.status;
     }, [invoiceFilters.status]);
 
+    const matchesOrderInvoiceStatusFilter = useCallback((order) => {
+      if (orderFilters.status === 'all') return true;
+      const invoice = invoicesByOrderId.get(order?.id);
+      const status = invoice?.status || '';
+      if (orderFilters.status === 'pending') return !invoice || ['validating', 'pending', 'pending_return'].includes(status);
+      if (orderFilters.status === 'rejected') return ['rejected', 'denied'].includes(status);
+      if (orderFilters.status === 'inutilized') return ['inutilized', 'unused', 'voided'].includes(status);
+      return status === orderFilters.status;
+    }, [invoicesByOrderId, orderFilters.status]);
+
     const matchesInvoiceFilterValue = (value, filterValue) => {
       const filterText = normalizeSearchText(filterValue);
       if (!filterText) return true;
@@ -14159,6 +14483,10 @@ const handleSubmit = async (e) => {
       return invoices
         .filter((invoice) => isDateInRange(invoice.issuedAt || invoice.createdAt, invoiceFilters.start, invoiceFilters.end))
         .filter(matchesInvoiceStatusFilter)
+        .filter((invoice) => {
+          if (invoiceFilters.origin === 'all') return true;
+          return getInvoiceOrigin(invoice) === invoiceFilters.origin;
+        })
         .filter((invoice) => {
           const value = getInvoiceValue(invoice);
           if (minValue !== null && Number.isFinite(minValue) && value < minValue) return false;
@@ -14193,8 +14521,16 @@ const handleSubmit = async (e) => {
             getInvoiceCustomerDocument(invoice),
             getInvoiceCustomerName(invoice),
             getInvoicePaymentMethod(invoice),
+            getInvoiceOriginLabel(invoice),
             reason,
             getInvoiceValue(invoice),
+            ...(getInvoiceItems(invoice) || []).flatMap((item) => [
+              item.description,
+              item.nome,
+              item.code,
+              item.codigo,
+              item.source
+            ]),
             order?.id,
             order?.clienteNome,
             order?.codigo,
@@ -14208,7 +14544,7 @@ const handleSubmit = async (e) => {
           });
         })
         .sort((a, b) => (getJSDate(b.issuedAt || b.createdAt)?.getTime() || 0) - (getJSDate(a.issuedAt || a.createdAt)?.getTime() || 0));
-    }, [invoices, invoiceFilters, fiscalReturnReason, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceOrder, getInvoicePaymentMethod, getInvoiceValue, matchesInvoiceStatusFilter]);
+    }, [invoices, invoiceFilters, fiscalReturnReason, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceItems, getInvoiceOrder, getInvoiceOrigin, getInvoiceOriginLabel, getInvoicePaymentMethod, getInvoiceValue, matchesInvoiceStatusFilter]);
 
     const shouldShowFiscalReason = (invoice) => ['rejected', 'denied', 'pending_return'].includes(invoice?.status);
 
@@ -14219,11 +14555,16 @@ const handleSubmit = async (e) => {
       products: fiscalProducts.length
     }), [invoices, fiscalProducts]);
 
+    const invoiceableOrders = useMemo(() => (
+      orders.filter((order) => ['Finalizado', 'Aprovado', 'ready_for_invoice', 'approved'].includes(order.status) || order.approvedForInvoice)
+    ), [orders]);
+
     const eligibleOrders = useMemo(() => {
       const term = normalizeSearchText(orderSearch);
       const termDigits = onlyDigitsText(orderSearch);
-      return orders
-        .filter((order) => ['Finalizado', 'Aprovado', 'ready_for_invoice', 'approved'].includes(order.status) || order.approvedForInvoice)
+      return invoiceableOrders
+        .filter((order) => isDateInRange(order.createdAt, orderFilters.start, orderFilters.end))
+        .filter(matchesOrderInvoiceStatusFilter)
         .filter((order) => {
           if (!term && !termDigits) return true;
           const invoice = invoicesByOrderId.get(order.id);
@@ -14261,7 +14602,7 @@ const handleSubmit = async (e) => {
           });
         })
         .sort((a, b) => (getJSDate(b.createdAt)?.getTime() || 0) - (getJSDate(a.createdAt)?.getTime() || 0));
-    }, [orders, orderSearch, dateSearchValues, invoicesByOrderId, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceValue, getOrderCustomerDocument, getOrderValue, issuerForm.cnpj]);
+    }, [invoiceableOrders, orderSearch, orderFilters.start, orderFilters.end, matchesOrderInvoiceStatusFilter, dateSearchValues, invoicesByOrderId, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceValue, getOrderCustomerDocument, getOrderValue, issuerForm.cnpj]);
 
     const getPreInvoiceLockedReason = useCallback((order) => {
       const invoice = invoicesByOrderId.get(order?.id);
@@ -14336,7 +14677,7 @@ const handleSubmit = async (e) => {
         clienteNome: order?.clienteNome || '',
         telefone: order?.telefone || '',
         clienteEndereco: order?.clienteEndereco || '',
-        formaPagamento: order?.formaPagamento || order?.paymentMethod || 'Pix',
+        formaPagamento: order?.formaPagamento || order?.paymentMethod || DEFAULT_ORDER_PAYMENT_METHOD,
         observacao: order?.observacao || order?.additionalInfo || '',
         itens: items,
         desconto: Number(order?.desconto || order?.cupom?.valorDesconto || 0) || 0,
@@ -14482,7 +14823,7 @@ const handleSubmit = async (e) => {
           clienteNome: String(normalizedForm.clienteNome || '').trim(),
           telefone: normalizedForm.telefone || '',
           clienteEndereco: normalizedForm.clienteEndereco || '',
-          formaPagamento: normalizedForm.formaPagamento || 'Pix',
+          formaPagamento: normalizedForm.formaPagamento || DEFAULT_ORDER_PAYMENT_METHOD,
           observacao: normalizedForm.observacao || '',
           additionalInfo: normalizedForm.observacao || '',
           itens: normalizedForm.itens,
@@ -14549,6 +14890,15 @@ const handleSubmit = async (e) => {
       const artifact = response.data || {};
       downloadBase64File(artifact.base64, artifact.filename, artifact.contentType);
       return artifact;
+    };
+
+    const ensureDanfeA4Libraries = async () => {
+      await loadBrowserScript(
+        'jspdf',
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+        () => Boolean(window.jspdf?.jsPDF),
+        'Não foi possível carregar o gerador de PDF. Atualize a página e tente novamente.'
+      );
     };
 
     const setIssuerField = (field, value) => {
@@ -14733,6 +15083,247 @@ const handleSubmit = async (e) => {
       }
     };
 
+    const buildManualCustomerFromClient = (cliente = {}) => {
+      const firstAddress = Array.isArray(cliente.enderecos) ? cliente.enderecos[0] : null;
+      const addressObject = typeof firstAddress === 'object' && firstAddress !== null ? firstAddress : {};
+      return {
+        id: cliente.id || '',
+        name: cliente.nome || cliente.razaoSocial || '',
+        document: cliente.cpfCnpj || cliente.cpf || cliente.cnpj || cliente.documento || '',
+        email: cliente.email || '',
+        phone: cliente.telefone || cliente.whatsapp || '',
+        stateRegistration: cliente.inscricaoEstadual || '',
+        address: {
+          street: addressObject.street || addressObject.logradouro || addressObject.rua || cliente.endereco || (typeof firstAddress === 'string' ? firstAddress : ''),
+          number: addressObject.number || addressObject.numero || '',
+          district: addressObject.district || addressObject.bairro || '',
+          city: addressObject.city || addressObject.cidade || 'Goiania',
+          cityCode: addressObject.cityCode || addressObject.codigoIbge || addressObject.codigoMunicipio || '5208707',
+          state: String(addressObject.state || addressObject.uf || 'GO').toUpperCase(),
+          zip: addressObject.zip || addressObject.cep || ''
+        }
+      };
+    };
+
+    const resetManualInvoiceForm = useCallback(() => {
+      setManualInvoiceForm({
+        customerMode: 'existing',
+        customer: createManualInvoiceCustomerDraft(),
+        modelOverride: modelOverride || '',
+        operationCfop: operationCfop || DEFAULT_CFOP_OPERATION,
+        paymentMethodCode: settingsForm.defaultPaymentMethodCode || '99',
+        additionalInfo: '',
+        stockMovementRequested: false,
+        items: [createManualInvoiceItemDraft()]
+      });
+      setManualInvoiceError('');
+    }, [modelOverride, operationCfop, settingsForm.defaultPaymentMethodCode]);
+
+    const handleOpenManualInvoice = () => {
+      resetManualInvoiceForm();
+      setShowManualInvoiceModal(true);
+    };
+
+    const setManualInvoiceCustomerField = (field, value) => {
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        customer: {
+          ...(prev.customer || {}),
+          [field]: value
+        }
+      }));
+    };
+
+    const setManualInvoiceCustomerAddressField = (field, value) => {
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        customer: {
+          ...(prev.customer || {}),
+          address: {
+            ...(prev.customer?.address || {}),
+            [field]: field === 'state' ? String(value || '').toUpperCase() : value
+          }
+        }
+      }));
+    };
+
+    const handleManualCustomerSelect = (clienteId) => {
+      const cliente = (data.clientes || []).find((item) => String(item.id) === String(clienteId));
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        customerMode: clienteId ? 'existing' : 'manual',
+        customer: cliente ? buildManualCustomerFromClient(cliente) : createManualInvoiceCustomerDraft()
+      }));
+    };
+
+    const updateManualInvoiceItem = (draftId, patch) => {
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        items: (prev.items || []).map((item) => (
+          item.draftId === draftId ? { ...item, ...patch } : item
+        ))
+      }));
+    };
+
+    const handleManualItemProductChange = (draftId, productId) => {
+      const product = manualProductOptions.find((option) => String(option.id) === String(productId));
+      if (!product) {
+        updateManualInvoiceItem(draftId, {
+          source: 'manual',
+          productId: '',
+          code: '',
+          description: '',
+          ncm: DEFAULT_NCM_PRODUCT,
+          unit: 'un',
+          unitPrice: '',
+          origin: 0,
+          csosn: '102',
+          pisCst: '49',
+          cofinsCst: '49',
+          cBenef: ''
+        });
+        return;
+      }
+
+      updateManualInvoiceItem(draftId, {
+        source: 'catalog',
+        productId: product.id,
+        code: product.code,
+        description: product.description,
+        ncm: product.ncm || DEFAULT_NCM_PRODUCT,
+        unit: product.unit || 'un',
+        unitPrice: product.unitPrice || '',
+        origin: product.origin ?? 0,
+        csosn: product.csosn || '102',
+        pisCst: product.pisCst || '49',
+        cofinsCst: product.cofinsCst || '49',
+        cBenef: product.cBenef || ''
+      });
+    };
+
+    const addManualInvoiceItem = () => {
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        items: [...(prev.items || []), createManualInvoiceItemDraft()]
+      }));
+    };
+
+    const removeManualInvoiceItem = (draftId) => {
+      setManualInvoiceForm((prev) => ({
+        ...prev,
+        items: (prev.items || []).length > 1
+          ? prev.items.filter((item) => item.draftId !== draftId)
+          : prev.items
+      }));
+    };
+
+    const handleIssueManualInvoice = async (event) => {
+      event.preventDefault();
+      if (isReadOnly || manualInvoiceSaving) return;
+      if (!effectiveStoreId) {
+        setManualInvoiceError('Selecione uma loja específica para emitir a nota manual.');
+        return;
+      }
+
+      const customer = manualInvoiceForm.customer || {};
+      const customerDocument = onlyDigitsText(customer.document);
+      if (!String(customer.name || '').trim()) {
+        setManualInvoiceError('Informe o nome ou razão social do cliente.');
+        return;
+      }
+      if (![11, 14].includes(customerDocument.length)) {
+        setManualInvoiceError('Informe CPF/CNPJ válido para o cliente da nota.');
+        return;
+      }
+      if (!customer.address?.street || !customer.address?.district || !customer.address?.zip) {
+        setManualInvoiceError('Informe endereço, bairro e CEP fiscal do cliente.');
+        return;
+      }
+
+      const items = (manualInvoiceForm.items || []).map((item) => {
+        const quantity = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const discount = Number(item.discount || 0);
+        return {
+          ...item,
+          quantity,
+          unitPrice,
+          discount,
+          ncm: normalizeFiscalCode(item.ncm || DEFAULT_NCM_PRODUCT),
+          cfop: manualInvoiceForm.operationCfop
+        };
+      });
+      const invalidItem = items.find((item) => (
+        !String(item.description || '').trim()
+        || normalizeFiscalCode(item.ncm).length !== 8
+        || Number(item.quantity || 0) <= 0
+        || Number(item.unitPrice || 0) < 0
+        || Number(item.discount || 0) < 0
+        || Number(item.discount || 0) > Number(item.quantity || 0) * Number(item.unitPrice || 0)
+      ));
+      if (invalidItem) {
+        setManualInvoiceError('Revise os itens: descrição, NCM, quantidade, valor e desconto precisam estar corretos.');
+        return;
+      }
+
+      setManualInvoiceSaving(true);
+      setManualInvoiceError('');
+      setMessage(null);
+      try {
+        const fn = httpsCallable(functions, 'fiscalIssueManualInvoice');
+        const response = await fn(callablePayload({
+          modelOverride: manualInvoiceForm.modelOverride ? Number(manualInvoiceForm.modelOverride) : undefined,
+          operationCfop: manualInvoiceForm.operationCfop,
+          additionalInfo: manualInvoiceForm.additionalInfo.trim(),
+          justification: 'Emissão de nota fiscal manual/avulsa pelo painel Nota Fiscal',
+          manualInvoice: {
+            customer: {
+              ...customer,
+              document: customerDocument
+            },
+            operationCfop: manualInvoiceForm.operationCfop,
+            paymentMethodCode: manualInvoiceForm.paymentMethodCode || settingsForm.defaultPaymentMethodCode || '99',
+            additionalInfo: manualInvoiceForm.additionalInfo.trim(),
+            stockMovementRequested: Boolean(manualInvoiceForm.stockMovementRequested),
+            items: items.map((item, index) => ({
+              productId: item.productId || '',
+              source: item.source === 'catalog' ? 'catalog' : 'manual',
+              code: item.code || item.productId || `MANUAL-${index + 1}`,
+              description: item.description,
+              ncm: item.ncm,
+              unit: item.unit || 'un',
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount,
+              origin: Number(item.origin || 0),
+              csosn: item.csosn || '102',
+              pisCst: item.pisCst || '49',
+              cofinsCst: item.cofinsCst || '49',
+              cBenef: item.cBenef || ''
+            }))
+          }
+        }));
+        const result = response.data || {};
+        setShowManualInvoiceModal(false);
+        resetManualInvoiceForm();
+        setActiveTab('notas');
+        if (result.status === 'authorized') {
+          setMessage({ type: 'success', text: result.xMotivo || 'Nota manual autorizada. Baixando DANFE em PDF.' });
+          if (result.invoiceId && result.danfePdfReady) {
+            await downloadInvoiceArtifact(result.invoiceId, 'danfePdf');
+          }
+        } else {
+          setMessage({ type: 'error', text: result.xMotivo || 'Retorno fiscal recebido para a nota manual. Consulte a nota em Notas emitidas.' });
+        }
+      } catch (error) {
+        console.error('[NotaFiscal] Emissão manual falhou:', error);
+        setManualInvoiceError(error?.message || 'Não foi possível emitir a nota fiscal manual.');
+        setMessage({ type: 'error', text: error?.message || 'Não foi possível emitir a nota fiscal manual.' });
+      } finally {
+        setManualInvoiceSaving(false);
+      }
+    };
+
     const handleRefreshInvoice = async (invoice) => {
       if (isReadOnly || !invoice?.id) return;
       setBusyOrderId(`refresh:${invoice.id}`);
@@ -14793,44 +15384,48 @@ const handleSubmit = async (e) => {
         setMessage({ type: 'error', text: 'O DANFE A4 fica disponível apenas para notas autorizadas ou canceladas.' });
         return;
       }
-      if (typeof window.jspdf === 'undefined') {
-        setMessage({ type: 'error', text: 'Não foi possível carregar o gerador de PDF. Atualize a página e tente novamente.' });
-        return;
-      }
 
       setBusyOrderId(`danfe-a4:${invoice.id}`);
       setMessage(null);
 
       try {
+        await ensureDanfeA4Libraries();
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
-        const margin = 8;
+        const margin = 6;
         const contentWidth = pageWidth - (margin * 2);
         const issuerAddress = invoice?.issuer?.address || invoice?.serviceResult?.issuer?.address || issuerForm.address || {};
+        const serviceResult = invoice?.serviceResult || {};
+        const taxes = invoice?.taxes || serviceResult?.taxes || invoice?.totals?.taxes || serviceResult?.totals?.taxes || {};
+        const transport = invoice?.transport || invoice?.transporter || serviceResult?.transport || serviceResult?.transporter || {};
         const issuer = {
-          legalName: invoice?.issuer?.legalName || invoice?.serviceResult?.issuer?.legalName || issuerForm.legalName || storeName || '-',
-          tradeName: invoice?.issuer?.tradeName || invoice?.serviceResult?.issuer?.tradeName || issuerForm.tradeName || '',
+          legalName: invoice?.issuer?.legalName || serviceResult?.issuer?.legalName || issuerForm.legalName || storeName || '-',
+          tradeName: invoice?.issuer?.tradeName || serviceResult?.issuer?.tradeName || issuerForm.tradeName || '',
           cnpj: getInvoiceIssuerDocument(invoice) || issuerForm.cnpj || '',
-          stateRegistration: invoice?.issuer?.stateRegistration || invoice?.serviceResult?.issuer?.stateRegistration || issuerForm.stateRegistration || '',
-          address: issuerAddress
+          stateRegistration: invoice?.issuer?.stateRegistration || serviceResult?.issuer?.stateRegistration || issuerForm.stateRegistration || '',
+          stateRegistrationSt: invoice?.issuer?.stateRegistrationSt || invoice?.issuer?.inscricaoEstadualSt || serviceResult?.issuer?.stateRegistrationSt || issuerForm.stateRegistrationSt || '',
+          address: issuerAddress,
+          logoUrl: invoice?.issuer?.logoUrl || serviceResult?.issuer?.logoUrl || issuerForm.logoUrl || '/logotipo.png'
         };
         const customerAddress = getOrderCustomerAddress(invoice);
         const customer = {
           name: getInvoiceCustomerName(invoice),
           document: getInvoiceCustomerDocument(invoice),
-          stateRegistration: invoice?.customer?.stateRegistration || invoice?.customer?.inscricaoEstadual || '',
+          stateRegistration: invoice?.customer?.stateRegistration || invoice?.customer?.inscricaoEstadual || serviceResult?.customer?.stateRegistration || '',
+          phone: invoice?.customer?.phone || invoice?.customer?.telefone || serviceResult?.customer?.phone || '',
           address: customerAddress
         };
         const invoiceNumber = formatFiscalNumber(invoice.number);
         const invoiceSeries = formatFiscalSeries(invoice.series);
         const invoiceModel = invoice.model || '65';
-        const issuedAt = formatDateTime(invoice.issuedAt || invoice.createdAt);
-        const authorizedAt = formatDateTime(invoice.authorizedAt || invoice.serviceResult?.authorizedAt || (invoice.status === 'authorized' ? invoice.updatedAt : null));
+        const issuedAtRaw = invoice.issuedAt || invoice.createdAt;
+        const authorizedAt = formatDateTime(invoice.authorizedAt || serviceResult?.authorizedAt || (invoice.status === 'authorized' ? invoice.updatedAt : null));
         const reason = fiscalReturnReason(invoice);
         const items = getInvoiceItems(invoice);
-        const productsTotal = Number(invoice?.totals?.products ?? invoice?.serviceResult?.totals?.products ?? items.reduce((sum, item) => {
+        const productsTotal = Number(invoice?.totals?.products ?? serviceResult?.totals?.products ?? items.reduce((sum, item) => {
           const quantity = Number(item.quantity ?? item.quantidade ?? item.qCom ?? 1) || 1;
           const unitValue = Number(item.unitValue ?? item.valorUnitario ?? item.preco ?? item.valor ?? item.vUnCom ?? 0) || 0;
           return sum + (quantity * unitValue);
@@ -14838,181 +15433,434 @@ const handleSubmit = async (e) => {
         const discount = getInvoiceDiscount(invoice);
         const freight = getInvoiceFreight(invoice);
         const invoiceTotal = getInvoiceValue(invoice);
-        const keyDigits = onlyDigitsText(invoice.key);
-        const accessKey = keyDigits ? keyDigits.replace(/(\d{4})(?=\d)/g, '$1 ').trim() : (invoice.key || '-');
+        const keyDigits = onlyDigitsText(invoice.key || serviceResult?.key);
+        const accessKey = keyDigits ? keyDigits.replace(/(\d{4})(?=\d)/g, '$1 ').trim() : (invoice.key || serviceResult?.key || '-');
         const operationNature = invoice.operationNature || invoice.naturezaOperacao || settingsForm.operationNature || 'Venda';
         const statusText = statusLabel[invoice.status] || invoice.status || '-';
+
+        const dash = (value) => {
+          const textValue = String(value ?? '').trim();
+          return textValue || '-';
+        };
+        const empty = (value) => {
+          const textValue = String(value ?? '').trim();
+          return textValue || '';
+        };
         const formatDocumentFull = (value) => {
           const digits = onlyDigitsText(value);
           if (digits.length === 11) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
           if (digits.length === 14) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
-          return value || '-';
+          return dash(value);
         };
-
-        const setFont = (size = 8, style = 'normal') => {
+        const moneyPlain = (value) => Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const qtyPlain = (value) => Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+        const percentPlain = (value) => Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const dateOnly = (value) => {
+          const date = getJSDate(value);
+          return date ? date.toLocaleDateString('pt-BR') : '-';
+        };
+        const timeOnly = (value) => {
+          const date = getJSDate(value);
+          return date ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+        };
+        const normalizeAddress = (address = {}) => {
+          if (typeof address === 'string') return { full: address };
+          const street = address.street || address.logradouro || address.endereco || '';
+          const number = address.number || address.numero || '';
+          const district = address.district || address.bairro || '';
+          const city = address.city || address.cidade || address.municipio || '';
+          const state = address.state || address.uf || '';
+          const zip = address.zip || address.cep || '';
+          const phone = address.phone || address.telefone || '';
+          return {
+            street,
+            number,
+            district,
+            city,
+            state,
+            zip,
+            phone,
+            full: [
+              [street, number].filter(Boolean).join(', '),
+              district,
+              [city, state].filter(Boolean).join('/'),
+              zip ? `CEP: ${zip}` : '',
+              phone ? `FONE: ${phone}` : ''
+            ].filter(Boolean).join(' - ')
+          };
+        };
+        const issuerAddressFields = normalizeAddress(issuer.address);
+        const customerAddressFields = normalizeAddress(customer.address);
+        const setFont = (size = 7, style = 'normal') => {
           doc.setFont('helvetica', style);
           doc.setFontSize(size);
         };
-        const text = (value, x, y, options = {}) => doc.text(String(value || '-'), x, y, options);
-        const fitText = (value, maxWidth) => doc.splitTextToSize(String(value || '-'), maxWidth);
-        const drawBox = (x, y, w, h, title, value, options = {}) => {
+        const fitText = (value, maxWidth) => doc.splitTextToSize(String(value ?? '-'), maxWidth);
+        const text = (value, x, y, options = {}) => doc.text(String(value ?? '-'), x, y, options);
+        const field = (x, y, w, h, label, value, options = {}) => {
           doc.rect(x, y, w, h);
-          setFont(6, 'bold');
-          text(String(title || '').toUpperCase(), x + 1.2, y + 3.2);
-          setFont(options.size || 8, options.bold ? 'bold' : 'normal');
-          const lines = fitText(value || '-', w - 2.4).slice(0, options.maxLines || 2);
-          doc.text(lines, x + 1.2, y + 7.2);
+          setFont(options.labelSize || 5.2, 'bold');
+          text(String(label || '').toUpperCase(), x + 1, y + 2.8);
+          setFont(options.size || 6.7, options.bold ? 'bold' : 'normal');
+          const lines = fitText(options.blank ? empty(value) : dash(value), w - 2).slice(0, options.maxLines || 2);
+          if (lines.length) doc.text(lines, x + 1, y + (options.valueY || 6.5));
         };
-        const addressLine = (address = {}) => [
-          ...(typeof address === 'string'
-            ? [address]
-            : [
-                [address.street || address.logradouro, address.number || address.numero].filter(Boolean).join(', '),
-                address.district || address.bairro,
-                [address.city || address.cidade, address.state || address.uf].filter(Boolean).join('/'),
-                address.zip || address.cep
-              ])
-        ].filter(Boolean).join(' - ') || '-';
+        const sectionTitle = (title, y) => {
+          setFont(6.5, 'bold');
+          text(String(title || '').toUpperCase(), margin, y);
+        };
+        const addImageFromUrl = async (url) => {
+          if (!url) return '';
+          try {
+            const response = await fetch(url, { mode: 'cors' });
+            if (!response.ok) return '';
+            const blob = await response.blob();
+            return await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result || '');
+              reader.onerror = () => resolve('');
+              reader.readAsDataURL(blob);
+            });
+          } catch (error) {
+            console.warn('[NotaFiscal] Não foi possível carregar a logo do DANFE A4.', error);
+            return '';
+          }
+        };
+        const drawCode128CBarcode = (digits, x, y, width, height) => {
+          const source = onlyDigitsText(digits);
+          if (!/^\d{44}$/.test(source)) {
+            setFont(5.3);
+            doc.rect(x, y, width, height);
+            text('Codigo de barras indisponivel', x + (width / 2), y + (height / 2) + 1, { align: 'center' });
+            return false;
+          }
 
-        doc.setLineWidth(0.2);
-        doc.setDrawColor(20, 20, 20);
-        doc.setTextColor(20, 20, 20);
+          const codewords = [105];
+          for (let index = 0; index < source.length; index += 2) {
+            codewords.push(Number(source.slice(index, index + 2)));
+          }
+          const checksum = codewords.reduce((sum, codeword, index) => (
+            index === 0 ? sum + codeword : sum + (codeword * index)
+          ), 0) % 103;
+          codewords.push(checksum, 106);
 
-        doc.rect(margin, 8, 74, 32);
-        setFont(10, 'bold');
-        doc.text(fitText(issuer.legalName, 70), margin + 2, 14);
-        setFont(7);
-        doc.text(fitText(addressLine(issuer.address), 70), margin + 2, 23);
-        text(`CNPJ: ${formatDocumentFull(issuer.cnpj)}`, margin + 2, 34);
-        if (issuer.stateRegistration) text(`IE: ${issuer.stateRegistration}`, margin + 38, 34);
+          const totalModules = codewords.reduce((sum, codeword) => (
+            sum + String(CODE128_PATTERNS[codeword] || '').split('').reduce((patternSum, value) => patternSum + Number(value || 0), 0)
+          ), 20);
+          const moduleWidth = width / totalModules;
+          let cursorX = x + (moduleWidth * 10);
+          doc.setFillColor(0, 0, 0);
 
-        doc.rect(margin + 74, 8, 58, 32);
-        setFont(11, 'bold');
-        text('DANFE A4', margin + 103, 15, { align: 'center' });
-        setFont(7);
-        doc.text(['Documento Auxiliar', 'da Nota Fiscal Eletrônica'], margin + 103, 21, { align: 'center' });
+          codewords.forEach((codeword) => {
+            const pattern = String(CODE128_PATTERNS[codeword] || '');
+            for (let index = 0; index < pattern.length; index += 1) {
+              const segmentWidth = Number(pattern[index] || 0) * moduleWidth;
+              if (index % 2 === 0) doc.rect(cursorX, y, segmentWidth, height, 'F');
+              cursorX += segmentWidth;
+            }
+          });
+
+          return true;
+        };
+
+        const logoDataUrl = await addImageFromUrl(issuer.logoUrl);
+        const protocolText = `${invoice.protocol || serviceResult.protocol || '-'}${authorizedAt !== '-' ? ` - ${authorizedAt}` : ''}`;
+        const issuedDate = dateOnly(issuedAtRaw);
+        const issuedTime = timeOnly(issuedAtRaw);
+
+        doc.setLineWidth(0.15);
+        doc.setDrawColor(15, 15, 15);
+        doc.setTextColor(15, 15, 15);
+
+        let y = 6;
+        doc.rect(margin, y, contentWidth, 23);
+        doc.line(margin + 140, y, margin + 140, y + 23);
+        setFont(6.4);
+        doc.text(fitText(`RECEBI(EMOS) DE ${issuer.legalName}, OS PRODUTOS CONSTANTES DA NOTA FISCAL ELETRÔNICA INDICADA AO LADO, BEM COMO ATESTAMOS QUE OS MESMOS FORAM EXAMINADOS.`, 136), margin + 2, y + 4);
+        field(margin + 2, y + 13, 52, 8, 'Data de recebimento', '', { blank: true, maxLines: 1 });
+        field(margin + 54, y + 13, 84, 8, 'Identificação e assinatura do recebedor', '', { blank: true, maxLines: 1 });
         setFont(8, 'bold');
-        text(`Modelo ${invoiceModel}`, margin + 103, 33, { align: 'center' });
-
-        doc.rect(margin + 132, 8, contentWidth - 132, 32);
-        setFont(8, 'bold');
-        text(`NF-e Nº ${invoiceNumber}`, margin + 134, 16);
-        text(`Série ${invoiceSeries}`, margin + 134, 23);
-        setFont(7);
-        text(`Emissão: ${issuedAt}`, margin + 134, 31);
-
-        drawBox(margin, 42, contentWidth, 14, 'Chave de acesso', accessKey, { size: 9, bold: true, maxLines: 1 });
-        drawBox(margin, 58, 96, 14, 'Natureza da operação', operationNature, { maxLines: 1 });
-        drawBox(margin + 96, 58, contentWidth - 96, 14, 'Protocolo de autorização', `${invoice.protocol || '-'}${authorizedAt !== '-' ? ` - ${authorizedAt}` : ''}`, { maxLines: 1 });
-
+        text('NF-e', margin + 169, y + 5, { align: 'center' });
         setFont(7, 'bold');
-        text('DESTINATÁRIO / REMETENTE', margin, 78);
-        drawBox(margin, 80, 96, 13, 'Nome / Razão social', customer.name, { maxLines: 1 });
-        drawBox(margin + 96, 80, 48, 13, 'CPF/CNPJ', formatDocumentFull(customer.document), { maxLines: 1 });
-        drawBox(margin + 144, 80, contentWidth - 144, 13, 'Inscrição estadual', customer.stateRegistration || '-', { maxLines: 1 });
-        drawBox(margin, 93, 144, 13, 'Endereço', addressLine(customer.address), { maxLines: 1 });
-        drawBox(margin + 144, 93, contentWidth - 144, 13, 'Data/Hora emissão', issuedAt, { maxLines: 1 });
+        text(`Nº ${invoiceNumber}`, margin + 169, y + 12, { align: 'center' });
+        text(`SÉRIE ${invoiceSeries}`, margin + 169, y + 18, { align: 'center' });
+        y += 26;
 
-        setFont(7, 'bold');
-        text('PRODUTOS / SERVIÇOS', margin, 112);
+        const headerY = y;
+        const issuerW = 78;
+        const danfeW = 54;
+        const qrW = contentWidth - issuerW - danfeW;
+        doc.rect(margin, headerY, issuerW, 52);
+        doc.rect(margin + issuerW, headerY, danfeW, 52);
+        doc.rect(margin + issuerW + danfeW, headerY, qrW, 52);
+        if (logoDataUrl) {
+          try {
+            const props = doc.getImageProperties(logoDataUrl);
+            const maxLogoW = 33;
+            const maxLogoH = 12;
+            const ratio = Math.min(maxLogoW / props.width, maxLogoH / props.height);
+            const logoFormat = logoDataUrl.includes('image/jpeg') || logoDataUrl.includes('image/jpg') ? 'JPEG' : 'PNG';
+            doc.addImage(logoDataUrl, logoFormat, margin + 2, headerY + 3, props.width * ratio, props.height * ratio);
+          } catch (error) {
+            console.warn('[NotaFiscal] Logo carregada, mas não pôde ser adicionada ao PDF.', error);
+          }
+        }
+        setFont(7.6, 'bold');
+        doc.text(fitText(issuer.legalName, issuerW - 4), margin + 2, headerY + 18);
+        setFont(6.2);
+        if (issuer.tradeName) doc.text(fitText(issuer.tradeName, issuerW - 4), margin + 2, headerY + 24);
+        doc.text(fitText(issuerAddressFields.full || '-', issuerW - 4).slice(0, 4), margin + 2, headerY + 30);
+        text(`CNPJ: ${formatDocumentFull(issuer.cnpj)}`, margin + 2, headerY + 46);
+        text(`IE: ${dash(issuer.stateRegistration)}`, margin + 42, headerY + 46);
+
+        setFont(13, 'bold');
+        text('DANFE', margin + issuerW + (danfeW / 2), headerY + 8, { align: 'center' });
+        setFont(6.5, 'bold');
+        doc.text(['DOCUMENTO AUXILIAR', 'DA NOTA FISCAL', 'ELETRÔNICA'], margin + issuerW + (danfeW / 2), headerY + 15, { align: 'center' });
+        setFont(6.4);
+        text('0 - ENTRADA', margin + issuerW + 5, headerY + 29);
+        text('1 - SAÍDA', margin + issuerW + 5, headerY + 35);
+        setFont(7.2, 'bold');
+        text(`Nº ${invoiceNumber}`, margin + issuerW + (danfeW / 2), headerY + 29, { align: 'center' });
+        text(`SÉRIE ${invoiceSeries}`, margin + issuerW + (danfeW / 2), headerY + 36, { align: 'center' });
+        setFont(6.2);
+        text(`Modelo ${invoiceModel}`, margin + issuerW + 3, headerY + 49);
+        text(`Emissão: ${issuedDate} ${issuedTime}`, margin + issuerW + 21, headerY + 49);
+
+        const qrX = margin + issuerW + danfeW;
+        setFont(5.5, 'bold');
+        text('CHAVE DE ACESSO', qrX + 2, headerY + 4);
+        setFont(6.4, 'bold');
+        doc.text(fitText(accessKey, qrW - 5).slice(0, 3), qrX + 2, headerY + 9);
+        drawCode128CBarcode(keyDigits, qrX + 3, headerY + 19, qrW - 6, 10);
+        setFont(5.5);
+        doc.text(fitText('Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora', qrW - 5), qrX + 2, headerY + 33);
+        field(qrX + 2, headerY + 39, qrW - 4, 11, 'Protocolo de autorização de uso', protocolText, { maxLines: 1, size: 6.2 });
+        y = headerY + 55;
+
+        field(margin, y, 94, 12, 'Natureza da operação', operationNature, { maxLines: 1 });
+        field(margin + 94, y, 38, 12, 'Inscrição estadual', issuer.stateRegistration, { maxLines: 1 });
+        field(margin + 132, y, 36, 12, 'Inscrição estadual do subst. trib.', issuer.stateRegistrationSt, { blank: true, maxLines: 1 });
+        field(margin + 168, y, contentWidth - 168, 12, 'CNPJ', formatDocumentFull(issuer.cnpj), { maxLines: 1 });
+        y += 17;
+
+        sectionTitle('Destinatário/Remetente', y);
+        y += 2;
+        field(margin, y, 92, 11, 'Nome/Razão social', customer.name, { maxLines: 1 });
+        field(margin + 92, y, 38, 11, 'C.N.P.J./C.P.F.', formatDocumentFull(customer.document), { maxLines: 1 });
+        field(margin + 130, y, 34, 11, 'Data da emissão', issuedDate, { maxLines: 1 });
+        field(margin + 164, y, contentWidth - 164, 11, 'Data da saída/entrada', issuedDate, { maxLines: 1 });
+        y += 11;
+        field(margin, y, 78, 11, 'Endereço', [customerAddressFields.street, customerAddressFields.number].filter(Boolean).join(', '), { blank: true, maxLines: 1 });
+        field(margin + 78, y, 32, 11, 'Bairro/Distrito', customerAddressFields.district, { blank: true, maxLines: 1 });
+        field(margin + 110, y, 22, 11, 'CEP', customerAddressFields.zip, { blank: true, maxLines: 1 });
+        field(margin + 132, y, 35, 11, 'Município', customerAddressFields.city, { blank: true, maxLines: 1 });
+        field(margin + 167, y, 10, 11, 'UF', customerAddressFields.state, { blank: true, maxLines: 1 });
+        field(margin + 177, y, contentWidth - 177, 11, 'Fone/Fax', customer.phone || customerAddressFields.phone, { blank: true, maxLines: 1 });
+        y += 11;
+        field(margin, y, 50, 11, 'Inscrição estadual', customer.stateRegistration, { blank: true, maxLines: 1 });
+        field(margin + 50, y, 32, 11, 'Hora da saída', issuedTime, { maxLines: 1 });
+        field(margin + 82, y, contentWidth - 82, 11, 'Informações do consumidor', customerAddressFields.full, { blank: true, maxLines: 1 });
+        y += 16;
+
+        sectionTitle('Fatura/Duplicatas', y);
+        y += 2;
+        const installmentText = invoice?.billing?.installments?.length
+          ? invoice.billing.installments.map((item) => `${item.number || item.numero || '-'}: ${dateOnly(item.dueDate || item.vencimento)} ${moneyPlain(item.amount || item.valor)}`).join('; ')
+          : '';
+        field(margin, y, contentWidth, 12, 'Número / Vencimento / Valor', installmentText, { blank: true, maxLines: 1 });
+        y += 17;
+
+        sectionTitle('Cálculo do Imposto', y);
+        y += 2;
+        const taxCellW = contentWidth / 7;
+        [
+          ['BC ICMS', taxes.icmsBase || taxes.baseIcms || taxes.vBC],
+          ['Valor ICMS', taxes.icms || taxes.valorIcms || taxes.vICMS],
+          ['BC ICMS ST', taxes.icmsStBase || taxes.baseIcmsSt || taxes.vBCST],
+          ['Valor ICMS ST', taxes.icmsSt || taxes.valorIcmsSt || taxes.vST],
+          ['Valor IPI', taxes.ipi || taxes.vIPI],
+          ['Valor PIS', taxes.pis || taxes.vPIS],
+          ['Valor COFINS', taxes.cofins || taxes.vCOFINS]
+        ].forEach(([label, value], index) => field(margin + (index * taxCellW), y, taxCellW, 11, label, moneyPlain(value), { maxLines: 1 }));
+        y += 11;
+        [
+          ['Valor total dos produtos', productsTotal],
+          ['Valor do frete', freight],
+          ['Valor do seguro', taxes.insurance || taxes.seguro || invoice?.insurance],
+          ['Desconto', discount],
+          ['Outras despesas', taxes.otherExpenses || taxes.outrasDespesas || invoice?.otherExpenses],
+          ['Valor total da nota', invoiceTotal]
+        ].forEach(([label, value], index) => {
+          const w = index === 5 ? taxCellW * 2 : taxCellW;
+          const x = margin + (index < 5 ? index * taxCellW : 5 * taxCellW);
+          field(x, y, w, 11, label, moneyPlain(value), { bold: index === 5, maxLines: 1 });
+        });
+        y += 16;
+
+        sectionTitle('Transportador/Volumes Transportados', y);
+        y += 2;
+        field(margin, y, 54, 11, 'Razão social', transport.legalName || transport.razaoSocial, { blank: true, maxLines: 1 });
+        field(margin + 54, y, 32, 11, 'Frete por conta de', transport.freightMode || transport.modalidadeFrete || (freight > 0 ? '0 - Remetente' : '9 - Sem frete'), { maxLines: 1 });
+        field(margin + 86, y, 24, 11, 'Código ANTT', transport.anttCode || transport.codigoAntt, { blank: true, maxLines: 1 });
+        field(margin + 110, y, 26, 11, 'Placa do veículo', transport.vehiclePlate || transport.placaVeiculo, { blank: true, maxLines: 1 });
+        field(margin + 136, y, 10, 11, 'UF', transport.vehicleUf || transport.ufPlaca, { blank: true, maxLines: 1 });
+        field(margin + 146, y, contentWidth - 146, 11, 'C.N.P.J./C.P.F.', formatDocumentFull(transport.document || transport.cnpj || transport.cpf), { blank: true, maxLines: 1 });
+        y += 11;
+        field(margin, y, 72, 11, 'Endereço', transport.address || transport.endereco, { blank: true, maxLines: 1 });
+        field(margin + 72, y, 42, 11, 'Município', transport.city || transport.municipio, { blank: true, maxLines: 1 });
+        field(margin + 114, y, 10, 11, 'UF', transport.state || transport.uf, { blank: true, maxLines: 1 });
+        field(margin + 124, y, 32, 11, 'Inscrição estadual', transport.stateRegistration || transport.inscricaoEstadual, { blank: true, maxLines: 1 });
+        field(margin + 156, y, 20, 11, 'Quantidade', qtyPlain(transport.quantity || transport.quantidade), { maxLines: 1 });
+        field(margin + 176, y, contentWidth - 176, 11, 'Espécie', transport.species || transport.especie, { blank: true, maxLines: 1 });
+        y += 11;
+        field(margin, y, 42, 11, 'Marca', transport.brand || transport.marca, { blank: true, maxLines: 1 });
+        field(margin + 42, y, 42, 11, 'Numeração', transport.numbering || transport.numeracao, { blank: true, maxLines: 1 });
+        field(margin + 84, y, 34, 11, 'Peso bruto', qtyPlain(transport.grossWeight || transport.pesoBruto), { maxLines: 1 });
+        field(margin + 118, y, 34, 11, 'Peso líquido', qtyPlain(transport.netWeight || transport.pesoLiquido), { maxLines: 1 });
+        field(margin + 152, y, contentWidth - 152, 11, 'Forma de pagamento', getInvoicePaymentMethod(invoice), { maxLines: 1 });
+        y += 16;
+
+        sectionTitle('Dados dos Produtos/Serviços', y);
+        y += 2;
         const productRows = items.map((item, index) => {
           const productId = String(item.productId || item.produtoId || item.id || '').trim();
           const fiscalProduct = productId ? fiscalProductsById.get(productId) : null;
           const quantity = Number(item.quantity ?? item.quantidade ?? item.qCom ?? 1) || 1;
           const unitValue = Number(item.unitValue ?? item.valorUnitario ?? item.preco ?? item.valor ?? item.vUnCom ?? 0) || 0;
           const totalValue = Number(item.total ?? item.valorTotal ?? item.vProd ?? unitValue * quantity) || 0;
-          return [
-            item.code || item.codigo || fiscalProduct?.code || productId || String(index + 1),
-            item.description || item.nome || item.produto || fiscalProduct?.description || 'Produto',
-            formatNcmCode(item.ncm || fiscalProduct?.ncm || DEFAULT_NCM_PRODUCT),
-            item.cfop || item.cfopNfe || item.cfopNfce || fiscalProduct?.cfopNfe || fiscalProduct?.cfop || DEFAULT_CFOP_OPERATION,
-            item.unit || item.unidade || item.uCom || fiscalProduct?.unit || 'un',
-            Number(quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
-            formatCurrencyBR(unitValue),
-            formatCurrencyBR(totalValue)
-          ];
+          return {
+            code: item.code || item.codigo || fiscalProduct?.code || productId || String(index + 1),
+            description: item.description || item.nome || item.produto || fiscalProduct?.description || 'Produto',
+            ncm: formatNcmCode(item.ncm || fiscalProduct?.ncm || DEFAULT_NCM_PRODUCT),
+            cst: item.csosn || item.cst || item.icmsCst || fiscalProduct?.csosn || '102',
+            cfop: item.cfop || item.cfopNfe || item.cfopNfce || fiscalProduct?.cfopNfe || fiscalProduct?.cfop || DEFAULT_CFOP_OPERATION,
+            unit: item.unit || item.unidade || item.uCom || fiscalProduct?.unit || 'un',
+            quantity: qtyPlain(quantity),
+            unitValue: moneyPlain(unitValue),
+            totalValue: moneyPlain(totalValue)
+          };
         });
-        const tableHead = [['Código', 'Descrição', 'NCM', 'CFOP', 'Un.', 'Qtd.', 'Vl. unit.', 'Vl. total']];
-        if (typeof doc.autoTable === 'function') {
-          doc.autoTable({
-            startY: 114,
-            head: tableHead,
-            body: productRows.length ? productRows : [['-', 'Nenhum item detalhado encontrado', '-', '-', '-', '-', '-', '-']],
-            margin: { left: margin, right: margin },
-            styles: { fontSize: 6.5, cellPadding: 1.1, lineColor: [80, 80, 80], lineWidth: 0.1, overflow: 'linebreak', textColor: [20, 20, 20] },
-            headStyles: { fillColor: [245, 245, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
-            columnStyles: {
-              0: { cellWidth: 19 },
-              1: { cellWidth: 55 },
-              2: { cellWidth: 20 },
-              3: { cellWidth: 14 },
-              4: { cellWidth: 10 },
-              5: { cellWidth: 16, halign: 'right' },
-              6: { cellWidth: 24, halign: 'right' },
-              7: { cellWidth: 26, halign: 'right' }
-            }
+        const tableRows = productRows.length ? productRows : [{
+          code: '-',
+          description: 'Nenhum item detalhado encontrado',
+          ncm: '-',
+          cfop: '-',
+          unit: '-',
+          quantity: '0,00',
+          unitValue: '0,00',
+          totalValue: '0,00'
+        }];
+        const productTableWidth = contentWidth;
+        const productColumns = [
+          { key: 'code', label: 'Código', width: 31, maxLines: 2 },
+          { key: 'description', label: 'Descrição', width: productTableWidth - 124, maxLines: 3 },
+          { key: 'ncm', label: 'NCM', width: 22, maxLines: 1 },
+          { key: 'cfop', label: 'CFOP', width: 17, align: 'center', maxLines: 1 },
+          { key: 'quantity', label: 'Qtd.', width: 14, align: 'right', maxLines: 1 },
+          { key: 'unitValue', label: 'Vl.unit.', width: 20, align: 'right', maxLines: 1 },
+          { key: 'totalValue', label: 'Vl.total', width: 20, align: 'right', maxLines: 1 }
+        ];
+        const tableBottom = 252;
+        const drawProductTableHeader = (startY) => {
+          let x = margin;
+          const headerHeight = 5.8;
+          doc.setDrawColor(15, 15, 15);
+          doc.setTextColor(15, 15, 15);
+          setFont(5.1, 'bold');
+          productColumns.forEach((column) => {
+            const width = column.width;
+            doc.rect(x, startY, width, headerHeight);
+            const lines = fitText(column.label, width - 1.4).slice(0, 2);
+            doc.text(lines, column.align === 'right' ? x + width - 0.8 : x + 0.8, startY + 2.5, {
+              align: column.align || 'left'
+            });
+            x += width;
           });
-        } else {
-          let y = 114;
-          tableHead[0].forEach((title, index) => text(title, margin + (index * 23), y));
-          y += 5;
-          productRows.forEach((row) => {
-            row.forEach((value, index) => text(value, margin + (index * 23), y));
-            y += 5;
-          });
-        }
+          return startY + headerHeight;
+        };
+        const drawProductTableRow = (row, startY) => {
+          doc.setDrawColor(15, 15, 15);
+          doc.setTextColor(15, 15, 15);
+          setFont(5);
+          const wrappedCells = productColumns.map((column) => (
+            fitText(row[column.key], column.width - 1.6).slice(0, column.maxLines || 2)
+          ));
+          const rowHeight = Math.max(6.5, Math.max(...wrappedCells.map((lines) => lines.length)) * 2.35 + 2);
+          let nextY = startY;
+          if (nextY + rowHeight > tableBottom) {
+            doc.addPage();
+            nextY = margin + 5;
+            sectionTitle('Dados dos Produtos/Serviços (continuação)', nextY);
+            nextY += 2;
+            nextY = drawProductTableHeader(nextY);
+          }
 
-        let y = Math.max((doc.lastAutoTable?.finalY || 160) + 6, 160);
-        if (y > 232) {
+          let x = margin;
+          productColumns.forEach((column, index) => {
+            const width = column.width;
+            const lines = wrappedCells[index];
+            doc.rect(x, nextY, width, rowHeight);
+            lines.forEach((line, lineIndex) => {
+              const textY = nextY + 2.2 + (lineIndex * 2.25);
+              if (column.align === 'right') {
+                doc.text(line, x + width - 0.8, textY, { align: 'right' });
+              } else if (column.align === 'center') {
+                doc.text(line, x + (width / 2), textY, { align: 'center' });
+              } else {
+                doc.text(line, x + 0.7, textY);
+              }
+            });
+            x += width;
+          });
+          return nextY + rowHeight;
+        };
+        y = drawProductTableHeader(y);
+        tableRows.forEach((row, index) => {
+          y = drawProductTableRow(row, y, index);
+        });
+        y += 4;
+        if (y > 252) {
           doc.addPage();
-          y = 14;
+          y = margin + 4;
         }
-
-        setFont(7, 'bold');
-        text('CÁLCULO DO IMPOSTO', margin, y);
+        sectionTitle('Dados Adicionais', y);
         y += 2;
-        drawBox(margin, y, 38, 13, 'Base ICMS', formatCurrencyBR(invoice?.taxes?.icmsBase || 0), { maxLines: 1 });
-        drawBox(margin + 38, y, 38, 13, 'Valor ICMS', formatCurrencyBR(invoice?.taxes?.icms || 0), { maxLines: 1 });
-        drawBox(margin + 76, y, 38, 13, 'Valor produtos', formatCurrencyBR(productsTotal), { maxLines: 1 });
-        drawBox(margin + 114, y, 38, 13, 'Desconto', formatCurrencyBR(discount), { maxLines: 1 });
-        drawBox(margin + 152, y, contentWidth - 152, 13, 'Valor total da nota', formatCurrencyBR(invoiceTotal), { bold: true, maxLines: 1 });
-        y += 18;
-
-        setFont(7, 'bold');
-        text('TRANSPORTE / PAGAMENTO', margin, y);
-        y += 2;
-        drawBox(margin, y, 68, 13, 'Modalidade do frete', freight > 0 ? 'Com cobrança de frete' : 'Sem frete', { maxLines: 1 });
-        drawBox(margin + 68, y, 64, 13, 'Forma de pagamento', getInvoicePaymentMethod(invoice), { maxLines: 1 });
-        drawBox(margin + 132, y, contentWidth - 132, 13, 'Valor pago', formatCurrencyBR(getInvoicePaidAmount(invoice)), { maxLines: 1 });
-        y += 18;
-
         const additionalInfo = [
           invoice.status === 'cancelled' ? `NOTA CANCELADA${invoice.cancelReason ? ` - ${invoice.cancelReason}` : ''}` : '',
+          invoice.additionalInfo || invoice.observacao || serviceResult.additionalInfo || '',
           `Status fiscal: ${statusText}`,
-          invoice.additionalInfo || invoice.observacao || invoice.serviceResult?.additionalInfo || '',
-          reason && invoice.status !== 'authorized' ? `Retorno SEFAZ: ${reason}` : '',
-          `Pedido: ${invoice.orderId || '-'}`,
-          `Chave: ${keyDigits || invoice.key || '-'}`
+          reason ? `Retorno SEFAZ: ${reason}` : '',
+          `Forma de pagamento: ${getInvoicePaymentMethod(invoice)}`,
+          `Pedido vinculado: ${invoice.orderId || '-'}`,
+          `Chave de acesso: ${keyDigits || invoice.key || '-'}`
         ].filter(Boolean).join('\n');
-        setFont(7, 'bold');
-        text('DADOS ADICIONAIS / INFORMAÇÕES COMPLEMENTARES', margin, y);
-        y += 2;
-        doc.rect(margin, y, contentWidth, 34);
-        setFont(7);
-        doc.text(fitText(additionalInfo || '-', contentWidth - 4).slice(0, 8), margin + 2, y + 5);
+        doc.rect(margin, y, contentWidth * 0.62, 34);
+        doc.rect(margin + (contentWidth * 0.62), y, contentWidth * 0.38, 34);
+        setFont(5.4, 'bold');
+        text('INFORMAÇÕES COMPLEMENTARES', margin + 1, y + 3);
+        text('RESERVADO AO FISCO', margin + (contentWidth * 0.62) + 1, y + 3);
+        setFont(6.2);
+        doc.text(fitText(additionalInfo || '-', (contentWidth * 0.62) - 3).slice(0, 11), margin + 1.5, y + 7);
 
         if (invoice.status === 'cancelled') {
           doc.setTextColor(190, 0, 0);
           setFont(34, 'bold');
-          doc.text('CANCELADA', pageWidth / 2, 156, { align: 'center', angle: 35 });
-          doc.setTextColor(20, 20, 20);
+          doc.text('CANCELADA', pageWidth / 2, 158, { align: 'center', angle: 35 });
+          doc.setTextColor(15, 15, 15);
         }
 
         const pageCount = doc.internal.getNumberOfPages();
         for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
           doc.setPage(pageNumber);
           setFont(6);
-          doc.text(`DANFE A4 gerado pela plataforma Ana Guimarães Doceria - Página ${pageNumber}/${pageCount}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+          doc.text(`Folha ${pageNumber}/${pageCount}`, pageWidth - margin, pageHeight - 5, { align: 'right' });
+          doc.text('DANFE A4 gerado pela plataforma Ana Guimarães Doceria', margin, pageHeight - 5);
+          if (pageNumber === 1) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7.2);
+            doc.text(`FOLHA 1/${pageCount}`, margin + issuerW + (danfeW / 2), headerY + 43, { align: 'center' });
+          }
         }
 
         const filename = `DANFE-A4-${invoiceNumber}-${invoiceSeries}.pdf`.replace(/[^\w.-]+/g, '-');
@@ -15430,6 +16278,10 @@ const handleSubmit = async (e) => {
       { header: 'NFC-e', render: (row) => <span className="font-mono text-xs font-semibold text-gray-800">{formatFiscalNumber(row.number)}</span> },
       { header: 'Série', render: (row) => <span className="font-mono text-xs text-gray-600">{formatFiscalSeries(row.series)}</span> },
       { header: 'Pedido', render: (row) => <span className="font-mono text-xs">{row.orderId?.slice(0, 8) || '-'}</span> },
+      { header: 'Origem', render: (row) => {
+        const isManual = getInvoiceOrigin(row) === 'manual';
+        return <span className={`px-3 py-1 rounded-full text-xs font-medium ${isManual ? 'bg-purple-100 text-purple-800' : 'bg-blue-50 text-blue-700'}`}>{getInvoiceOriginLabel(row)}</span>;
+      } },
       { header: 'Cliente', render: (row) => getInvoiceCustomerName(row) },
       { header: 'CPF/CNPJ', render: (row) => <span className="font-mono text-xs text-gray-600">{maskCpfCnpj(getInvoiceCustomerDocument(row))}</span> },
       { header: 'Status', render: (row) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass[row.status] || 'bg-gray-100 text-gray-700'}`}>{statusLabel[row.status] || row.status}</span> },
@@ -15446,7 +16298,7 @@ const handleSubmit = async (e) => {
       { icon: FileText, label: 'Baixar/visualizar DANFE PDF', onClick: handleDownloadInvoicePdf, isVisible: (row) => row.status === 'authorized' },
       { icon: Printer, label: 'Exportar DANFE A4', onClick: handleExportDanfeA4, isVisible: (row) => ['authorized', 'cancelled'].includes(row.status) },
       { icon: Download, label: 'Baixar XML', onClick: handleDownloadInvoiceXml, isVisible: (row) => row.status === 'authorized' },
-      { icon: RefreshCw, label: 'Consultar retorno', onClick: handleRefreshInvoice, isVisible: (row) => !isReadOnly && row.status === 'pending_return' },
+      { icon: RefreshCw, label: 'Consultar retorno', onClick: handleRefreshInvoice, isVisible: (row) => !isReadOnly && row.status === 'pending_return' && Boolean(row.orderId) },
       { icon: X, label: 'Cancelar nota', onClick: handleOpenCancelInvoice, isVisible: (row) => !isReadOnly && row.status === 'authorized' }
     ];
 
@@ -15534,32 +16386,76 @@ const handleSubmit = async (e) => {
 
         {activeTab === 'emitir' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(360px,1fr)_220px_minmax(280px,360px)_auto] gap-3 bg-white rounded-2xl p-4 shadow-lg border border-gray-100 items-end">
-              <div className="space-y-1">
-                <label className="block text-sm font-medium text-gray-700">Buscar pedidos para emissão</label>
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    value={orderSearch}
-                    onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="Buscar por pedido, cliente, valor, data, CPF/CNPJ"
-                    className="w-full min-w-0 pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                  />
+            <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100 space-y-4">
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,1fr)_170px_170px_190px] gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-gray-700">Busca rápida</label>
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="Buscar por pedido, cliente, valor, data, CPF/CNPJ"
+                      className="w-full min-w-0 pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <Input
+                  label="Data inicial"
+                  type="date"
+                  value={orderFilters.start}
+                  onChange={(e) => setOrderFilter('start', e.target.value)}
+                />
+                <Input
+                  label="Data final"
+                  type="date"
+                  value={orderFilters.end}
+                  onChange={(e) => setOrderFilter('end', e.target.value)}
+                />
+                <Select label="Status da nota" value={orderFilters.status} onChange={(e) => setOrderFilter('status', e.target.value)}>
+                  {invoiceStatusFilters.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </Select>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(280px,360px)_auto_minmax(240px,1fr)] gap-3 items-end">
+                <Select value={modelOverride} onChange={(e) => setModelOverride(e.target.value)} className="md:w-56">
+                  <option value="">Modelo automático</option>
+                  <option value="55">Forçar NF-e 55</option>
+                  <option value="65">Forçar NFC-e 65</option>
+                </Select>
+                <Select label="CFOP da operação" value={operationCfop} onChange={(e) => setOperationCfop(e.target.value)}>
+                  {CFOP_OPERATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </Select>
+                <a href="https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_70_vigente" target="_blank" rel="noreferrer" className="self-end pb-3 text-sm text-pink-700 underline hover:text-pink-800">
+                  Tabela CFOP
+                </a>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                  <p className="text-sm text-gray-500 sm:mr-auto">
+                    Mostrando <strong className="text-gray-800">{eligibleOrders.length}</strong> de <strong className="text-gray-800">{invoiceableOrders.length}</strong> pedidos.
+                  </p>
+                  {!isReadOnly && (
+                    <Button size="sm" onClick={handleOpenManualInvoice}>
+                      <FileText className="w-4 h-4" /> Emitir Nota Fiscal Manual
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setOrderFilters((prev) => ({ ...prev, ...getCurrentMonthDateRange() }))}
+                  >
+                    <Calendar className="w-4 h-4" /> Mês atual
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={resetOrderFiltersToCurrentMonth}>
+                    <RefreshCw className="w-4 h-4" /> Limpar filtros
+                  </Button>
                 </div>
               </div>
-              <Select value={modelOverride} onChange={(e) => setModelOverride(e.target.value)} className="md:w-56">
-                <option value="">Modelo automático</option>
-                <option value="55">Forçar NF-e 55</option>
-                <option value="65">Forçar NFC-e 65</option>
-              </Select>
-              <Select label="CFOP da operação" value={operationCfop} onChange={(e) => setOperationCfop(e.target.value)}>
-                {CFOP_OPERATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </Select>
-              <a href="https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_70_vigente" target="_blank" rel="noreferrer" className="self-end pb-3 text-sm text-pink-700 underline hover:text-pink-800">
-                Tabela CFOP
-              </a>
             </div>
             <Table columns={orderColumns} data={eligibleOrders} actions={orderActions} />
+            {eligibleOrders.length === 0 && (
+              <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 text-center text-sm text-gray-500">
+                Nenhum pedido encontrado para os filtros selecionados.
+              </div>
+            )}
             {Object.entries(validationByOrder).map(([orderId, result]) => (
               <div key={orderId} className={`p-4 rounded-xl border text-sm ${result.ok === false ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
                 <p className="font-semibold">Validação do pedido {orderId.slice(0, 8)}</p>
@@ -15623,7 +16519,7 @@ const handleSubmit = async (e) => {
                   {invoiceStatusFilters.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </Select>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <Input
                   label="Emitente / CNPJ"
                   value={invoiceFilters.issuerDocument}
@@ -15648,6 +16544,11 @@ const handleSubmit = async (e) => {
                   onChange={(e) => setInvoiceFilter('maxValue', e.target.value)}
                   placeholder="R$ 999,99"
                 />
+                <Select label="Origem da nota" value={invoiceFilters.origin} onChange={(e) => setInvoiceFilter('origin', e.target.value)}>
+                  <option value="all">Todas</option>
+                  <option value="order">Notas de pedidos</option>
+                  <option value="manual">Manuais / avulsas</option>
+                </Select>
               </div>
               {showAdvancedInvoiceFilters && (
                 <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -15952,12 +16853,8 @@ const handleSubmit = async (e) => {
               </Select>
               <Input label="Nome do cliente na nota" value={orderEditForm.clienteNome || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, clienteNome: event.target.value }))} required />
               <Input label="Telefone" value={orderEditForm.telefone || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, telefone: event.target.value }))} />
-              <Select label="Forma de pagamento" value={orderEditForm.formaPagamento || 'Pix'} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, formaPagamento: event.target.value }))}>
-                <option>Pix</option>
-                <option>Cartão de Crédito</option>
-                <option>Cartão de Débito</option>
-                <option>Dinheiro</option>
-                <option>Link de Pagamento</option>
+              <Select label="Forma de pagamento" value={orderEditForm.formaPagamento || DEFAULT_ORDER_PAYMENT_METHOD} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, formaPagamento: event.target.value }))}>
+                {ORDER_PAYMENT_OPTIONS.map((option) => <option key={option}>{option}</option>)}
               </Select>
               <div className="md:col-span-2">
                 <Input label="Endereço do cliente" value={orderEditForm.clienteEndereco || ''} onChange={(event) => setOrderEditDraft((prev) => ({ ...prev, clienteEndereco: event.target.value }))} />
@@ -16107,6 +17004,230 @@ const handleSubmit = async (e) => {
           </form>
         </Modal>
 
+        <Modal
+          isOpen={showManualInvoiceModal}
+          onClose={() => {
+            if (manualInvoiceSaving) return;
+            setShowManualInvoiceModal(false);
+            resetManualInvoiceForm();
+          }}
+          title="Emitir Nota Fiscal Manual"
+          size="xl"
+        >
+          <form onSubmit={handleIssueManualInvoice} className="space-y-5">
+            <section className="rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Select
+                  label="Cliente cadastrado"
+                  value={manualInvoiceForm.customer?.id || ''}
+                  onChange={(event) => handleManualCustomerSelect(event.target.value)}
+                >
+                  <option value="">Cliente manual / não vinculado</option>
+                  {(data.clientes || []).map((cliente) => (
+                    <option key={cliente.id} value={cliente.id}>{cliente.nome || cliente.email || cliente.id}</option>
+                  ))}
+                </Select>
+                <Input
+                  label="Nome/Razão Social"
+                  value={manualInvoiceForm.customer?.name || ''}
+                  onChange={(event) => setManualInvoiceCustomerField('name', event.target.value)}
+                  required
+                />
+                <Input
+                  label="CPF/CNPJ"
+                  value={manualInvoiceForm.customer?.document || ''}
+                  onChange={(event) => setManualInvoiceCustomerField('document', event.target.value)}
+                  required
+                />
+                <Input
+                  label="E-mail"
+                  type="email"
+                  value={manualInvoiceForm.customer?.email || ''}
+                  onChange={(event) => setManualInvoiceCustomerField('email', event.target.value)}
+                />
+                <Input
+                  label="Telefone"
+                  value={manualInvoiceForm.customer?.phone || ''}
+                  onChange={(event) => setManualInvoiceCustomerField('phone', event.target.value)}
+                />
+                <Input
+                  label="Inscrição estadual"
+                  value={manualInvoiceForm.customer?.stateRegistration || ''}
+                  onChange={(event) => setManualInvoiceCustomerField('stateRegistration', event.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Input label="Logradouro" value={manualInvoiceForm.customer?.address?.street || ''} onChange={(event) => setManualInvoiceCustomerAddressField('street', event.target.value)} required />
+                <Input label="Número" value={manualInvoiceForm.customer?.address?.number || ''} onChange={(event) => setManualInvoiceCustomerAddressField('number', event.target.value)} />
+                <Input label="Bairro" value={manualInvoiceForm.customer?.address?.district || ''} onChange={(event) => setManualInvoiceCustomerAddressField('district', event.target.value)} required />
+                <Input label="CEP" value={manualInvoiceForm.customer?.address?.zip || ''} onChange={(event) => setManualInvoiceCustomerAddressField('zip', event.target.value)} required />
+                <Input label="Município" value={manualInvoiceForm.customer?.address?.city || ''} onChange={(event) => setManualInvoiceCustomerAddressField('city', event.target.value)} />
+                <Input label="Código IBGE" value={manualInvoiceForm.customer?.address?.cityCode || ''} onChange={(event) => setManualInvoiceCustomerAddressField('cityCode', event.target.value)} />
+                <Input label="UF" value={manualInvoiceForm.customer?.address?.state || ''} onChange={(event) => setManualInvoiceCustomerAddressField('state', event.target.value)} />
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-100 bg-white p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <Select
+                  label="Modelo"
+                  value={manualInvoiceForm.modelOverride}
+                  onChange={(event) => setManualInvoiceForm((prev) => ({ ...prev, modelOverride: event.target.value }))}
+                >
+                  <option value="">Automático</option>
+                  <option value="55">NF-e 55</option>
+                  <option value="65">NFC-e 65</option>
+                </Select>
+                <Select
+                  label="CFOP da operação"
+                  value={manualInvoiceForm.operationCfop}
+                  onChange={(event) => setManualInvoiceForm((prev) => ({ ...prev, operationCfop: event.target.value }))}
+                >
+                  {CFOP_OPERATION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </Select>
+                <Input
+                  label="Código de pagamento"
+                  value={manualInvoiceForm.paymentMethodCode}
+                  onChange={(event) => setManualInvoiceForm((prev) => ({ ...prev, paymentMethodCode: event.target.value }))}
+                  placeholder={settingsForm.defaultPaymentMethodCode || '99'}
+                />
+                <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled
+                    className="h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+                  />
+                  Baixar estoque ao emitir esta nota?
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-100 bg-white p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h3 className="font-semibold text-gray-800">Itens da nota</h3>
+                <Button type="button" size="sm" variant="secondary" onClick={addManualInvoiceItem}>
+                  <Plus className="w-4 h-4" /> Adicionar item
+                </Button>
+              </div>
+              <div className="space-y-4">
+                {(manualInvoiceForm.items || []).map((item, index) => {
+                  const itemTotal = roundCurrency((Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0));
+                  return (
+                    <div key={item.draftId} className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1.2fr_120px_150px_150px_auto] gap-3 items-end">
+                        <Select
+                          label="Produto cadastrado"
+                          value={item.productId || ''}
+                          onChange={(event) => handleManualItemProductChange(item.draftId, event.target.value)}
+                        >
+                          <option value="">Produto manual / descrição livre</option>
+                          {manualProductOptions.map((option) => (
+                            <option key={option.id} value={option.id}>{option.label}</option>
+                          ))}
+                        </Select>
+                        <Input
+                          label="Descrição do produto/serviço"
+                          value={item.description || ''}
+                          onChange={(event) => updateManualInvoiceItem(item.draftId, { description: event.target.value, source: item.productId ? 'catalog' : 'manual' })}
+                          required
+                        />
+                        <Input
+                          label="Qtd."
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={(event) => updateManualInvoiceItem(item.draftId, { quantity: event.target.value })}
+                        />
+                        <Input
+                          label="Valor unitário"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.unitPrice}
+                          onChange={(event) => updateManualInvoiceItem(item.draftId, { unitPrice: event.target.value })}
+                        />
+                        <Input
+                          label="Desconto"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.discount}
+                          onChange={(event) => updateManualInvoiceItem(item.draftId, { discount: event.target.value })}
+                        />
+                        <button type="button" onClick={() => removeManualInvoiceItem(item.draftId)} className="mb-1 rounded-lg p-3 text-red-500 hover:bg-red-50" title="Remover item">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                        <Input label="Código" value={item.code || ''} onChange={(event) => updateManualInvoiceItem(item.draftId, { code: event.target.value })} />
+                        <Select label="NCM" value={normalizeFiscalCode(item.ncm || DEFAULT_NCM_PRODUCT)} onChange={(event) => updateManualInvoiceItem(item.draftId, { ncm: event.target.value })}>
+                          {NCM_PRODUCT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </Select>
+                        <Input label="Unidade" value={item.unit || 'un'} onChange={(event) => updateManualInvoiceItem(item.draftId, { unit: event.target.value })} />
+                        <Input label="CSOSN/CST" value={item.csosn || '102'} onChange={(event) => updateManualInvoiceItem(item.draftId, { csosn: event.target.value })} />
+                        <div className="rounded-xl bg-white p-3 text-right text-sm text-gray-700">
+                          <p>Total do item</p>
+                          <p className="text-lg font-bold text-gray-900">{formatCurrencyBR(Math.max(itemTotal, 0))}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Origem do item: {item.productId ? 'produto cadastrado' : 'descrição manual'}.
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="rounded-xl bg-white p-3 text-sm text-gray-700">
+                  <p>Subtotal</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrencyBR(manualInvoiceTotals.products)}</p>
+                </div>
+                <div className="rounded-xl bg-white p-3 text-sm text-gray-700">
+                  <p>Desconto</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrencyBR(manualInvoiceTotals.discount)}</p>
+                </div>
+                <div className="rounded-xl bg-pink-50 p-3 text-sm text-pink-700">
+                  <p>Total da nota</p>
+                  <p className="text-lg font-bold">{formatCurrencyBR(manualInvoiceTotals.invoice)}</p>
+                </div>
+                <Textarea
+                  label="Observações da nota"
+                  rows={3}
+                  maxLength={5000}
+                  value={manualInvoiceForm.additionalInfo}
+                  onChange={(event) => setManualInvoiceForm((prev) => ({ ...prev, additionalInfo: event.target.value }))}
+                />
+              </div>
+            </section>
+
+            {manualInvoiceError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{manualInvoiceError}</div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="secondary"
+                type="button"
+                disabled={manualInvoiceSaving}
+                onClick={() => {
+                  setShowManualInvoiceModal(false);
+                  resetManualInvoiceForm();
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={manualInvoiceSaving}>
+                <Printer className="w-4 h-4" /> {manualInvoiceSaving ? 'Emitindo...' : 'Emitir Nota Fiscal'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+
         <Modal isOpen={Boolean(invoiceToView)} onClose={() => setInvoiceToView(null)} title="Detalhes da NFC-e" size="xl">
           {invoiceToView && (() => {
             const invoice = invoiceToView;
@@ -16122,6 +17243,7 @@ const handleSubmit = async (e) => {
             const freight = getInvoiceFreight(invoice);
             const paidAmount = getInvoicePaidAmount(invoice);
             const change = getInvoiceChange(invoice);
+            const paymentCode = getInvoicePaymentCode(invoice);
             const sefazUrl = sefazConsultaUrl(invoice);
             const statusBadge = <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${statusClass[invoice.status] || 'bg-gray-100 text-gray-700'}`}>{statusLabel[invoice.status] || invoice.status || '-'}</span>;
 
@@ -16133,6 +17255,7 @@ const handleSubmit = async (e) => {
                     <DetailField label="Número da NFC-e" value={formatFiscalNumber(invoice.number)} mono />
                     <DetailField label="Série" value={formatFiscalSeries(invoice.series)} mono />
                     <DetailField label="Modelo" value={invoice.model || '-'} />
+                    <DetailField label="Origem" value={getInvoiceOriginLabel(invoice)} />
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Status</p>
                       <div className="mt-1">{statusBadge}</div>
@@ -16229,6 +17352,12 @@ const handleSubmit = async (e) => {
                   <DetailSection title="Pagamento">
                     <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-800">
                       <p><strong>{getInvoicePaymentMethod(invoice)}</strong> — {formatCurrencyBR(paidAmount)}</p>
+                      {paymentCode && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          Código fiscal usado: <span className="font-mono font-semibold text-gray-700">{paymentCode}</span>
+                          {invoice.payment?.fallbackUsed ? ' (fallback da configuração)' : ''}
+                        </p>
+                      )}
                     </div>
                   </DetailSection>
                 </div>

@@ -5,6 +5,7 @@ const forge = require('node-forge');
 const secretManager = new SecretManagerServiceClient();
 const MAX_CERTIFICATE_BYTES = 5 * 1024 * 1024;
 const MAX_ADDITIONAL_INFO_LENGTH = 5000;
+const DEFAULT_NCM_PRODUCT = '19059090';
 
 const INVOICE_STATUS = {
   VALIDATING: 'validating',
@@ -19,17 +20,25 @@ const onlyDigits = (value) => String(value || '').replace(/\D/g, '');
 const money = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 const nowIso = () => new Date().toISOString();
 const trimText = (value) => String(value || '').trim();
+const normalizeLookupText = (value) => trimText(value)
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
 
 const inferDocumentType = (document) => (onlyDigits(document).length > 11 ? 'CNPJ' : 'CPF');
 const environmentCode = (environment) => (environment === 'production' ? 1 : 2);
 const counterId = (environment, model, series) => `${environment}_${model}_${series}`;
 
-const paymentMethodToNFeCode = (method) => {
-  const value = String(method || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+const normalizePaymentCode = (value) => {
+  const digits = onlyDigits(value);
+  if (!digits) return '';
+  return digits.padStart(2, '0').slice(-2);
+};
+
+const fiscalPaymentCodeFromText = (method) => {
+  const value = normalizeLookupText(method);
+  if (!value) return '';
+
   const isPix = value.includes('pix');
   const isFixedPix = (
     value.includes('pix fixo')
@@ -41,6 +50,7 @@ const paymentMethodToNFeCode = (method) => {
     || value.includes('chave fixa')
   );
   if (isFixedPix) return '20';
+
   const isDynamicPix = isPix && (
     value.includes('link')
     || value.includes('dinamico')
@@ -50,11 +60,121 @@ const paymentMethodToNFeCode = (method) => {
   );
   if (isDynamicPix) return '17';
   if (isPix) return '20';
-  if (value.includes('crédito') || value.includes('credito')) return '03';
-  if (value.includes('débito') || value.includes('debito')) return '04';
-  if (value.includes('dinheiro')) return '01';
-  if (value.includes('boleto')) return '15';
-  return '99';
+
+  if (value.includes('dinheiro') || value.includes('cash') || value.includes('especie')) return '01';
+  if (value.includes('debito') || value.includes('debit')) return '04';
+  if (value.includes('credito') || value.includes('credit')) return '03';
+  if (value.includes('link de pagamento') || value.includes('cartao')) return '03';
+
+  return '';
+};
+
+const getPaymentCandidates = (order = {}) => {
+  const candidates = [];
+  const addCandidate = (candidate, source) => {
+    if (candidate === undefined || candidate === null || candidate === '') return;
+    if (typeof candidate === 'string') {
+      candidates.push({method: candidate, source});
+      return;
+    }
+    if (typeof candidate !== 'object') return;
+    candidates.push({
+      method: candidate.method || candidate.metodo || candidate.formaPagamento || candidate.type || candidate.tipo || candidate.name || candidate.label || candidate.description || candidate.descricao || '',
+      methodCode: candidate.methodCode || candidate.codigoFiscal || candidate.fiscalCode || candidate.tPag || candidate.code || '',
+      amount: candidate.amount ?? candidate.valor ?? candidate.value ?? candidate.total ?? null,
+      source,
+    });
+  };
+
+  addCandidate(order.payment, 'order.payment');
+  addCandidate(order.formaPagamento, 'order.formaPagamento');
+  addCandidate(order.paymentMethod, 'order.paymentMethod');
+  addCandidate(order.metodoPagamento, 'order.metodoPagamento');
+  addCandidate(order.pagamento, 'order.pagamento');
+
+  [
+    ['order.payments', order.payments],
+    ['order.pagamentos', order.pagamentos],
+    ['order.paymentMethods', order.paymentMethods],
+    ['order.formasPagamento', order.formasPagamento],
+  ].forEach(([source, list]) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((item, index) => addCandidate(item, `${source}[${index}]`));
+  });
+
+  return candidates;
+};
+
+const resolveFiscalPayment = (order = {}, settings = {}, invoiceTotal = 0) => {
+  const fallbackCode = normalizePaymentCode(settings.defaultPaymentMethodCode || '99') || '99';
+  const candidates = getPaymentCandidates(order);
+  const enriched = candidates.map((candidate) => ({
+    ...candidate,
+    methodCodeFromText: fiscalPaymentCodeFromText(candidate.method),
+    normalizedMethodCode: normalizePaymentCode(candidate.methodCode),
+    normalizedMethod: trimText(candidate.method),
+    numericAmount: Number(candidate.amount ?? 0),
+  }));
+
+  const recognizedByText = enriched.filter((candidate) => candidate.methodCodeFromText);
+  const selectedByText = recognizedByText.length > 1
+    ? recognizedByText.reduce((selected, candidate) => (
+      Number(candidate.numericAmount || 0) > Number(selected.numericAmount || 0) ? candidate : selected
+    ), recognizedByText[0])
+    : recognizedByText[0];
+
+  if (selectedByText) {
+    return {
+      methodCode: selectedByText.methodCodeFromText,
+      method: selectedByText.normalizedMethod,
+      source: selectedByText.source,
+      fallbackUsed: false,
+      amount: invoiceTotal,
+      multiplePaymentsDetected: enriched.length > 1,
+      selectionRule: enriched.length > 1 ? 'recognized_payment_with_highest_amount' : 'recognized_order_payment',
+      candidates: enriched.map((candidate) => ({
+        method: candidate.normalizedMethod || null,
+        methodCode: candidate.normalizedMethodCode || null,
+        amount: Number.isFinite(candidate.numericAmount) ? candidate.numericAmount : null,
+        source: candidate.source,
+      })).slice(0, 10),
+    };
+  }
+
+  const selectedByCode = enriched.find((candidate) => candidate.normalizedMethodCode);
+  if (selectedByCode) {
+    return {
+      methodCode: selectedByCode.normalizedMethodCode,
+      method: selectedByCode.normalizedMethod || null,
+      source: selectedByCode.source,
+      fallbackUsed: false,
+      amount: invoiceTotal,
+      multiplePaymentsDetected: enriched.length > 1,
+      selectionRule: 'explicit_order_payment_code',
+      candidates: enriched.map((candidate) => ({
+        method: candidate.normalizedMethod || null,
+        methodCode: candidate.normalizedMethodCode || null,
+        amount: Number.isFinite(candidate.numericAmount) ? candidate.numericAmount : null,
+        source: candidate.source,
+      })).slice(0, 10),
+    };
+  }
+
+  return {
+    methodCode: fallbackCode,
+    method: null,
+    source: 'fiscalConfig.settings.defaultPaymentMethodCode',
+    fallbackUsed: true,
+    amount: invoiceTotal,
+    multiplePaymentsDetected: enriched.length > 1,
+    selectionRule: 'fallback_default_payment_method',
+    candidates: enriched.map((candidate) => ({
+      method: candidate.normalizedMethod || null,
+      methodCode: candidate.normalizedMethodCode || null,
+      amount: Number.isFinite(candidate.numericAmount) ? candidate.numericAmount : null,
+      source: candidate.source,
+    })).slice(0, 10),
+  };
 };
 
 const getNested = (obj, paths) => {
@@ -299,34 +419,9 @@ const publicCertificateInfo = (certificate = {}) => ({
   updatedAt: certificate.updatedAt || null,
 });
 
-const validateFiscalServiceUrl = (value) => {
-  const text = cleanText(value);
-  if (!text) return '';
-
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch (error) {
-    const wrapped = new Error('Informe uma URL válida para o serviço fiscal no Cloud Run.');
-    wrapped.code = 'invalid-argument';
-    throw wrapped;
-  }
-
-  const isLocalhost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname);
-  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
-    const error = new Error('A URL do serviço fiscal precisa usar HTTPS em produção.');
-    error.code = 'invalid-argument';
-    throw error;
-  }
-
-  parsed.hash = '';
-  parsed.search = '';
-  return parsed.toString().replace(/\/+$/, '');
-};
-
-const getServiceConfig = (settings = {}) => ({
-  serviceUrl: cleanText(settings.serviceUrl || settings.fiscalServiceUrl) || cleanText(process.env.FISCAL_SERVICE_URL),
-  sharedSecret: cleanText(settings.sharedSecret || settings.fiscalSharedSecret) || cleanText(process.env.FISCAL_SHARED_SECRET),
+const getServiceConfig = () => ({
+  serviceUrl: cleanText(process.env.FISCAL_SERVICE_URL),
+  sharedSecret: cleanText(process.env.FISCAL_SHARED_SECRET),
 });
 
 const fiscalServiceErrorCode = (status) => {
@@ -371,8 +466,8 @@ const parseFiscalServicePayload = (data) => {
   return {};
 };
 
-const callFiscalService = async (path, body, serviceSettings = {}) => {
-  const {serviceUrl, sharedSecret} = getServiceConfig(serviceSettings);
+const callFiscalService = async (path, body) => {
+  const {serviceUrl, sharedSecret} = getServiceConfig();
   if (!serviceUrl) {
     const error = new Error('A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
     error.code = 'failed-precondition';
@@ -479,8 +574,8 @@ const createFiscalFunctions = ({
       throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
     }
     const lojaId = String(request.data?.lojaId || '').trim();
-    const requester = await requireStoreAccess(uid, lojaId);
-    return {uid, lojaId, requester};
+    await requireStoreAccess(uid, lojaId);
+    return {uid, lojaId};
   };
 
   const requireReadContext = async (request) => {
@@ -494,43 +589,6 @@ const createFiscalFunctions = ({
   };
 
   const artifactPath = (lojaId, invoiceId, filename) => `fiscal/${lojaId}/invoices/${invoiceId}/${filename}`;
-
-  const loadPlatformServiceConfig = async () => {
-    const snap = await db.collection('integrations').doc('fiscal').get();
-    const data = snap.exists ? snap.data() || {} : {};
-    return {
-      serviceUrl: cleanText(data.serviceUrl || data.fiscalServiceUrl),
-      sharedSecret: cleanText(data.sharedSecret || data.fiscalSharedSecret),
-      updatedAt: data.updatedAt || null,
-      updatedByUid: data.updatedByUid || '',
-      source: data.serviceUrl || data.fiscalServiceUrl ? 'integrations/fiscal' : '',
-    };
-  };
-
-  const publicPlatformServiceConfig = (platformConfig = {}) => {
-    const resolved = getServiceConfig(platformConfig);
-    const source = platformConfig.serviceUrl
-      ? 'integrations/fiscal'
-      : (cleanText(process.env.FISCAL_SERVICE_URL) ? 'FISCAL_SERVICE_URL' : '');
-    return {
-      serviceUrl: resolved.serviceUrl,
-      configured: Boolean(resolved.serviceUrl),
-      source,
-      updatedAt: platformConfig.updatedAt || null,
-      updatedByUid: platformConfig.updatedByUid || '',
-    };
-  };
-
-  const savePlatformServiceConfig = async ({uid, serviceUrl}) => {
-    const normalizedUrl = validateFiscalServiceUrl(serviceUrl);
-    await db.collection('integrations').doc('fiscal').set({
-      serviceUrl: normalizedUrl || FieldValue.delete(),
-      fiscalServiceUrl: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedByUid: uid,
-    }, {merge: true});
-    return normalizedUrl;
-  };
 
   const saveInvoiceArtifact = async ({lojaId, invoiceId, filename, contentType, content, encoding = 'utf8'}) => {
     if (!content) return null;
@@ -653,7 +711,6 @@ const createFiscalFunctions = ({
   const loadSettings = async (lojaId) => {
     const snap = await db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('settings').get();
     const settings = snap.exists ? snap.data() || {} : {};
-    const platformService = await loadPlatformServiceConfig();
     return {
       environment: process.env.FISCAL_ENVIRONMENT || settings.environment || 'homologation',
       nfeSeries: Number(settings.nfeSeries || 1),
@@ -662,8 +719,6 @@ const createFiscalFunctions = ({
       defaultPresence: Number(settings.defaultPresence || 2),
       defaultPaymentMethodCode: settings.defaultPaymentMethodCode || '99',
       processVersion: settings.processVersion || 'ana-doceria-1.0',
-      serviceUrl: platformService.serviceUrl,
-      sharedSecret: platformService.sharedSecret,
     };
   };
 
@@ -824,7 +879,7 @@ const createFiscalFunctions = ({
     const discounts = allocateDiscounts(itemsForDiscount, orderDiscount);
     const freight = money(order.valorFrete || order.frete || 0);
     const invoiceTotal = money(productTotal - orderDiscount + freight);
-    const paymentCode = order.payment?.methodCode || paymentMethodToNFeCode(order.formaPagamento);
+    const paymentResolution = resolveFiscalPayment(order, settings, invoiceTotal);
     const selectedOperationCfop = onlyDigits(operationCfop || '5101');
     if (selectedOperationCfop.length !== 4) {
       throw new HttpsError('invalid-argument', 'Selecione um CFOP válido para a operação fiscal.');
@@ -854,9 +909,13 @@ const createFiscalFunctions = ({
         operationCfop: selectedOperationCfop,
         processVersion: settings.processVersion,
         payment: {
-          methodCode: paymentCode || settings.defaultPaymentMethodCode,
+          methodCode: paymentResolution.methodCode,
           amount: invoiceTotal,
           dueDate: order.payment?.dueDate || null,
+          source: paymentResolution.source,
+          fallbackUsed: paymentResolution.fallbackUsed,
+          originalMethod: paymentResolution.method,
+          selectionRule: paymentResolution.selectionRule,
         },
       },
       issuer,
@@ -909,11 +968,206 @@ const createFiscalFunctions = ({
       certificate,
       model,
       series,
+      paymentResolution,
       errors: validatePreparedPayload(payload),
     };
   };
 
-  const reserveInvoice = async ({lojaId, orderId, environment, model, series, uid, justification, additionalInfo, operationCfop}) => {
+  const buildManualCustomer = (customer = {}) => {
+    const document = onlyDigits(customer.document || customer.cpfCnpj || customer.cpf || customer.cnpj);
+    const address = normalizeAddress(customer.address || customer.endereco || customer);
+    return {
+      id: cleanText(customer.id),
+      name: cleanText(customer.name || customer.nome || customer.razaoSocial || 'Consumidor'),
+      document,
+      documentType: document ? inferDocumentType(document) : '',
+      stateRegistration: onlyDigits(customer.stateRegistration || customer.inscricaoEstadual || ''),
+      email: cleanText(customer.email),
+      phone: onlyDigits(customer.phone || customer.telefone || ''),
+      isFinalConsumer: customer.isFinalConsumer !== false,
+      receivesIcmsCredit: Boolean(customer.receivesIcmsCredit || customer.recebeCreditoIcms),
+      requiresNfe: Boolean(customer.requiresNfe || customer.requerNfe),
+      address,
+    };
+  };
+
+  const buildManualPreparedPayload = async ({lojaId, manualInvoice, modelOverride, number = 1, invoiceId, uid, additionalInfo, operationCfop}) => {
+    const [issuer, settings, certificate] = await Promise.all([
+      loadIssuer(lojaId),
+      loadSettings(lojaId),
+      loadCertificate(lojaId),
+    ]);
+
+    const customer = buildManualCustomer(manualInvoice.customer || {});
+    const model = inferInvoiceModel({fiscal: {requiresNfe: customer.requiresNfe}}, customer, issuer, modelOverride);
+    const series = model === 55 ? settings.nfeSeries : settings.nfceSeries;
+    const selectedOperationCfop = onlyDigits(operationCfop || manualInvoice.operationCfop || '5101');
+    if (selectedOperationCfop.length !== 4) {
+      throw new HttpsError('invalid-argument', 'Selecione um CFOP válido para a operação fiscal.');
+    }
+
+    const rawItems = Array.isArray(manualInvoice.items) ? manualInvoice.items : [];
+    if (!rawItems.length) {
+      throw new HttpsError('invalid-argument', 'Adicione ao menos um item à nota fiscal manual.');
+    }
+
+    const normalizedItems = rawItems.map((item, index) => {
+      const quantity = Number(item.quantity || item.quantidade || 1);
+      const unitPrice = Number(item.unitPrice ?? item.preco ?? item.valorUnitario ?? 0);
+      const discount = Number(item.discount ?? item.desconto ?? 0);
+      const description = cleanText(item.description || item.nome || item.produto || '');
+      if (!description) {
+        throw new HttpsError('invalid-argument', `Informe a descrição do item ${index + 1}.`);
+      }
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new HttpsError('invalid-argument', `${description}: informe quantidade maior que zero.`);
+      }
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new HttpsError('invalid-argument', `${description}: informe valor unitário igual ou maior que zero.`);
+      }
+      if (!Number.isFinite(discount) || discount < 0) {
+        throw new HttpsError('invalid-argument', `${description}: informe desconto igual ou maior que zero.`);
+      }
+      return {
+        ...item,
+        id: cleanText(item.id || item.productId || item.produtoId || item.code || `manual-${index + 1}`),
+        produtoId: cleanText(item.productId || item.produtoId || ''),
+        productId: cleanText(item.productId || item.produtoId || ''),
+        codigo: cleanText(item.code || item.codigo || item.productId || item.produtoId || `MANUAL-${index + 1}`),
+        code: cleanText(item.code || item.codigo || item.productId || item.produtoId || `MANUAL-${index + 1}`),
+        nome: description,
+        description,
+        quantity,
+        quantidade: quantity,
+        unitPrice,
+        preco: unitPrice,
+        discount,
+        desconto: discount,
+        fiscal: {
+          ...(item.fiscal || {}),
+          ncm: onlyDigits(item.ncm || item.fiscal?.ncm || DEFAULT_NCM_PRODUCT),
+          cfop: selectedOperationCfop,
+          cfopNfe: selectedOperationCfop,
+          cfopNfce: selectedOperationCfop,
+          unit: item.unit || item.unidade || item.fiscal?.unit || item.fiscal?.unidade || 'un',
+          origin: Number(item.origin ?? item.origem ?? item.fiscal?.origin ?? item.fiscal?.origem ?? 0),
+          csosn: cleanText(item.csosn || item.fiscal?.csosn || '102'),
+          cst: cleanText(item.cst || item.fiscal?.cst || ''),
+          pisCst: cleanText(item.pisCst || item.fiscal?.pisCst || '49'),
+          cofinsCst: cleanText(item.cofinsCst || item.fiscal?.cofinsCst || '49'),
+          cBenef: cleanText(item.cBenef || item.fiscal?.cBenef || ''),
+        },
+        manualSource: item.source === 'catalog' ? 'catalog' : 'manual',
+      };
+    });
+
+    const fiscalItems = await Promise.all(normalizedItems.map((item) => loadFiscalProduct(lojaId, item)));
+    const productTotal = money(normalizedItems.reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 1), 0));
+    const orderDiscount = money(normalizedItems.reduce((sum, item) => sum + Number(item.discount || 0), 0));
+    const invoiceTotal = money(productTotal - orderDiscount);
+    const paymentMethodCode = normalizePaymentCode(manualInvoice.paymentMethodCode || settings.defaultPaymentMethodCode || '99') || '99';
+    const paymentResolution = {
+      methodCode: paymentMethodCode,
+      method: cleanText(manualInvoice.paymentMethod || ''),
+      source: manualInvoice.paymentMethodCode ? 'manualInvoice.paymentMethodCode' : 'fiscalConfig.settings.defaultPaymentMethodCode',
+      fallbackUsed: !manualInvoice.paymentMethodCode,
+      amount: invoiceTotal,
+      multiplePaymentsDetected: false,
+      selectionRule: manualInvoice.paymentMethodCode ? 'manual_invoice_payment_code' : 'fallback_default_payment_method',
+      candidates: [],
+    };
+
+    const invoiceAdditionalInfo = cleanText(
+      additionalInfo === undefined ? (manualInvoice.additionalInfo || manualInvoice.observacao || '') : additionalInfo
+    );
+    if (invoiceAdditionalInfo.length > MAX_ADDITIONAL_INFO_LENGTH) {
+      throw new HttpsError('invalid-argument', 'A observação da nota fiscal deve ter no máximo 5000 caracteres.');
+    }
+
+    const payload = {
+      invoiceId,
+      orderId: null,
+      lojaId,
+      origin: 'manual',
+      manualInvoice: true,
+      environment: environmentCode(settings.environment),
+      invoice: {
+        model,
+        series,
+        number,
+        operationNature: settings.operationNature,
+        issueDate: nowIso(),
+        presence: settings.defaultPresence,
+        finalConsumer: customer.isFinalConsumer,
+        destinationType: issuer.address.state === customer.address.state ? 1 : 2,
+        operationCfop: selectedOperationCfop,
+        processVersion: settings.processVersion,
+        payment: {
+          methodCode: paymentResolution.methodCode,
+          amount: invoiceTotal,
+          dueDate: manualInvoice.paymentDueDate || null,
+          source: paymentResolution.source,
+          fallbackUsed: paymentResolution.fallbackUsed,
+          originalMethod: paymentResolution.method,
+          selectionRule: paymentResolution.selectionRule,
+        },
+      },
+      issuer,
+      customer,
+      items: normalizedItems.map((item, index) => {
+        const fiscal = fiscalItems[index] || {};
+        const quantity = Number(item.quantity || 1);
+        const unitPrice = money(item.unitPrice || 0);
+        const discount = money(item.discount || 0);
+        return {
+          productId: item.productId || null,
+          source: item.manualSource,
+          code: String(fiscal.code || item.code || index + 1),
+          description: fiscal.description || item.description || `Item ${index + 1}`,
+          ncm: onlyDigits(fiscal.ncm),
+          cfop: selectedOperationCfop,
+          unit: fiscal.unit || fiscal.unidade || 'un',
+          quantity,
+          unitPrice,
+          total: money(quantity * unitPrice),
+          discount,
+          tax: {
+            origin: Number(fiscal.origin ?? fiscal.origem ?? 0),
+            csosn: fiscal.csosn || '102',
+            cst: fiscal.cst || '',
+            pisCst: fiscal.pisCst || '49',
+            cofinsCst: fiscal.cofinsCst || '49',
+            ipiCst: fiscal.ipiCst || '',
+            cBenef: fiscal.cBenef || '',
+          },
+        };
+      }),
+      totals: {
+        products: productTotal,
+        discount: orderDiscount,
+        freight: 0,
+        insurance: 0,
+        other: 0,
+        invoice: invoiceTotal,
+      },
+      additionalInfo: invoiceAdditionalInfo,
+      requestedByUid: uid,
+      fiscalSecrets: certificate.fiscalSecrets,
+    };
+
+    return {
+      payload,
+      settings,
+      certificate,
+      model,
+      series,
+      paymentResolution,
+      manualInvoice,
+      errors: validatePreparedPayload(payload),
+    };
+  };
+
+  const reserveInvoice = async ({lojaId, orderId, environment, model, series, uid, justification, additionalInfo, operationCfop, paymentResolution}) => {
     const storeRef = db.collection('lojas').doc(lojaId);
     const orderRef = storeRef.collection('pedidos').doc(orderId);
     const counterRef = storeRef.collection('fiscalCounters').doc(counterId(environment, model, series));
@@ -951,6 +1205,19 @@ const createFiscalFunctions = ({
         justification: justification || null,
         additionalInfo: additionalInfo || '',
         operationCfop: operationCfop || null,
+        payment: paymentResolution ? {
+          methodCode: paymentResolution.methodCode,
+          amount: paymentResolution.amount,
+          method: paymentResolution.method || null,
+          source: paymentResolution.source,
+          fallbackUsed: paymentResolution.fallbackUsed,
+          multiplePaymentsDetected: paymentResolution.multiplePaymentsDetected,
+          selectionRule: paymentResolution.selectionRule,
+          candidates: paymentResolution.candidates || [],
+        } : null,
+        paymentMethodCode: paymentResolution?.methodCode || null,
+        paymentMethodSource: paymentResolution?.source || null,
+        paymentFallbackUsed: Boolean(paymentResolution?.fallbackUsed),
         requestedByUid: uid,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -970,9 +1237,87 @@ const createFiscalFunctions = ({
     });
   };
 
+  const reserveManualInvoice = async ({lojaId, environment, model, series, uid, justification, additionalInfo, operationCfop, paymentResolution, prepared}) => {
+    const storeRef = db.collection('lojas').doc(lojaId);
+    const counterRef = storeRef.collection('fiscalCounters').doc(counterId(environment, model, series));
+    const invoiceRef = storeRef.collection('invoices').doc();
+
+    return db.runTransaction(async (transaction) => {
+      const counterSnap = await transaction.get(counterRef);
+      const nextNumber = Number(counterSnap.get('nextNumber') || 1);
+      const payload = prepared.payload || {};
+      transaction.set(counterRef, {
+        environment,
+        model,
+        series,
+        nextNumber: nextNumber + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+      transaction.set(invoiceRef, {
+        orderId: null,
+        origin: 'manual',
+        manualInvoice: true,
+        lojaId,
+        model,
+        series,
+        number: nextNumber,
+        environment,
+        status: INVOICE_STATUS.VALIDATING,
+        justification: justification || 'Emissão manual avulsa pelo painel Nota Fiscal',
+        additionalInfo: additionalInfo || '',
+        operationCfop: operationCfop || null,
+        customerName: payload.customer?.name || null,
+        customerDocument: payload.customer?.document || null,
+        customer: payload.customer || null,
+        items: (payload.items || []).map((item) => ({
+          productId: item.productId || null,
+          source: item.source || 'manual',
+          code: item.code || '',
+          description: item.description || '',
+          ncm: item.ncm || '',
+          cfop: item.cfop || '',
+          unit: item.unit || 'un',
+          quantity: item.quantity || 0,
+          unitPrice: item.unitPrice || 0,
+          total: item.total || 0,
+          discount: item.discount || 0,
+        })),
+        totals: payload.totals || null,
+        total: payload.totals?.invoice || 0,
+        discount: payload.totals?.discount || 0,
+        payment: paymentResolution ? {
+          methodCode: paymentResolution.methodCode,
+          amount: paymentResolution.amount,
+          method: paymentResolution.method || null,
+          source: paymentResolution.source,
+          fallbackUsed: paymentResolution.fallbackUsed,
+          multiplePaymentsDetected: false,
+          selectionRule: paymentResolution.selectionRule,
+          candidates: [],
+        } : null,
+        paymentMethodCode: paymentResolution?.methodCode || null,
+        paymentMethodSource: paymentResolution?.source || null,
+        paymentFallbackUsed: Boolean(paymentResolution?.fallbackUsed),
+        stockMovementRequested: Boolean(prepared.manualInvoice?.stockMovementRequested),
+        stockMovementApplied: false,
+        requestedByUid: uid,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        history: [{
+          status: INVOICE_STATUS.VALIDATING,
+          at: admin.firestore.Timestamp.now(),
+          by: uid,
+          message: 'Nota manual/avulsa criada sem vínculo com pedido e emissão iniciada.',
+        }],
+      });
+
+      return {invoiceId: invoiceRef.id, number: nextNumber};
+    });
+  };
+
   const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result}) => {
     const invoiceRef = db.collection('lojas').doc(lojaId).collection('invoices').doc(invoiceId);
-    const orderRef = db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId);
+    const orderRef = orderId ? db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId) : null;
     const status = result.status || INVOICE_STATUS.REJECTED;
     const resultReason = fiscalResultReason(result, status);
     let artifacts = {};
@@ -1006,6 +1351,10 @@ const createFiscalFunctions = ({
         }),
       }, {merge: true});
 
+      if (!orderRef) {
+        return;
+      }
+
       if (status === INVOICE_STATUS.AUTHORIZED) {
         transaction.update(orderRef, {
           'fiscal.authorizedInvoiceId': invoiceId,
@@ -1032,11 +1381,10 @@ const createFiscalFunctions = ({
     fiscalGetConfiguration: onCall(async (request) => {
       try {
         const {lojaId, requester} = await requireReadContext(request);
-        const [issuerSnap, settingsSnap, certificate, platformService] = await Promise.all([
+        const [issuerSnap, settingsSnap, certificate] = await Promise.all([
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('issuer').get(),
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('settings').get(),
           loadCertificate(lojaId),
-          loadPlatformServiceConfig(),
         ]);
         const rawSettings = settingsSnap.exists ? settingsSnap.data() || {} : {};
 
@@ -1050,18 +1398,15 @@ const createFiscalFunctions = ({
           }, {merge: true});
         }
 
-        const loadedSettings = await loadSettings(lojaId);
-        const publicSettings = {...loadedSettings};
-        delete publicSettings.sharedSecret;
-        delete publicSettings.fiscalSharedSecret;
-
         return {
           issuer: issuerSnap.exists ? issuerSnap.data() || {} : null,
-          settings: publicSettings,
+          settings: await loadSettings(lojaId),
           certificate: publicCertificateInfo(certificate),
-          platformService: requester.role === 'dono' && requester.allStores
-            ? publicPlatformServiceConfig(platformService)
-            : null,
+          platformService: requester.role === 'dono' && requester.allStores ? {
+            serviceUrl: getServiceConfig().serviceUrl,
+            configured: Boolean(getServiceConfig().serviceUrl),
+            source: 'FISCAL_SERVICE_URL',
+          } : null,
         };
       } catch (error) {
         logger.error('fiscalGetConfiguration failed', error);
@@ -1071,10 +1416,10 @@ const createFiscalFunctions = ({
 
     fiscalSaveConfiguration: onCall(async (request) => {
       try {
-        const {uid, lojaId, requester} = await requireCallableContext(request);
+        const {uid, lojaId} = await requireCallableContext(request);
         const issuer = request.data?.issuer || {};
         const settings = request.data?.settings || {};
-        const operations = [
+        await Promise.all([
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('issuer').set({
             ...issuer,
             taxRegime: Number(issuer.taxRegime || 1),
@@ -1095,13 +1440,7 @@ const createFiscalFunctions = ({
             updatedAt: FieldValue.serverTimestamp(),
             updatedByUid: uid,
           }, {merge: true}),
-        ];
-
-        if (requester.role === 'dono' && requester.allStores && Object.prototype.hasOwnProperty.call(settings, 'serviceUrl')) {
-          operations.push(savePlatformServiceConfig({uid, serviceUrl: settings.serviceUrl}));
-        }
-
-        await Promise.all(operations);
+        ]);
         return {ok: true};
       } catch (error) {
         logger.error('fiscalSaveConfiguration failed', error);
@@ -1141,6 +1480,13 @@ const createFiscalFunctions = ({
           series: prepared.series,
           number: nextNumber,
           operationCfop: payload.invoice.operationCfop,
+          payment: {
+            methodCode: payload.invoice.payment.methodCode,
+            source: payload.invoice.payment.source,
+            fallbackUsed: payload.invoice.payment.fallbackUsed,
+            originalMethod: payload.invoice.payment.originalMethod || null,
+            selectionRule: payload.invoice.payment.selectionRule,
+          },
           totals: payload.totals,
         };
 
@@ -1296,6 +1642,7 @@ const createFiscalFunctions = ({
           justification: request.data?.justification,
           additionalInfo: prepared.payload.additionalInfo,
           operationCfop: prepared.payload.invoice.operationCfop,
+          paymentResolution: prepared.paymentResolution,
         });
         const payload = {
           ...prepared.payload,
@@ -1340,6 +1687,84 @@ const createFiscalFunctions = ({
         }
       } catch (error) {
         logger.error('fiscalIssueInvoice failed', error);
+        throw normalizeHttpsError(error);
+      }
+    }),
+
+    fiscalIssueManualInvoice: onCall({timeoutSeconds: 540, memory: '1GiB'}, async (request) => {
+      try {
+        const {uid, lojaId} = await requireCallableContext(request);
+        const manualInvoice = request.data?.manualInvoice || {};
+
+        const prepared = await buildManualPreparedPayload({
+          lojaId,
+          manualInvoice,
+          modelOverride: request.data?.modelOverride,
+          uid,
+          additionalInfo: request.data?.additionalInfo,
+          operationCfop: request.data?.operationCfop,
+        });
+        if (prepared.errors.length) {
+          throw new HttpsError('failed-precondition', prepared.errors.join(' '));
+        }
+        if (!getServiceConfig(prepared.settings).serviceUrl) {
+          throw new HttpsError('failed-precondition', 'A URL central do serviço fiscal ainda não foi configurada pelo administrador da plataforma.');
+        }
+        if (!prepared.certificate.ready) {
+          throw new HttpsError('failed-precondition', 'Faça upload do certificado digital A1 da loja antes de emitir notas.');
+        }
+        if (prepared.model === 65 && (!prepared.certificate.nfceCscSecretVersion || !prepared.certificate.nfceCscIdSecretVersion)) {
+          throw new HttpsError('failed-precondition', 'Cadastre o CSC e o ID CSC da NFC-e junto com o certificado para emitir NFC-e.');
+        }
+
+        const environment = prepared.settings.environment || 'homologation';
+        const reservation = await reserveManualInvoice({
+          lojaId,
+          environment,
+          model: prepared.model,
+          series: prepared.series,
+          uid,
+          justification: request.data?.justification,
+          additionalInfo: prepared.payload.additionalInfo,
+          operationCfop: prepared.payload.invoice.operationCfop,
+          paymentResolution: prepared.paymentResolution,
+          prepared,
+        });
+        const payload = {
+          ...prepared.payload,
+          invoiceId: reservation.invoiceId,
+          invoice: {...prepared.payload.invoice, number: reservation.number},
+        };
+
+        try {
+          const result = await callFiscalService('/issue', payload, prepared.settings);
+          return await updateInvoiceAfterIssue({
+            lojaId,
+            invoiceId: reservation.invoiceId,
+            orderId: null,
+            uid,
+            result,
+          });
+        } catch (error) {
+          const statusAfterError = error?.fiscalServiceResponded ? INVOICE_STATUS.REJECTED : INVOICE_STATUS.PENDING_RETURN;
+          const messageAfterError = statusAfterError === INVOICE_STATUS.PENDING_RETURN
+            ? 'Falha sem retorno conclusivo; consulte a SEFAZ antes de reemitir a nota manual.'
+            : (error?.message || 'Falha antes do envio para a SEFAZ.');
+          await db.collection('lojas').doc(lojaId).collection('invoices').doc(reservation.invoiceId).set({
+            status: statusAfterError,
+            error: error?.message || String(error),
+            updatedAt: FieldValue.serverTimestamp(),
+            history: FieldValue.arrayUnion({
+              status: statusAfterError,
+              at: admin.firestore.Timestamp.now(),
+              by: uid,
+              message: messageAfterError,
+            }),
+          }, {merge: true});
+          throw error;
+        }
+      } catch (error) {
+        logger.error('fiscalIssueManualInvoice failed', error);
         throw normalizeHttpsError(error);
       }
     }),
