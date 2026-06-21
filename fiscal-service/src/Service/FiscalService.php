@@ -133,6 +133,34 @@ final class FiscalService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
+    public function consult(array $payload): array
+    {
+        $key = preg_replace('/\D/', '', (string)($payload['key'] ?? '')) ?: '';
+        $signedXml = (string)($payload['signedXml'] ?? '');
+        $model = (int)($payload['invoice']['model'] ?? 0);
+
+        if (!in_array($model, [55, 65], true)) {
+            throw new InvalidArgumentException('invoice.model deve ser 55 ou 65.');
+        }
+        if ($key === '' && $signedXml === '') {
+            throw new InvalidArgumentException('Informe key ou signedXml para consultar a nota na SEFAZ.');
+        }
+
+        $result = $this->gateway()->consultKey($model, $key, $signedXml);
+
+        if (($result['status'] ?? '') === 'authorized' && isset($result['authorizedXml'])) {
+            $result['danfePdfBase64'] = base64_encode(
+                $this->danfeRenderer->render((string)$result['authorizedXml'], $model)
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
     public function cancel(array $payload): array
     {
         foreach (['key', 'protocol', 'reason', 'model'] as $field) {

@@ -37,6 +37,7 @@ try {
         '/validate' => $service->validate($payload),
         '/issue' => $service->issue($payload),
         '/receipt' => $service->receipt($payload),
+        '/consult' => $service->consult($payload),
         '/cancel' => $service->cancel($payload),
         default => ['error' => 'Not found'],
     };

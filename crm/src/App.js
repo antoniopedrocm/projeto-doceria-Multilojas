@@ -14547,6 +14547,19 @@ const handleSubmit = async (e) => {
     }, [invoices, invoiceFilters, fiscalReturnReason, getInvoiceCustomerDocument, getInvoiceCustomerName, getInvoiceIssuerDocument, getInvoiceItems, getInvoiceOrder, getInvoiceOrigin, getInvoiceOriginLabel, getInvoicePaymentMethod, getInvoiceValue, matchesInvoiceStatusFilter]);
 
     const shouldShowFiscalReason = (invoice) => ['rejected', 'denied', 'pending_return'].includes(invoice?.status);
+    const isDuplicateInvoiceRejection = useCallback((invoice) => {
+      const cStat = Number(invoice?.cStat ?? invoice?.serviceResult?.cStat ?? 0);
+      const reason = normalizeSearchText([
+        invoice?.xMotivo,
+        invoice?.error,
+        invoice?.message,
+        invoice?.detail,
+        invoice?.serviceResult?.xMotivo,
+        invoice?.serviceResult?.error,
+        fiscalReturnReason(invoice)
+      ].filter(Boolean).join(' '));
+      return invoice?.status === 'rejected' && ([204, 539].includes(cStat) || reason.includes('duplicidade de nf-e') || reason.includes('duplicidade de nfe'));
+    }, [fiscalReturnReason]);
 
     const fiscalStats = useMemo(() => ({
       authorized: invoices.filter((item) => item.status === 'authorized').length,
@@ -14610,8 +14623,9 @@ const handleSubmit = async (e) => {
       if (invoice.status === 'authorized') return 'Este pedido já possui nota autorizada.';
       if (invoice.status === 'cancelled') return 'Este pedido já possui nota cancelada.';
       if (invoice.status === 'validating' || invoice.status === 'pending_return') return 'Este pedido possui nota em processamento.';
+      if (isDuplicateInvoiceRejection(invoice)) return 'Este pedido possui nota rejeitada por duplicidade. Consulte o retorno antes de tentar emitir outra.';
       return '';
-    }, [invoicesByOrderId]);
+    }, [invoicesByOrderId, isDuplicateInvoiceRejection]);
 
     const buildOrderEditItemFromProduct = useCallback((product, previous = {}) => {
       const productId = String(product?.id || previous.produtoId || previous.productId || previous.id || '').trim();
@@ -15338,7 +15352,7 @@ const handleSubmit = async (e) => {
             await downloadInvoiceArtifact(result.invoiceId, 'danfePdf');
           }
         } else {
-          setMessage({ type: result.status === 'pending_return' ? 'error' : 'success', text: result.xMotivo || 'Consulta fiscal concluída.' });
+          setMessage({ type: ['pending_return', 'rejected', 'denied'].includes(result.status) ? 'error' : 'success', text: result.xMotivo || 'Consulta fiscal concluída.' });
         }
       } catch (error) {
         console.error('[NotaFiscal] Consulta de retorno fiscal falhou:', error);
@@ -16298,7 +16312,7 @@ const handleSubmit = async (e) => {
       { icon: FileText, label: 'Baixar/visualizar DANFE PDF', onClick: handleDownloadInvoicePdf, isVisible: (row) => row.status === 'authorized' },
       { icon: Printer, label: 'Exportar DANFE A4', onClick: handleExportDanfeA4, isVisible: (row) => ['authorized', 'cancelled'].includes(row.status) },
       { icon: Download, label: 'Baixar XML', onClick: handleDownloadInvoiceXml, isVisible: (row) => row.status === 'authorized' },
-      { icon: RefreshCw, label: 'Consultar retorno', onClick: handleRefreshInvoice, isVisible: (row) => !isReadOnly && row.status === 'pending_return' && Boolean(row.orderId) },
+      { icon: RefreshCw, label: 'Consultar retorno', onClick: handleRefreshInvoice, isVisible: (row) => !isReadOnly && (row.status === 'pending_return' || isDuplicateInvoiceRejection(row)) },
       { icon: X, label: 'Cancelar nota', onClick: handleOpenCancelInvoice, isVisible: (row) => !isReadOnly && row.status === 'authorized' }
     ];
 

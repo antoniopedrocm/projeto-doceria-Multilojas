@@ -15,6 +15,13 @@ const INVOICE_STATUS = {
   DENIED: 'denied',
   PENDING_RETURN: 'pending_return',
 };
+const DUPLICATE_NFE_CSTATS = new Set([204, 539]);
+const BLOCKING_ORDER_INVOICE_STATUSES = new Set([
+  INVOICE_STATUS.VALIDATING,
+  INVOICE_STATUS.PENDING_RETURN,
+  INVOICE_STATUS.AUTHORIZED,
+  INVOICE_STATUS.DENIED,
+]);
 
 const onlyDigits = (value) => String(value || '').replace(/\D/g, '');
 const money = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -678,6 +685,11 @@ const createFiscalFunctions = ({
     signedXmlPath: artifacts.signedXml?.path || null,
     authorizedXmlPath: artifacts.authorizedXml?.path || null,
     danfePdfPath: artifacts.danfePdf?.path || null,
+    duplicateIssueResult: result.duplicateIssueResult || null,
+    duplicateConsultFailed: Boolean(result.duplicateConsultFailed),
+    duplicateConsultSkipped: Boolean(result.duplicateConsultSkipped),
+    duplicateConsultError: cleanText(result.duplicateConsultError).slice(0, 1000) || null,
+    duplicateConsultMessage: cleanText(result.duplicateConsultMessage).slice(0, 1000) || null,
   });
 
   const fiscalResultReason = (result = {}, status = '') => (
@@ -701,6 +713,51 @@ const createFiscalFunctions = ({
     danfePdfReady: Boolean(artifacts.danfePdf),
     artifactError: artifactError || null,
   });
+
+  const isDuplicateNfeResult = (result = {}) => {
+    const cStat = Number(result.cStat ?? result.serviceResult?.cStat ?? 0);
+    const reason = [
+      result.xMotivo,
+      result.message,
+      result.error,
+      result.detail,
+      result.serviceResult?.xMotivo,
+      result.serviceResult?.message,
+      result.serviceResult?.error,
+      result.serviceResult?.detail,
+    ].map((value) => cleanText(value)).filter(Boolean).join(' ');
+    return DUPLICATE_NFE_CSTATS.has(cStat) || /duplicidade\s+de\s+nf-?e/i.test(reason);
+  };
+
+  const isDuplicateInvoiceRecord = (invoice = {}) => isDuplicateNfeResult({
+    cStat: invoice.cStat,
+    xMotivo: invoice.xMotivo || invoice.error,
+    message: invoice.message,
+    detail: invoice.detail,
+    serviceResult: invoice.serviceResult,
+  });
+
+  const blockingInvoiceMessage = (invoiceId, invoice = {}) => {
+    const number = invoice.number ? ` ${String(invoice.number).padStart(8, '0')}` : '';
+    const series = invoice.series ? ` série ${String(invoice.series).padStart(3, '0')}` : '';
+    const status = invoice.status || 'em processamento';
+    if (isDuplicateInvoiceRecord(invoice)) {
+      return `Este pedido já possui uma nota fiscal${number}${series} com rejeição por duplicidade. Consulte/atualize essa nota antes de tentar emitir outra.`;
+    }
+    if (status === INVOICE_STATUS.AUTHORIZED) {
+      return `Este pedido já possui uma nota fiscal autorizada${number}${series}.`;
+    }
+    if (status === INVOICE_STATUS.PENDING_RETURN) {
+      return `Este pedido já possui uma emissão pendente${number}${series}. Consulte o retorno da SEFAZ antes de reemitir.`;
+    }
+    if (status === INVOICE_STATUS.VALIDATING) {
+      return `Este pedido já possui uma emissão em andamento${number}${series}. Aguarde a finalização antes de tentar novamente.`;
+    }
+    if (status === INVOICE_STATUS.DENIED) {
+      return `Este pedido já possui uma nota denegada${number}${series}; não é permitido emitir outra para a mesma operação.`;
+    }
+    return `Este pedido já possui uma nota fiscal vinculada (${invoiceId}).`;
+  };
 
   const loadInvoiceArtifact = async (artifact) => {
     if (!artifact?.path) {
@@ -1185,6 +1242,42 @@ const createFiscalFunctions = ({
     };
   };
 
+  const findBlockingInvoiceForOrder = async ({lojaId, orderId, environment, model, series}) => {
+    const snap = await db.collection('lojas').doc(lojaId).collection('invoices')
+      .where('orderId', '==', orderId)
+      .limit(30)
+      .get();
+    const candidates = [];
+    snap.forEach((doc) => {
+      const invoice = doc.data() || {};
+      if (invoice.environment !== environment) return;
+      if (Number(invoice.model || 0) !== Number(model || 0)) return;
+      if (Number(invoice.series || 0) !== Number(series || 0)) return;
+      if (invoice.status === INVOICE_STATUS.CANCELLED) return;
+      if (BLOCKING_ORDER_INVOICE_STATUSES.has(invoice.status) || isDuplicateInvoiceRecord(invoice)) {
+        candidates.push({id: doc.id, invoice});
+      }
+    });
+    candidates.sort((a, b) => {
+      const aTime = a.invoice.updatedAt?.toMillis?.() || a.invoice.createdAt?.toMillis?.() || 0;
+      const bTime = b.invoice.updatedAt?.toMillis?.() || b.invoice.createdAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
+    return candidates[0] || null;
+  };
+
+  const assertCanIssueOrderInvoice = async ({lojaId, orderId, environment, model, series}) => {
+    const blocking = await findBlockingInvoiceForOrder({lojaId, orderId, environment, model, series});
+    if (!blocking) return;
+    throw new HttpsError('already-exists', blockingInvoiceMessage(blocking.id, blocking.invoice), {
+      invoiceId: blocking.id,
+      status: blocking.invoice.status || null,
+      number: blocking.invoice.number || null,
+      series: blocking.invoice.series || null,
+      duplicate: isDuplicateInvoiceRecord(blocking.invoice),
+    });
+  };
+
   const reserveInvoice = async ({lojaId, orderId, environment, model, series, uid, justification, additionalInfo, operationCfop, paymentResolution}) => {
     const storeRef = db.collection('lojas').doc(lojaId);
     const orderRef = storeRef.collection('pedidos').doc(orderId);
@@ -1202,6 +1295,15 @@ const createFiscalFunctions = ({
       }
       if (order.fiscal?.invoiceInProgressId) {
         throw new HttpsError('aborted', 'Pedido já tem emissão em andamento.');
+      }
+      if (order.fiscal?.lastInvoiceStatus === INVOICE_STATUS.AUTHORIZED) {
+        throw new HttpsError('already-exists', 'Pedido já tem nota autorizada.');
+      }
+      if (order.fiscal?.lastInvoiceStatus === INVOICE_STATUS.PENDING_RETURN) {
+        throw new HttpsError('already-exists', 'Pedido já tem emissão pendente. Consulte o retorno da SEFAZ antes de reemitir.');
+      }
+      if (order.fiscal?.lastInvoiceDuplicate) {
+        throw new HttpsError('already-exists', 'Pedido já tem nota rejeitada por duplicidade. Consulte/atualize essa nota antes de tentar emitir outra.');
       }
 
       const nextNumber = Number(counterSnap.get('nextNumber') || 1);
@@ -1333,11 +1435,55 @@ const createFiscalFunctions = ({
     });
   };
 
+  const consultDuplicateIfNeeded = async ({payload, result, serviceConfig}) => {
+    if (!isDuplicateNfeResult(result)) {
+      return result;
+    }
+    if (!result.signedXml && !result.key) {
+      return {
+        ...result,
+        duplicateConsultSkipped: true,
+        duplicateConsultMessage: 'Duplicidade detectada sem XML assinado ou chave de acesso para consulta.',
+      };
+    }
+
+    try {
+      const consultResult = await callFiscalService('/consult', {
+        ...payload,
+        key: result.key || null,
+        signedXml: result.signedXml || null,
+      }, serviceConfig);
+      return {
+        ...consultResult,
+        signedXml: consultResult.signedXml || result.signedXml || null,
+        duplicateIssueResult: {
+          status: result.status || null,
+          cStat: result.cStat ?? null,
+          xMotivo: fiscalResultReason(result, result.status || INVOICE_STATUS.REJECTED) || null,
+        },
+      };
+    } catch (error) {
+      logger.warn('fiscal duplicate consult failed', {
+        message: error?.message || String(error),
+        cStat: result.cStat ?? null,
+      });
+      return {
+        ...result,
+        duplicateConsultFailed: true,
+        duplicateConsultError: error?.message || String(error),
+      };
+    }
+  };
+
   const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result}) => {
     const invoiceRef = db.collection('lojas').doc(lojaId).collection('invoices').doc(invoiceId);
     const orderRef = orderId ? db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId) : null;
     const status = result.status || INVOICE_STATUS.REJECTED;
     const resultReason = fiscalResultReason(result, status);
+    const duplicateRejected = status === INVOICE_STATUS.REJECTED && isDuplicateNfeResult({
+      ...result,
+      xMotivo: resultReason,
+    });
     let artifacts = {};
     let artifactError = '';
     try {
@@ -1373,15 +1519,33 @@ const createFiscalFunctions = ({
         return;
       }
 
+      const lastInvoicePatch = {
+        'fiscal.lastInvoiceId': invoiceId,
+        'fiscal.lastInvoiceStatus': status,
+        'fiscal.lastInvoiceReason': resultReason || null,
+        'fiscal.lastInvoiceKey': result.key || null,
+        'fiscal.lastInvoiceProtocol': result.protocol || null,
+        'fiscal.lastInvoiceCStat': result.cStat ?? null,
+        'fiscal.lastInvoiceDuplicate': duplicateRejected ? true : FieldValue.delete(),
+      };
+
       if (status === INVOICE_STATUS.AUTHORIZED) {
         transaction.update(orderRef, {
+          ...lastInvoicePatch,
           'fiscal.authorizedInvoiceId': invoiceId,
           'fiscal.invoiceInProgressId': FieldValue.delete(),
+          'fiscal.lastInvoiceDuplicate': FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
         });
       } else if ([INVOICE_STATUS.REJECTED, INVOICE_STATUS.DENIED].includes(status)) {
         transaction.update(orderRef, {
+          ...lastInvoicePatch,
           'fiscal.invoiceInProgressId': FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      } else if (status === INVOICE_STATUS.PENDING_RETURN) {
+        transaction.update(orderRef, {
+          ...lastInvoicePatch,
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
@@ -1672,6 +1836,13 @@ const createFiscalFunctions = ({
         }
 
         const environment = prepared.settings.environment || 'homologation';
+        await assertCanIssueOrderInvoice({
+          lojaId,
+          orderId,
+          environment,
+          model: prepared.model,
+          series: prepared.series,
+        });
         const reservation = await reserveInvoice({
           lojaId,
           orderId,
@@ -1691,7 +1862,8 @@ const createFiscalFunctions = ({
         };
 
         try {
-          const result = await callFiscalService('/issue', payload, serviceConfig);
+          const issueResult = await callFiscalService('/issue', payload, serviceConfig);
+          const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
           return await updateInvoiceAfterIssue({
             lojaId,
             invoiceId: reservation.invoiceId,
@@ -1778,7 +1950,8 @@ const createFiscalFunctions = ({
         };
 
         try {
-          const result = await callFiscalService('/issue', payload, serviceConfig);
+          const issueResult = await callFiscalService('/issue', payload, serviceConfig);
+          const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
           return await updateInvoiceAfterIssue({
             lojaId,
             invoiceId: reservation.invoiceId,
@@ -1889,10 +2062,11 @@ const createFiscalFunctions = ({
         const invoiceSnap = await invoiceRef.get();
         if (!invoiceSnap.exists) throw new HttpsError('not-found', 'Nota não encontrada.');
         const invoice = invoiceSnap.data() || {};
-        if (invoice.status !== INVOICE_STATUS.PENDING_RETURN) {
+        const shouldConsultDuplicate = invoice.status === INVOICE_STATUS.REJECTED && isDuplicateInvoiceRecord(invoice);
+        if (invoice.status !== INVOICE_STATUS.PENDING_RETURN && !shouldConsultDuplicate) {
           return {id: invoiceSnap.id, ...invoice};
         }
-        if (!invoice.receipt) {
+        if (invoice.status === INVOICE_STATUS.PENDING_RETURN && !invoice.receipt) {
           throw new HttpsError(
             'failed-precondition',
             'Esta emissão pendente não tem recibo da SEFAZ. Como a falha aconteceu antes do envio, emita novamente.'
@@ -1900,26 +2074,32 @@ const createFiscalFunctions = ({
         }
 
         const signedXml = (await loadInvoiceArtifact(invoice.artifacts?.signedXml)).toString('utf8');
-        const prepared = await buildPreparedPayload({
-          lojaId,
-          orderId: invoice.orderId,
-          modelOverride: invoice.model,
-          number: invoice.number,
+        const [settings, issuer, certificate, serviceConfig] = await Promise.all([
+          loadSettings(lojaId),
+          loadIssuer(lojaId),
+          loadCertificate(lojaId),
+          loadPlatformServiceConfig(),
+        ]);
+        const consultPayload = {
           invoiceId,
-          uid,
-          additionalInfo: invoice.additionalInfo,
-          operationCfop: invoice.operationCfop,
-        });
-        const serviceConfig = await loadPlatformServiceConfig();
-        const result = await callFiscalService('/receipt', {
-          ...prepared.payload,
-          receipt: invoice.receipt,
+          invoice: {
+            model: Number(invoice.model || 0),
+            series: Number(invoice.series || 0),
+            number: Number(invoice.number || 0),
+          },
+          environment: environmentCode(invoice.environment || settings.environment || 'homologation'),
+          issuer,
+          fiscalSecrets: certificate.fiscalSecrets,
+          key: invoice.key || null,
           signedXml,
-        }, serviceConfig);
+        };
+        const result = invoice.status === INVOICE_STATUS.PENDING_RETURN
+          ? await callFiscalService('/receipt', {...consultPayload, receipt: invoice.receipt}, serviceConfig)
+          : await callFiscalService('/consult', consultPayload, serviceConfig);
         return await updateInvoiceAfterIssue({
           lojaId,
           invoiceId,
-          orderId: invoice.orderId,
+          orderId: invoice.orderId || null,
           uid,
           result,
         });

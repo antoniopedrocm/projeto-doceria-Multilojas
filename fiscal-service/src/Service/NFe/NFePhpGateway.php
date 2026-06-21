@@ -138,6 +138,41 @@ final class NFePhpGateway
     /**
      * @return array<string, mixed>
      */
+    public function consultKey(int $model, string $key = '', string $signedXml = ''): array
+    {
+        $this->tools->model($model);
+        $cleanKey = preg_replace('/\D/', '', $key) ?: '';
+        if ($cleanKey === '') {
+            $cleanKey = $this->accessKeyFromXml($signedXml);
+        }
+        if (strlen($cleanKey) !== 44) {
+            throw new RuntimeException('Nao foi possivel identificar uma chave de acesso valida para consulta.');
+        }
+
+        $rawResponse = $this->tools->sefazConsultaChave($cleanKey);
+        $response = (new Standardize($rawResponse))->toStd();
+        $protocol = $this->extractProtocol($response);
+        if ($protocol !== null) {
+            $result = $this->resultFromProtocol($protocol, $signedXml, $rawResponse);
+            if (empty($result['key'])) {
+                $result['key'] = $cleanKey;
+            }
+            return $result;
+        }
+
+        $cStat = isset($response->cStat) ? (int)$response->cStat : null;
+        return [
+            'status' => $this->statusFromCode((int)($cStat ?? 0)),
+            'key' => $cleanKey,
+            'cStat' => $cStat,
+            'xMotivo' => $response->xMotivo ?? 'Consulta da chave sem protocolo.',
+            'signedXml' => $signedXml
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function cancel(int $model, string $key, string $protocol, string $reason): array
     {
         $this->tools->model($model);
@@ -238,7 +273,7 @@ final class NFePhpGateway
             $result['receipt'] = $receipt;
         }
 
-        if ($status === 'authorized') {
+        if ($status === 'authorized' && $signedXml !== '') {
             $result['authorizedXml'] = Complements::toAuthorize($signedXml, $responseXml);
         }
 
@@ -300,6 +335,46 @@ final class NFePhpGateway
             103, 105 => 'pending_return',
             default => 'rejected',
         };
+    }
+
+    private function accessKeyFromXml(string $xml): string
+    {
+        if ($xml === '') {
+            return '';
+        }
+        if (preg_match('/Id=["\']NFe(\d{44})["\']/', $xml, $matches) === 1) {
+            return $matches[1];
+        }
+        if (preg_match('/<chNFe>(\d{44})<\/chNFe>/', $xml, $matches) === 1) {
+            return $matches[1];
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $loaded = $dom->loadXML($xml);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if (!$loaded) {
+            return '';
+        }
+
+        $infNFe = $dom->getElementsByTagName('infNFe')->item(0);
+        if ($infNFe !== null) {
+            $id = (string)$infNFe->getAttribute('Id');
+            if (preg_match('/^NFe(\d{44})$/', $id, $matches) === 1) {
+                return $matches[1];
+            }
+        }
+
+        $chNFe = $dom->getElementsByTagName('chNFe')->item(0);
+        if ($chNFe !== null) {
+            $value = preg_replace('/\D/', '', (string)$chNFe->textContent) ?: '';
+            if (strlen($value) === 44) {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     private static function certificateBytes(): string
