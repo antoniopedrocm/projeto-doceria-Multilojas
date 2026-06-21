@@ -22,6 +22,7 @@ const BLOCKING_ORDER_INVOICE_STATUSES = new Set([
   INVOICE_STATUS.AUTHORIZED,
   INVOICE_STATUS.DENIED,
 ]);
+const MAX_DUPLICATE_NUMBER_RETRIES = Math.max(0, Number(process.env.FISCAL_DUPLICATE_NUMBER_RETRIES || 20));
 
 const onlyDigits = (value) => String(value || '').replace(/\D/g, '');
 const money = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -1475,7 +1476,25 @@ const createFiscalFunctions = ({
     }
   };
 
-  const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result}) => {
+  const shouldRetryDuplicateNumber = (result = {}) => {
+    if (!isDuplicateNfeResult(result)) {
+      return false;
+    }
+    if (result.status && result.status !== INVOICE_STATUS.REJECTED) {
+      return false;
+    }
+    const consultFailureText = [
+      result.duplicateConsultError,
+      result.duplicateConsultMessage,
+      result.detail,
+      result.message,
+      result.error,
+    ].map((value) => cleanText(value)).filter(Boolean).join(' ');
+    return Boolean(result.duplicateConsultFailed)
+      && /(digest|diferentes objetos|documentos se referem a diferentes objetos|different objects)/i.test(consultFailureText);
+  };
+
+  const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result, orderUpdateMode = 'final', historyMessage = null}) => {
     const invoiceRef = db.collection('lojas').doc(lojaId).collection('invoices').doc(invoiceId);
     const orderRef = orderId ? db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId) : null;
     const status = result.status || INVOICE_STATUS.REJECTED;
@@ -1511,11 +1530,19 @@ const createFiscalFunctions = ({
           status,
           at: admin.firestore.Timestamp.now(),
           by: uid,
-          message: resultReason || 'Retorno recebido do serviço fiscal.',
+          message: historyMessage || resultReason || 'Retorno recebido do serviço fiscal.',
         }),
       }, {merge: true});
 
       if (!orderRef) {
+        return;
+      }
+
+      if (orderUpdateMode === 'retrying_duplicate_number') {
+        transaction.update(orderRef, {
+          'fiscal.invoiceInProgressId': FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
         return;
       }
 
@@ -1843,60 +1870,87 @@ const createFiscalFunctions = ({
           model: prepared.model,
           series: prepared.series,
         });
-        const reservation = await reserveInvoice({
-          lojaId,
-          orderId,
-          environment,
-          model: prepared.model,
-          series: prepared.series,
-          uid,
-          justification: request.data?.justification,
-          additionalInfo: prepared.payload.additionalInfo,
-          operationCfop: prepared.payload.invoice.operationCfop,
-          paymentResolution: prepared.paymentResolution,
-        });
-        const payload = {
-          ...prepared.payload,
-          invoiceId: reservation.invoiceId,
-          invoice: {...prepared.payload.invoice, number: reservation.number},
-        };
-
-        try {
-          const issueResult = await callFiscalService('/issue', payload, serviceConfig);
-          const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
-          return await updateInvoiceAfterIssue({
+        for (let attempt = 0; attempt <= MAX_DUPLICATE_NUMBER_RETRIES; attempt += 1) {
+          const reservation = await reserveInvoice({
             lojaId,
-            invoiceId: reservation.invoiceId,
             orderId,
+            environment,
+            model: prepared.model,
+            series: prepared.series,
             uid,
-            result,
+            justification: request.data?.justification,
+            additionalInfo: prepared.payload.additionalInfo,
+            operationCfop: prepared.payload.invoice.operationCfop,
+            paymentResolution: prepared.paymentResolution,
           });
-        } catch (error) {
-          const statusAfterError = error?.fiscalServiceResponded ? INVOICE_STATUS.REJECTED : INVOICE_STATUS.PENDING_RETURN;
-          const messageAfterError = statusAfterError === INVOICE_STATUS.PENDING_RETURN
-            ? 'Falha sem retorno conclusivo; consulte a SEFAZ antes de reemitir.'
-            : (error?.message || 'Falha antes do envio para a SEFAZ.');
-          await db.runTransaction(async (transaction) => {
-            transaction.set(db.collection('lojas').doc(lojaId).collection('invoices').doc(reservation.invoiceId), {
-              status: statusAfterError,
-              error: error?.message || String(error),
-              updatedAt: FieldValue.serverTimestamp(),
-              history: FieldValue.arrayUnion({
-                status: statusAfterError,
-                at: admin.firestore.Timestamp.now(),
-                by: uid,
-                message: messageAfterError,
-              }),
-            }, {merge: true});
-            if (statusAfterError !== INVOICE_STATUS.PENDING_RETURN) {
-              transaction.update(db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId), {
-                'fiscal.invoiceInProgressId': FieldValue.delete(),
-                updatedAt: FieldValue.serverTimestamp(),
+          const payload = {
+            ...prepared.payload,
+            invoiceId: reservation.invoiceId,
+            invoice: {...prepared.payload.invoice, number: reservation.number},
+          };
+
+          try {
+            const issueResult = await callFiscalService('/issue', payload, serviceConfig);
+            const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
+            if (shouldRetryDuplicateNumber(result) && attempt < MAX_DUPLICATE_NUMBER_RETRIES) {
+              const reason = fiscalResultReason(result, INVOICE_STATUS.REJECTED) || 'Rejeição por duplicidade de NF-e.';
+              logger.warn('fiscal duplicate number collision; retrying with next number', {
+                lojaId,
+                orderId,
+                model: prepared.model,
+                series: prepared.series,
+                number: reservation.number,
+                attempt: attempt + 1,
+                maxAttempts: MAX_DUPLICATE_NUMBER_RETRIES + 1,
+                cStat: result.cStat ?? null,
+                duplicateConsultError: result.duplicateConsultError || null,
               });
+              await updateInvoiceAfterIssue({
+                lojaId,
+                invoiceId: reservation.invoiceId,
+                orderId,
+                uid,
+                result,
+                orderUpdateMode: 'retrying_duplicate_number',
+                historyMessage: `${reason} Numero fiscal ja usado por outro documento; tentando proxima numeracao automaticamente.`,
+              });
+              continue;
             }
-          });
-          throw error;
+            return await updateInvoiceAfterIssue({
+              lojaId,
+              invoiceId: reservation.invoiceId,
+              orderId,
+              uid,
+              result,
+            });
+          } catch (error) {
+            const statusAfterError = error?.fiscalServiceResponded ? INVOICE_STATUS.REJECTED : INVOICE_STATUS.PENDING_RETURN;
+            const messageAfterError = statusAfterError === INVOICE_STATUS.PENDING_RETURN
+              ? 'Falha sem retorno conclusivo; consulte a SEFAZ antes de reemitir.'
+              : (error?.message || 'Falha antes do envio para a SEFAZ.');
+            await db.runTransaction(async (transaction) => {
+              transaction.set(db.collection('lojas').doc(lojaId).collection('invoices').doc(reservation.invoiceId), {
+                status: statusAfterError,
+                error: error?.message || String(error),
+                updatedAt: FieldValue.serverTimestamp(),
+                history: FieldValue.arrayUnion({
+                  status: statusAfterError,
+                  at: admin.firestore.Timestamp.now(),
+                  by: uid,
+                  message: messageAfterError,
+                }),
+              }, {merge: true});
+              if (statusAfterError !== INVOICE_STATUS.PENDING_RETURN) {
+                transaction.update(db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId), {
+                  'fiscal.invoiceInProgressId': FieldValue.delete(),
+                  updatedAt: FieldValue.serverTimestamp(),
+                });
+              }
+            });
+            throw error;
+          }
         }
+        throw new HttpsError('aborted', 'Nao foi possivel encontrar uma numeracao fiscal livre automaticamente. Verifique o ultimo numero autorizado na SEFAZ e ajuste o contador fiscal.');
       } catch (error) {
         logger.error('fiscalIssueInvoice failed', error);
         throw normalizeHttpsError(error);
@@ -1931,52 +1985,77 @@ const createFiscalFunctions = ({
         }
 
         const environment = prepared.settings.environment || 'homologation';
-        const reservation = await reserveManualInvoice({
-          lojaId,
-          environment,
-          model: prepared.model,
-          series: prepared.series,
-          uid,
-          justification: request.data?.justification,
-          additionalInfo: prepared.payload.additionalInfo,
-          operationCfop: prepared.payload.invoice.operationCfop,
-          paymentResolution: prepared.paymentResolution,
-          prepared,
-        });
-        const payload = {
-          ...prepared.payload,
-          invoiceId: reservation.invoiceId,
-          invoice: {...prepared.payload.invoice, number: reservation.number},
-        };
-
-        try {
-          const issueResult = await callFiscalService('/issue', payload, serviceConfig);
-          const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
-          return await updateInvoiceAfterIssue({
+        for (let attempt = 0; attempt <= MAX_DUPLICATE_NUMBER_RETRIES; attempt += 1) {
+          const reservation = await reserveManualInvoice({
             lojaId,
-            invoiceId: reservation.invoiceId,
-            orderId: null,
+            environment,
+            model: prepared.model,
+            series: prepared.series,
             uid,
-            result,
+            justification: request.data?.justification,
+            additionalInfo: prepared.payload.additionalInfo,
+            operationCfop: prepared.payload.invoice.operationCfop,
+            paymentResolution: prepared.paymentResolution,
+            prepared,
           });
-        } catch (error) {
-          const statusAfterError = error?.fiscalServiceResponded ? INVOICE_STATUS.REJECTED : INVOICE_STATUS.PENDING_RETURN;
-          const messageAfterError = statusAfterError === INVOICE_STATUS.PENDING_RETURN
-            ? 'Falha sem retorno conclusivo; consulte a SEFAZ antes de reemitir a nota manual.'
-            : (error?.message || 'Falha antes do envio para a SEFAZ.');
-          await db.collection('lojas').doc(lojaId).collection('invoices').doc(reservation.invoiceId).set({
-            status: statusAfterError,
-            error: error?.message || String(error),
-            updatedAt: FieldValue.serverTimestamp(),
-            history: FieldValue.arrayUnion({
+          const payload = {
+            ...prepared.payload,
+            invoiceId: reservation.invoiceId,
+            invoice: {...prepared.payload.invoice, number: reservation.number},
+          };
+
+          try {
+            const issueResult = await callFiscalService('/issue', payload, serviceConfig);
+            const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
+            if (shouldRetryDuplicateNumber(result) && attempt < MAX_DUPLICATE_NUMBER_RETRIES) {
+              const reason = fiscalResultReason(result, INVOICE_STATUS.REJECTED) || 'Rejeição por duplicidade de NF-e.';
+              logger.warn('manual fiscal duplicate number collision; retrying with next number', {
+                lojaId,
+                model: prepared.model,
+                series: prepared.series,
+                number: reservation.number,
+                attempt: attempt + 1,
+                maxAttempts: MAX_DUPLICATE_NUMBER_RETRIES + 1,
+                cStat: result.cStat ?? null,
+                duplicateConsultError: result.duplicateConsultError || null,
+              });
+              await updateInvoiceAfterIssue({
+                lojaId,
+                invoiceId: reservation.invoiceId,
+                orderId: null,
+                uid,
+                result,
+                historyMessage: `${reason} Numero fiscal ja usado por outro documento; tentando proxima numeracao automaticamente.`,
+              });
+              continue;
+            }
+            return await updateInvoiceAfterIssue({
+              lojaId,
+              invoiceId: reservation.invoiceId,
+              orderId: null,
+              uid,
+              result,
+            });
+          } catch (error) {
+            const statusAfterError = error?.fiscalServiceResponded ? INVOICE_STATUS.REJECTED : INVOICE_STATUS.PENDING_RETURN;
+            const messageAfterError = statusAfterError === INVOICE_STATUS.PENDING_RETURN
+              ? 'Falha sem retorno conclusivo; consulte a SEFAZ antes de reemitir a nota manual.'
+              : (error?.message || 'Falha antes do envio para a SEFAZ.');
+            await db.collection('lojas').doc(lojaId).collection('invoices').doc(reservation.invoiceId).set({
               status: statusAfterError,
-              at: admin.firestore.Timestamp.now(),
-              by: uid,
-              message: messageAfterError,
-            }),
-          }, {merge: true});
-          throw error;
+              error: error?.message || String(error),
+              updatedAt: FieldValue.serverTimestamp(),
+              history: FieldValue.arrayUnion({
+                status: statusAfterError,
+                at: admin.firestore.Timestamp.now(),
+                by: uid,
+                message: messageAfterError,
+              }),
+            }, {merge: true});
+            throw error;
+          }
         }
+        throw new HttpsError('aborted', 'Nao foi possivel encontrar uma numeracao fiscal livre automaticamente. Verifique o ultimo numero autorizado na SEFAZ e ajuste o contador fiscal.');
       } catch (error) {
         logger.error('fiscalIssueManualInvoice failed', error);
         throw normalizeHttpsError(error);
