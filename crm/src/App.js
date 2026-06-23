@@ -5793,7 +5793,7 @@ function App() {
     );
   };
 
-  const MeuEspaco = ({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay }) => {
+  const MeuEspaco = ({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay, storeInfoMap = {} }) => {
     const now = new Date();
     const initialDay = toDateInputValue(now);
     const initialMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -5821,11 +5821,24 @@ function App() {
     const [editingRecord, setEditingRecord] = useState(null);
     const [editForm, setEditForm] = useState({ horaEntrada: '', horaSaida: '', horaAlmocoSaida: '', horaAlmocoRetorno: '', irregularidade: '', qtde: '', justificativa: '' });
     const [savingEdit, setSavingEdit] = useState(false);
+    const [manualPointModalOpen, setManualPointModalOpen] = useState(false);
+    const [manualPointForm, setManualPointForm] = useState({
+      funcionarioId: '',
+      dia: initialDay,
+      horaEntrada: '',
+      horaAlmocoSaida: '',
+      horaAlmocoRetorno: '',
+      horaSaida: '',
+      justificativa: ''
+    });
+    const [manualPointError, setManualPointError] = useState('');
+    const [savingManualPoint, setSavingManualPoint] = useState(false);
     const [todayRecordData, setTodayRecordData] = useState(null);
 
     const isManager = user ? [ROLE_OWNER, ROLE_MANAGER].includes(user.role) : false;
     const userId = user?.auth?.uid || '';
     const userName = user?.auth?.displayName || user?.auth?.email || 'Gestor';
+    const activeStoreInfo = storeInfoMap[currentStoreIdForDisplay] || {};
     const todayKey = toDateInputValue(new Date());
     const activeDayFilter = recordFilterMode === 'today' ? todayKey : (recordFilterMode === 'day' ? selectedDay : '');
     const recordsQueryMonth = useMemo(() => {
@@ -6006,6 +6019,16 @@ function App() {
     };
 
     const formatTime = (value) => value || '--:--';
+
+    const getEmployeeDisplayName = (employee = {}) => (
+      employee.nome || employee.displayName || employee.name || employee.email || employee.id || 'Colaboradora'
+    );
+
+    const isManualManagerRecord = (record = {}) => (
+      record.tipoLancamento === 'manual_pelo_gestor'
+      || record.lancamentoManualGestor === true
+      || record.manualPeloGestor === true
+    );
 
     const formatMinutesToLabel = (minutes) => {
       const hrs = Math.floor(minutes / 60);
@@ -6199,6 +6222,47 @@ function App() {
       return label.charAt(0).toUpperCase() + label.slice(1);
     };
 
+    const getBrazilNationalHolidays = (year) => {
+      return new Set([
+        `${year}-01-01`,
+        `${year}-04-21`,
+        `${year}-05-01`,
+        `${year}-09-07`,
+        `${year}-10-12`,
+        `${year}-11-02`,
+        `${year}-11-15`,
+        `${year}-11-20`,
+        `${year}-12-25`,
+      ]);
+    };
+
+    const hasAnyPointTime = (record = {}) => Boolean(
+      record.horaEntrada
+      || record.horaAlmocoSaida
+      || record.horaAlmocoRetorno
+      || record.horaSaida
+    );
+
+    const getPointSheetJustification = ({ record, date, dayKey, summary, nationalHolidays }) => {
+      const weekday = date.getDay();
+      const isWeekday = weekday >= 1 && weekday <= 5;
+      const isHoliday = nationalHolidays.has(dayKey);
+      const hasPoint = hasAnyPointTime(record);
+
+      if (isWeekday && isHoliday) {
+        return hasPoint ? 'Hora Extra' : 'Feriado';
+      }
+      if (isWeekday && !isHoliday && !hasPoint) {
+        return 'Falta';
+      }
+      if (record?.justificativa) return record.justificativa;
+      if (summary?.irregularidade && summary.irregularidade !== '-') return summary.irregularidade;
+      if (!record) {
+        return weekday === 0 ? 'FOLGA' : weekday === 6 ? 'FOLGA COMPENSADA' : 'Sem registro';
+      }
+      return '-';
+    };
+
     const handleExportPointSheet = () => {
       const employeeId = getSelectedEmployeeIdForExport();
       if (!employeeId) {
@@ -6219,11 +6283,6 @@ function App() {
             return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
           });
 
-        if (employeeMonthlyRecords.length === 0) {
-          setRegisterMessage({ type: 'error', text: 'Não existem registros para gerar a folha de ponto deste colaborador na competência selecionada.' });
-          return;
-        }
-
         const [year, month] = recordsQueryMonth.split('-').map(Number);
         if (!year || !month) {
           setRegisterMessage({ type: 'error', text: 'Competência inválida para gerar a folha de ponto.' });
@@ -6242,6 +6301,7 @@ function App() {
         const rows = [];
         let creditMinutes = 0;
         let debitMinutes = 0;
+        const nationalHolidays = getBrazilNationalHolidays(year);
 
         for (let day = 1; day <= daysInMonth; day += 1) {
           const date = new Date(year, month - 1, day);
@@ -6252,7 +6312,7 @@ function App() {
           if (irregularityMinutes > 0) creditMinutes += irregularityMinutes;
           if (irregularityMinutes < 0) debitMinutes += Math.abs(irregularityMinutes);
           const dayOfWeek = date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
-          const fallbackJustification = date.getDay() === 0 ? 'FOLGA' : date.getDay() === 6 ? 'FOLGA COMPENSADA' : 'Sem registro';
+          const justification = getPointSheetJustification({ record, date, dayKey, summary, nationalHolidays });
 
           rows.push([
             dayOfWeek,
@@ -6263,41 +6323,101 @@ function App() {
             formatTime(record?.horaSaida),
             summary.irregularidade || '-',
             summary.workedLabel || '-',
-            record?.justificativa || (!record ? fallbackJustification : '-'),
-            record?.adicionalNoturno || record?.adicNoturno || '-'
+            justification
           ]);
         }
 
         const balanceMinutes = creditMinutes - debitMinutes;
         const overtimeToPay = Math.max(balanceMinutes, 0);
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-        if (typeof doc.autoTable !== 'function') {
-          throw new Error('Não foi possível carregar o layout de tabela do PDF. Atualize a página e tente novamente.');
-        }
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         const margin = 8;
         const contentWidth = pageWidth - (margin * 2);
         const emittedAt = new Date().toLocaleString('pt-BR');
         const monthLabel = getPointSheetMonthLabel();
-        const companyName = companyInfo.nome || currentStoreIdForDisplay || 'Empresa';
-        const companyAddress = formatCompanyAddressForPointSheet(companyInfo.endereco);
+        const companyName = companyInfo.nome || activeStoreInfo.nome || activeStoreInfo.razaoSocial || activeStoreInfo.nomeFantasia || currentStoreIdForDisplay || 'Empresa';
+        const companyAddress = formatCompanyAddressForPointSheet(companyInfo.endereco || activeStoreInfo.endereco || activeStoreInfo.address || activeStoreInfo.enderecoCompleto);
+        const companyCnpj = companyInfo.cnpj || activeStoreInfo.cnpj || activeStoreInfo.documento || '';
+        const companyActivity = companyInfo.atividade || activeStoreInfo.atividade || activeStoreInfo.atividadeEconomica || '';
+        const companyWorkHours = companyInfo.horarioTrabalho || activeStoreInfo.horarioTrabalho || activeStoreInfo.horarioFuncionamento || '';
 
         const setFont = (size = 8, style = 'normal') => {
           doc.setFont('helvetica', style);
           doc.setFontSize(size);
+          doc.setTextColor(20, 20, 20);
         };
         const drawLine = (y) => {
           doc.setLineWidth(0.15);
+          doc.setDrawColor(80, 80, 80);
           doc.line(margin, y, pageWidth - margin, y);
         };
         const labelValue = (label, value, x, y, width) => {
-          setFont(7, 'bold');
-          doc.text(`${label}:`, x, y);
           setFont(7);
-          const labelWidth = doc.getTextWidth(`${label}: `);
-          doc.text(doc.splitTextToSize(String(value || '-'), width - labelWidth), x + labelWidth, y);
+          doc.text(doc.splitTextToSize(`${label}: ${String(value || '-')}`, width), x, y);
+        };
+        const pointTableColumns = [
+          { label: 'Dia Sem', width: 12 },
+          { label: 'Data', width: 18 },
+          { label: 'Entrada', width: 16 },
+          { label: 'Saída almoço', width: 18 },
+          { label: 'Retorno almoço', width: 20 },
+          { label: 'Saída', width: 16 },
+          { label: 'Irregularidade', width: 22 },
+          { label: 'Qtde', width: 14 },
+          { label: 'Justificativa', width: contentWidth - 136 },
+        ];
+        const drawPointTableHeader = (startY) => {
+          let x = margin;
+          const headerHeight = 6;
+          setFont(5.6, 'bold');
+          doc.setDrawColor(190, 190, 190);
+          doc.setLineWidth(0.1);
+          pointTableColumns.forEach((column) => {
+            doc.setFillColor(245, 245, 245);
+            doc.rect(x, startY, column.width, headerHeight, 'F');
+            doc.setDrawColor(190, 190, 190);
+            doc.rect(x, startY, column.width, headerHeight, 'S');
+            doc.setTextColor(20, 20, 20);
+            const headerLines = doc.splitTextToSize(column.label, column.width - 2);
+            doc.text(headerLines, x + 1, startY + 2.6);
+            x += column.width;
+          });
+          return startY + headerHeight;
+        };
+        const drawPointTable = (startY) => {
+          let y = drawPointTableHeader(startY);
+          const bottomLimit = pageHeight - 14;
+          const lineHeight = 2.7;
+          const minRowHeight = 5.6;
+
+          rows.forEach((row, rowIndex) => {
+            const cellLines = row.map((value, index) => doc.splitTextToSize(String(value || '-'), pointTableColumns[index].width - 2));
+            const rowHeight = Math.max(minRowHeight, ...cellLines.map((lines) => (lines.length * lineHeight) + 2));
+            if (y + rowHeight > bottomLimit) {
+              doc.addPage();
+              y = drawPointTableHeader(margin);
+            }
+
+            let x = margin;
+            setFont(5.6);
+            doc.setDrawColor(190, 190, 190);
+            doc.setLineWidth(0.1);
+            cellLines.forEach((lines, index) => {
+              const column = pointTableColumns[index];
+              doc.setFillColor(rowIndex % 2 === 1 ? 252 : 255, rowIndex % 2 === 1 ? 252 : 255, rowIndex % 2 === 1 ? 252 : 255);
+              doc.rect(x, y, column.width, rowHeight, 'F');
+              doc.setDrawColor(190, 190, 190);
+              doc.rect(x, y, column.width, rowHeight, 'S');
+              doc.setTextColor(20, 20, 20);
+              doc.text(lines, x + 1, y + 3.4);
+              x += column.width;
+            });
+            y += rowHeight;
+          });
+
+          return y;
         };
 
         setFont(11, 'bold');
@@ -6309,53 +6429,20 @@ function App() {
         drawLine(22);
 
         labelValue('Empresa', companyName, margin, 28, 145);
-        labelValue('Mês/Ano Competência', monthLabel, margin + 170, 28, 105);
-        labelValue('Endereço', companyAddress, margin, 34, 170);
-        labelValue('CNPJ', companyInfo.cnpj || '-', margin + 170, 34, 105);
-        labelValue('Hor. de Trab.', companyInfo.horarioTrabalho || '-', margin, 40, 180);
-        labelValue('Atividade Econômica', companyInfo.atividade || '-', margin + 170, 40, 105);
+        labelValue('Mês/Ano Competência', monthLabel, margin + 108, 28, 86);
+        labelValue('Endereço', companyAddress, margin, 34, 100);
+        labelValue('CNPJ', companyCnpj || '-', margin + 108, 34, 86);
+        labelValue('Hor. de Trab.', companyWorkHours || '-', margin, 40, 100);
+        labelValue('Atividade Econômica', companyActivity || '-', margin + 108, 40, 86);
         drawLine(45);
 
         labelValue('Funcionário', employee.name, margin, 51, 150);
-        labelValue('Categoria de Ponto', employee.category, margin + 170, 51, 105);
+        labelValue('Categoria de Ponto', employee.category, margin + 108, 51, 86);
         labelValue('Matrícula', employee.registration, margin, 57, 95);
-        if (employee.email) labelValue('E-mail', employee.email, margin + 70, 57, 105);
+        if (employee.email) labelValue('E-mail', employee.email, margin + 70, 57, 120);
         drawLine(62);
 
-        doc.autoTable({
-          startY: 65,
-          head: [[
-            'Dia Sem',
-            'Data',
-            'Entrada',
-            'Saída almoço',
-            'Retorno almoço',
-            'Saída',
-            'Irregularidade',
-            'Qtde',
-            'Justificativa',
-            'Adic. Noturno'
-          ]],
-          body: rows,
-          margin: { left: margin, right: margin },
-          styles: { fontSize: 6.2, cellPadding: 1, lineColor: [190, 190, 190], lineWidth: 0.1, textColor: [20, 20, 20], overflow: 'linebreak' },
-          headStyles: { fillColor: [245, 245, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
-          alternateRowStyles: { fillColor: [252, 252, 252] },
-          columnStyles: {
-            0: { cellWidth: 16 },
-            1: { cellWidth: 20 },
-            2: { cellWidth: 18 },
-            3: { cellWidth: 22 },
-            4: { cellWidth: 24 },
-            5: { cellWidth: 18 },
-            6: { cellWidth: 26 },
-            7: { cellWidth: 18 },
-            8: { cellWidth: 79 },
-            9: { cellWidth: 20 }
-          }
-        });
-
-        let y = (doc.lastAutoTable?.finalY || 160) + 5;
+        let y = drawPointTable(65) + 5;
         if (y > pageHeight - 38) {
           doc.addPage();
           y = margin;
@@ -6563,6 +6650,132 @@ function App() {
       }
     };
 
+    const openManualPointModal = () => {
+      if (!isManager) return;
+      const baseDay = activeDayFilter || selectedDay || todayKey;
+      setManualPointForm({
+        funcionarioId: selectedEmployee && selectedEmployee !== 'all' ? selectedEmployee : '',
+        dia: baseDay,
+        horaEntrada: '',
+        horaAlmocoSaida: '',
+        horaAlmocoRetorno: '',
+        horaSaida: '',
+        justificativa: ''
+      });
+      setManualPointError('');
+      setManualPointModalOpen(true);
+    };
+
+    const handleSaveManualPoint = async () => {
+      if (!isManager) return;
+
+      const employee = employees.find((item) => item.id === manualPointForm.funcionarioId);
+      const dayKey = manualPointForm.dia;
+      const hasAnyTime = [
+        manualPointForm.horaEntrada,
+        manualPointForm.horaAlmocoSaida,
+        manualPointForm.horaAlmocoRetorno,
+        manualPointForm.horaSaida
+      ].some(Boolean);
+
+      if (!employee) {
+        setManualPointError('Selecione a colaboradora.');
+        return;
+      }
+      if (!dayKey) {
+        setManualPointError('Informe a data do ponto.');
+        return;
+      }
+      if (!hasAnyTime) {
+        setManualPointError('Informe pelo menos um horário para lançar o ponto.');
+        return;
+      }
+      if (!manualPointForm.justificativa.trim()) {
+        setManualPointError('Informe a justificativa do lançamento manual.');
+        return;
+      }
+
+      try {
+        setSavingManualPoint(true);
+        setManualPointError('');
+        const storeId = resolveActiveStoreForWrite();
+        const competenciaKey = dayKey.slice(0, 7);
+        const pontosRef = collection(db, 'lojas', storeId, 'pontos');
+        const duplicateQuery = query(
+          pontosRef,
+          where('funcionarioId', '==', employee.id),
+          where('dia', '==', dayKey),
+          where('competencia', '==', competenciaKey),
+          limit(1)
+        );
+        const duplicateSnap = await getDocs(duplicateQuery);
+        if (!duplicateSnap.empty) {
+          setManualPointError('Já existe registro para esta colaboradora nesta data. Use a opção Editar para ajustar.');
+          return;
+        }
+
+        const recordDraft = {
+          horaEntrada: manualPointForm.horaEntrada || '',
+          horaAlmocoSaida: manualPointForm.horaAlmocoSaida || '',
+          horaAlmocoRetorno: manualPointForm.horaAlmocoRetorno || '',
+          horaSaida: manualPointForm.horaSaida || '',
+          dia: dayKey,
+          competencia: competenciaKey,
+        };
+        const summary = calculateWorkSummary(recordDraft);
+        const statusPatch = buildPointStatus(recordDraft);
+        const managerAudit = {
+          data: new Date().toISOString(),
+          tipo: 'manual_pelo_gestor',
+          gestorId: userId,
+          gestor: userName,
+          funcionarioId: employee.id,
+          funcionarioNome: getEmployeeDisplayName(employee),
+          justificativa: manualPointForm.justificativa.trim(),
+          horarios: {
+            horaEntrada: recordDraft.horaEntrada,
+            horaAlmocoSaida: recordDraft.horaAlmocoSaida,
+            horaAlmocoRetorno: recordDraft.horaAlmocoRetorno,
+            horaSaida: recordDraft.horaSaida
+          }
+        };
+
+        await addDoc(pontosRef, {
+          ...recordDraft,
+          ...statusPatch,
+          funcionarioId: employee.id,
+          funcionarioNome: getEmployeeDisplayName(employee),
+          funcionarioEmail: employee.email || '',
+          data: Timestamp.fromDate(new Date(`${dayKey}T00:00:00`)),
+          createdAt: serverTimestamp(),
+          atualizadoEm: serverTimestamp(),
+          irregularidade: statusPatch.inconsistente ? 'Pendente de ajuste' : (summary.irregularidade !== '-' ? summary.irregularidade : ''),
+          qtde: statusPatch.inconsistente ? '' : (summary.workedLabel !== '-' ? summary.workedLabel : ''),
+          justificativa: manualPointForm.justificativa.trim(),
+          tipoLancamento: 'manual_pelo_gestor',
+          lancamentoManualGestor: true,
+          manualPeloGestor: true,
+          semLocalizacaoManual: true,
+          localizacaoObservacao: 'Sem localização — lançamento manual pelo gestor',
+          gestorId: userId,
+          gestorNome: userName,
+          dataLancamentoManual: serverTimestamp(),
+          historicoAlteracoes: arrayUnion(managerAudit)
+        });
+
+        setSelectedDay(dayKey);
+        setSelectedMonth(competenciaKey);
+        setRecordFilterMode('day');
+        setRegisterMessage({ type: 'success', text: 'Ponto manual lançado com auditoria do gestor.' });
+        setManualPointModalOpen(false);
+      } catch (error) {
+        console.error('Erro ao lançar ponto manual', error);
+        setManualPointError(error.message || 'Não foi possível lançar o ponto manual.');
+      } finally {
+        setSavingManualPoint(false);
+      }
+    };
+
     const openEditModal = (record) => {
       const summary = calculateWorkSummary(record);
       setEditingRecord(record);
@@ -6587,26 +6800,47 @@ function App() {
         const editedRecord = { ...editingRecord, ...editForm };
         const summary = calculateWorkSummary(editedRecord);
         const statusPatch = buildPointStatus(editedRecord);
-        await updateDoc(recordRef, {
+        const previousValues = {
+          horaEntrada: editingRecord.horaEntrada || '',
+          horaSaida: editingRecord.horaSaida || '',
+          horaAlmocoSaida: editingRecord.horaAlmocoSaida || '',
+          horaAlmocoRetorno: editingRecord.horaAlmocoRetorno || '',
+          irregularidade: editingRecord.irregularidade || '',
+          qtde: editingRecord.qtde || '',
+          justificativa: editingRecord.justificativa || '',
+          statusPonto: editingRecord.statusPonto || ''
+        };
+        const nextValues = {
           horaEntrada: editForm.horaEntrada || '',
           horaSaida: editForm.horaSaida || '',
           horaAlmocoSaida: editForm.horaAlmocoSaida || '',
           horaAlmocoRetorno: editForm.horaAlmocoRetorno || '',
-          ...statusPatch,
           irregularidade: statusPatch.inconsistente ? 'Pendente de ajuste' : (summary.irregularidade !== '-' ? summary.irregularidade : ''),
           qtde: statusPatch.inconsistente ? '' : (summary.workedLabel !== '-' ? summary.workedLabel : ''),
           justificativa: editForm.justificativa || '',
+          statusPonto: statusPatch.statusPonto
+        };
+        await updateDoc(recordRef, {
+          horaEntrada: nextValues.horaEntrada,
+          horaSaida: nextValues.horaSaida,
+          horaAlmocoSaida: nextValues.horaAlmocoSaida,
+          horaAlmocoRetorno: nextValues.horaAlmocoRetorno,
+          ...statusPatch,
+          irregularidade: nextValues.irregularidade,
+          qtde: nextValues.qtde,
+          justificativa: nextValues.justificativa,
           gestorId: userId,
+          gestorNome: userName,
           dataAjuste: serverTimestamp(),
           historicoAlteracoes: arrayUnion({
             data: nowDate.toISOString(),
+            tipo: 'ajuste_ponto',
+            gestorId: userId,
             gestor: userName,
-            alteracoes: {
-              ...editForm,
-              irregularidade: statusPatch.inconsistente ? 'Pendente de ajuste' : summary.irregularidade,
-              qtde: statusPatch.inconsistente ? '' : summary.workedLabel,
-              statusPonto: statusPatch.statusPonto,
-            }
+            justificativa: nextValues.justificativa,
+            valorAnterior: previousValues,
+            valorNovo: nextValues,
+            alteracoes: nextValues
           })
         });
         setRegisterMessage({ type: 'success', text: 'Registro de ponto atualizado.' });
@@ -6759,7 +6993,7 @@ function App() {
                 Registros ({filteredRecords.length})
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full md:w-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 w-full md:w-auto">
               <div className="flex items-end">
                 <button
                   type="button"
@@ -6803,10 +7037,26 @@ function App() {
               )}
               {canExportPointSheet && (
                 <div className="flex items-end">
-                  <Button type="button" variant="secondary" onClick={handleExportPointSheet} className="w-full justify-center">
+                  <button
+                    type="button"
+                    onClick={handleExportPointSheet}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 shadow-sm transition-all hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700"
+                  >
                     <Printer className="h-4 w-4" />
                     Imprimir folha de ponto
-                  </Button>
+                  </button>
+                </div>
+              )}
+              {isManager && (
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={openManualPointModal}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-pink-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-pink-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Lançar ponto manual
+                  </button>
                 </div>
               )}
             </div>
@@ -6845,9 +7095,19 @@ function App() {
                     const recordPointStatus = buildPointStatus(registro);
                     const statusLabel = registro.statusPonto || recordPointStatus.statusPonto;
                     const isPendingAdjustment = Boolean(registro.inconsistente || registro.necessitaAjuste || recordPointStatus.inconsistente);
+                    const manualManagerRecord = isManualManagerRecord(registro);
                     return (
                       <tr key={registro.id} className="hover:bg-gray-50">
-                        <td className="py-3 px-4">{registro.funcionarioNome || '-'}</td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            <p>{registro.funcionarioNome || '-'}</p>
+                            {manualManagerRecord && (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                                Lançado pelo gestor
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-4 capitalize">{diaSemana}</td>
                         <td className="py-3 px-4">{diaMes}</td>
                         <td className="py-3 px-4 font-semibold">{formatTime(registro.horaEntrada)}</td>
@@ -6872,6 +7132,11 @@ function App() {
                         {isManager && (
                           <td className="py-3 px-4">
                             <div className="space-y-3 text-xs">
+                              {manualManagerRecord && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-semibold text-amber-700">
+                                  Sem localização — lançamento manual pelo gestor
+                                </div>
+                              )}
                               {registro.localizacaoEntrada && (
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-1 font-semibold text-pink-600">
@@ -6908,6 +7173,9 @@ function App() {
                                   </a>
                                 </div>
                               )}
+                              {!manualManagerRecord && !registro.localizacaoEntrada && !registro.localizacaoSaida && (
+                                <span className="text-gray-400">-</span>
+                              )}
                             </div>
                           </td>
                         )}
@@ -6924,6 +7192,55 @@ function App() {
             </div>
           )}
         </div>
+
+        <Modal isOpen={manualPointModalOpen} onClose={() => setManualPointModalOpen(false)} title="Lançar ponto manual" size="lg">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Este registro será marcado como lançamento manual pelo gestor e ficará sem localização real da colaboradora.
+            </div>
+            {manualPointError && (
+              <div className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+                {manualPointError}
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select
+                label="Colaboradora"
+                value={manualPointForm.funcionarioId}
+                onChange={(e) => setManualPointForm({ ...manualPointForm, funcionarioId: e.target.value })}
+                disabled={employeesLoading}
+                required
+              >
+                <option value="">Selecione</option>
+                {employees.map((employee) => (
+                  <option key={employee.id} value={employee.id}>{getEmployeeDisplayName(employee)}</option>
+                ))}
+              </Select>
+              <Input
+                label="Data do ponto"
+                type="date"
+                value={manualPointForm.dia}
+                onChange={(e) => setManualPointForm({ ...manualPointForm, dia: e.target.value })}
+                required
+              />
+              <Input label="Entrada" type="time" value={manualPointForm.horaEntrada} onChange={(e) => setManualPointForm({ ...manualPointForm, horaEntrada: e.target.value })} />
+              <Input label="Saída para almoço" type="time" value={manualPointForm.horaAlmocoSaida} onChange={(e) => setManualPointForm({ ...manualPointForm, horaAlmocoSaida: e.target.value })} />
+              <Input label="Retorno do almoço" type="time" value={manualPointForm.horaAlmocoRetorno} onChange={(e) => setManualPointForm({ ...manualPointForm, horaAlmocoRetorno: e.target.value })} />
+              <Input label="Saída final" type="time" value={manualPointForm.horaSaida} onChange={(e) => setManualPointForm({ ...manualPointForm, horaSaida: e.target.value })} />
+            </div>
+            <Textarea
+              label="Justificativa obrigatória"
+              value={manualPointForm.justificativa}
+              onChange={(e) => setManualPointForm({ ...manualPointForm, justificativa: e.target.value })}
+              placeholder="Ex.: Colaboradora compareceu ao trabalho, porém esqueceu de registrar o ponto no sistema."
+              required
+            />
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setManualPointModalOpen(false)}>Cancelar</Button>
+              <Button onClick={handleSaveManualPoint} disabled={savingManualPoint}>{savingManualPoint ? 'Salvando...' : 'Salvar lançamento manual'}</Button>
+            </div>
+          </div>
+        </Modal>
 
         <Modal isOpen={Boolean(editingRecord)} onClose={() => setEditingRecord(null)} title="Editar registro" size="lg">
           <div className="space-y-4">
@@ -17521,7 +17838,7 @@ const handleSubmit = async (e) => {
       case 'fornecedores': return userHasPermission('fornecedores') ? <Fornecedores data={data} addItem={addItem} updateItem={updateItem} deleteItem={deleteItem} setConfirmDelete={setConfirmDelete} effectiveStoreId={effectiveStoreId} updateStock={updateStock} currentUser={user} /> : homePage();
       case 'relatorios': return userHasPermission('relatorios') ? <Relatorios data={data} /> : homePage();
       case 'meu-espaco': return userHasPermission('meu-espaco')
-        ? inlinePage('meu-espaco', () => MeuEspaco({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay }))
+        ? inlinePage('meu-espaco', () => MeuEspaco({ user, resolveActiveStoreForWrite, currentStoreIdForDisplay, storeInfoMap }))
         : homePage();
           case 'financeiro': return userHasPermission('financeiro') ? (
             <FinancialControlPanel
