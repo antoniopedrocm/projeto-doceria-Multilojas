@@ -55,6 +55,7 @@ const ROLE_ATTENDANT = 'atendente';
 const ROLE_ACCOUNTANT = 'contador';
 const ROLE_CLIENT = 'cliente';
 const ROLE_DEFAULT = ROLE_ATTENDANT;
+const CLIENT_ADMIN_ACCESS_DENIED = 'auth/client-admin-access-denied';
 const STORE_ALL_KEY = '__all__';
 const DEFAULT_NCM_PRODUCT = '19059090';
 const NCM_PRODUCT_OPTIONS = [
@@ -938,6 +939,13 @@ const normalizeRole = (role) => {
     'adm',
     'administrador',
     'administradora',
+    'administrador master',
+    'administradora master',
+    'administradormaster',
+    'administrador_master',
+    'admin master',
+    'admin_master',
+    'master',
     'adminstrador',
     'adminstradora',
     'superadmin',
@@ -5349,6 +5357,12 @@ function App() {
       }
 
       const role = normalizeRole(profile.role);
+      if (role === ROLE_CLIENT) {
+        const accessError = new Error('Perfil Cliente não pode acessar a aplicação administrativa.');
+        accessError.code = CLIENT_ADMIN_ACCESS_DENIED;
+        throw accessError;
+      }
+
       const permissionsDefaults = getDefaultPermissionsForRole(role);
       const customProfileRef = doc(db, "customProfiles", authUser.uid);
       const customProfileSnap = await getDoc(customProfileRef);
@@ -5385,6 +5399,21 @@ function App() {
       } catch (error) {
         console.error("Erro ao carregar dados do usuário:", error);
         if (!isMounted) return;
+
+        if (error?.code === CLIENT_ADMIN_ACCESS_DENIED) {
+          try {
+            await signOut(auth);
+          } catch (signOutError) {
+            console.warn('Erro ao encerrar sessão de perfil Cliente:', signOutError);
+          }
+          if (!isMounted) return;
+          setUser(null);
+          setLoginError(error.message);
+          setShowLogin(true);
+          setCurrentPage('pagina-inicial');
+          clearGoogleAuthFlow();
+          return;
+        }
 
         const cachedUserData = buildUserDataFromCache(authUser, getCachedAuthenticatedProfile(authUser));
         if (cachedUserData) {
