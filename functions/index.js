@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const {createFiscalFunctions} = require('./fiscal');
 const {createCaixaFunctions} = require('./caixa');
 const {createEntreLojasFunctions} = require('./entre-lojas');
+const {createEntreLojasReportFunctions} = require('./entre-lojas-report');
 const {
   defaultCashPermissions,
   sanitizeCashPermissions,
@@ -4121,6 +4122,13 @@ Object.assign(exports, createCaixaFunctions({
 
 Object.assign(exports, createEntreLojasFunctions({
     admin,
+    db,
+    onCall: onActiveUserCall,
+    HttpsError,
+    logger,
+}));
+
+Object.assign(exports, createEntreLojasReportFunctions({
     db,
     onCall: onActiveUserCall,
     HttpsError,
