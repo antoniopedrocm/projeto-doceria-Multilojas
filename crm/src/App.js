@@ -101,6 +101,10 @@ import {
   searchSuppliers,
   validatePurchaseOrderPayment
 } from './fornecedores/purchaseOrderCore';
+import {
+  employeeBelongsToPointStore,
+  getPointEmployeeOptionLabel,
+} from './meuEspaco/pointAccess';
 
 // --- importação para Android
 import { NativeAudio } from '@capacitor-community/native-audio';
@@ -1241,6 +1245,7 @@ const getDefaultPermissionsForRole = (role) => {
       'pagina-inicial': true,
       dashboard: true,
       relatorios: true,
+      'meu-espaco': true,
       financeiro: true,
       'nota-fiscal': true,
     };
@@ -1273,6 +1278,10 @@ const sanitizePermissions = (permissions, role) => {
   return MENU_PERMISSION_KEYS.reduce((acc, key) => {
     if (normalizeRole(role) === ROLE_ACCOUNTANT && ACCOUNTANT_RESTRICTED_MODULES.has(key)) {
       acc[key] = false;
+      return acc;
+    }
+    if (normalizeRole(role) === ROLE_ACCOUNTANT && key === 'meu-espaco') {
+      acc[key] = true;
       return acc;
     }
     if (normalizeRole(role) === ROLE_ATTENDANT && key === 'fornecedores') {
@@ -6885,7 +6894,7 @@ function App() {
     { id: 'agenda', permission: 'agenda', label: 'Agenda', icon: Calendar, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT] },
     { id: 'fornecedores', permission: 'fornecedores', label: 'Fornecedores/Estoque', icon: Truck, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'relatorios', permission: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: [ROLE_OWNER, ROLE_MANAGER] },
-    { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_CLIENT] },
+    { id: 'meu-espaco', permission: 'meu-espaco', label: 'Meu Espaço', icon: Clock, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_ACCOUNTANT, ROLE_CLIENT] },
     { id: 'financeiro', permission: 'financeiro', label: 'Financeiro', icon: DollarSign, roles: [ROLE_OWNER, ROLE_MANAGER] },
     { id: 'nota-fiscal', permission: 'nota-fiscal', label: 'Nota Fiscal', icon: FileText, roles: [ROLE_OWNER, ROLE_MANAGER, ROLE_ACCOUNTANT] },
     { id: 'configuracoes', permission: 'configuracoes', label: 'Configurações', icon: Settings, roles: [ROLE_OWNER, ROLE_MANAGER] },
@@ -7038,6 +7047,7 @@ function App() {
     const [selectedEmployee, setSelectedEmployee] = useState('self');
     const [employees, setEmployees] = useState([]);
     const [employeesLoading, setEmployeesLoading] = useState(false);
+    const [employeeSearch, setEmployeeSearch] = useState('');
     const [editingRecord, setEditingRecord] = useState(null);
     const [editForm, setEditForm] = useState({
       tipoLancamento: 'manual',
@@ -7088,6 +7098,8 @@ function App() {
     const isManager = user
       ? canManagePointRecords(user.role) && (isPointOwner || hasPointManagementPermission)
       : false;
+    const isAccountant = user?.role === ROLE_ACCOUNTANT;
+    const canViewTeamPoint = isManager || isAccountant;
     const userId = user?.auth?.uid || '';
     const userName = user?.auth?.displayName || user?.auth?.email || 'Gestor';
     const activeStoreInfo = storeInfoMap[currentStoreIdForDisplay] || {};
@@ -7128,12 +7140,12 @@ function App() {
       : `Visualização automática de ${selectedDayLabel || 'hoje'}.`;
 
     useEffect(() => {
-      if (isManager) {
+      if (canViewTeamPoint) {
         setSelectedEmployee('all');
       } else if (userId) {
         setSelectedEmployee(userId);
       }
-    }, [isManager, userId]);
+    }, [canViewTeamPoint, userId]);
 
     useEffect(() => {
       setCompanyInfo((prev) => ({ ...prev, competencia: competenciaLabel }));
@@ -7173,7 +7185,7 @@ function App() {
     }, [currentStoreIdForDisplay, competenciaLabel]);
 
     useEffect(() => {
-      if (!isManager || !currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
+      if (!canViewTeamPoint || !currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
         setEmployees([]);
         setEmployeesLoading(false);
         return;
@@ -7182,6 +7194,20 @@ function App() {
       setEmployeesLoading(true);
       const fetchEmployees = async () => {
         try {
+          if (isAccountant) {
+            const listEmployees = httpsCallable(functions, 'listPointEmployees');
+            const response = await listEmployees({lojaId: currentStoreIdForDisplay});
+            const list = Array.isArray(response.data?.employees)
+              ? response.data.employees
+              : [];
+            setEmployees(list);
+            setSelectedEmployee((current) => (
+              current === 'all' || list.some((employee) => employee.id === current)
+                ? current
+                : 'all'
+            ));
+            return;
+          }
           const snap = await getDocs(collection(db, 'users'));
           const list = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
           const filtered = list.filter(item => {
@@ -7191,13 +7217,20 @@ function App() {
           setEmployees(filtered);
         } catch (error) {
           console.error('Erro ao buscar colaboradores', error);
+          setEmployees([]);
+          if (isAccountant) {
+            setRegisterMessage({
+              type: 'error',
+              text: error?.message || 'Não foi possível carregar os colaboradores autorizados.'
+            });
+          }
         } finally {
           setEmployeesLoading(false);
         }
       };
 
       fetchEmployees();
-    }, [isManager, currentStoreIdForDisplay]);
+    }, [canViewTeamPoint, currentStoreIdForDisplay, isAccountant]);
 
     useEffect(() => {
       if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY) {
@@ -7227,7 +7260,7 @@ function App() {
     }, [currentStoreIdForDisplay, recordsQueryMonth]);
 
     useEffect(() => {
-      if (!currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY || !userId) {
+      if (isAccountant || !currentStoreIdForDisplay || currentStoreIdForDisplay === STORE_ALL_KEY || !userId) {
         setTodayRecordData(null);
         return;
       }
@@ -7257,7 +7290,7 @@ function App() {
         uid: userId
       });
       return () => unsubscribe();
-    }, [currentStoreIdForDisplay, userId]);
+    }, [currentStoreIdForDisplay, isAccountant, userId]);
 
     const getDayInfo = (record) => {
       if (record.dia) {
@@ -7307,6 +7340,14 @@ function App() {
     const getEmployeeDisplayName = (employee = {}) => (
       employee.nome || employee.displayName || employee.name || employee.email || employee.id || 'Colaboradora'
     );
+
+    const employeeOptions = useMemo(() => {
+      const search = normalizeSearchText(employeeSearch);
+      if (!search) return employees;
+      return employees.filter((employee) => normalizeSearchText(
+        `${getPointEmployeeOptionLabel(employee)} ${employee.email || ''}`
+      ).includes(search));
+    }, [employeeSearch, employees]);
 
     const getEmployeeWorkSchedule = (employee = {}) => sanitizeEmployeeWorkSchedule(
       employee.jornadaTrabalho || employee.escalaTrabalho || employee.workSchedule || null
@@ -7652,7 +7693,7 @@ function App() {
     };
 
     const getSelectedEmployeeIdForExport = () => {
-      if (!isManager) return userId;
+      if (!canViewTeamPoint) return userId;
       return selectedEmployee && selectedEmployee !== 'all' ? selectedEmployee : '';
     };
 
@@ -8060,6 +8101,22 @@ function App() {
       }
 
       try {
+        if (isAccountant) {
+          const authorizePointSheet = httpsCallable(functions, 'authorizePointSheetAccess');
+          await authorizePointSheet({
+            lojaId: currentStoreIdForDisplay,
+            employeeId,
+          });
+        }
+
+        const selectedEmployeeData = employees.find((item) => item.id === employeeId);
+        if (canViewTeamPoint && (
+          !selectedEmployeeData ||
+          !employeeBelongsToPointStore(selectedEmployeeData, currentStoreIdForDisplay)
+        )) {
+          throw new Error('Você não tem permissão para gerar a folha deste colaborador.');
+        }
+
         const employeeMonthlyRecords = groupPointRecordsByDay(
           records.filter((item) => item.funcionarioId === employeeId),
           { storeId: currentStoreIdForDisplay }
@@ -8401,7 +8458,7 @@ function App() {
         }, []);
         return virtualAbsences.length ? sortPointRecords([...baseRecords, ...virtualAbsences]) : baseRecords;
       };
-      if (isManager) {
+      if (canViewTeamPoint) {
         if (selectedEmployee === 'all') return dateFiltered;
         return appendVirtualAbsences(
           dateFiltered.filter(item => item.funcionarioId === selectedEmployee),
@@ -8409,7 +8466,7 @@ function App() {
         );
       }
       return appendVirtualAbsences(dateFiltered.filter(item => item.funcionarioId === userId), userId);
-    }, [records, activeDayFilter, isManager, selectedEmployee, userId, recordsQueryMonth, employees, user?.auth?.displayName, user?.auth?.email, currentStoreIdForDisplay]);
+    }, [records, activeDayFilter, canViewTeamPoint, selectedEmployee, userId, recordsQueryMonth, employees, user?.auth?.displayName, user?.auth?.email, currentStoreIdForDisplay]);
 
     const todayRecord = todayRecordData;
     const todayPointStatus = todayRecord
@@ -8421,12 +8478,12 @@ function App() {
     const hasTodayOpenPeriod = Boolean(getPointOpenPeriod(todayRecord || {}));
     const isTodayAtLunch = lastTodayPunch?.tipo === 'almoco_inicio';
     const pointActionEnabled = {
-      entrada: !registerLoading && !hasTodayOpenPeriod && !isTodayAtLunch,
-      almoco_inicio: !registerLoading && hasTodayOpenPeriod,
-      almoco_fim: !registerLoading && isTodayAtLunch,
-      saida: !registerLoading && hasTodayOpenPeriod && !isTodayAtLunch,
+      entrada: !isAccountant && !registerLoading && !hasTodayOpenPeriod && !isTodayAtLunch,
+      almoco_inicio: !isAccountant && !registerLoading && hasTodayOpenPeriod,
+      almoco_fim: !isAccountant && !registerLoading && isTodayAtLunch,
+      saida: !isAccountant && !registerLoading && hasTodayOpenPeriod && !isTodayAtLunch,
     };
-    const canExportPointSheet = !isManager || (selectedEmployee && selectedEmployee !== 'all');
+    const canExportPointSheet = !canViewTeamPoint || (selectedEmployee && selectedEmployee !== 'all');
     const manualPointIsAbsenceExcuse = manualPointForm.tipoLancamento === 'abono_falta';
     const manualPointIsAbsence = manualPointForm.tipoLancamento === 'falta';
     const manualPointIsCompensatedDayOff = manualPointForm.tipoLancamento === 'folga_compensada';
@@ -8480,6 +8537,13 @@ function App() {
     };
 
     const handleRegisterPoint = async (type) => {
+      if (isAccountant) {
+        setRegisterMessage({
+          type: 'error',
+          text: 'O perfil Contador possui acesso somente leitura ao Controle de Ponto.'
+        });
+        return;
+      }
       try {
         setRegisterLoading(true);
         setRegisterMessage(null);
@@ -9352,7 +9416,11 @@ function App() {
       <div className="p-4 md:p-6 space-y-6 bg-gradient-to-br from-pink-50/20 to-rose-50/20 min-h-screen">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold text-gray-800">Meu Espaço</h1>
-          <p className="text-gray-600">Registre seu ponto e acompanhe os horários da equipe.</p>
+          <p className="text-gray-600">
+            {isAccountant
+              ? 'Consulte as folhas de ponto das lojas vinculadas ao seu perfil.'
+              : 'Registre seu ponto e acompanhe os horários da equipe.'}
+          </p>
         </div>
 
         {registerMessage && (
@@ -9368,6 +9436,24 @@ function App() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {isAccountant && (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-6 shadow-sm">
+              <div className="flex items-start gap-3">
+                <Eye className="mt-0.5 h-6 w-6 shrink-0 text-sky-700" />
+                <div className="space-y-2">
+                  <h2 className="text-xl font-semibold text-sky-900">Somente leitura</h2>
+                  <p className="text-sm text-sky-800">
+                    Você pode consultar colaboradores ativos e inativos, competências anteriores,
+                    banco de horas, horas extras e PDFs somente das lojas autorizadas.
+                  </p>
+                  <p className="text-sm font-semibold text-sky-900">
+                    Registros, ajustes, abonos e lançamentos permanecem bloqueados.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          {!isAccountant && (
           <div className="bg-white rounded-2xl shadow p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -9446,6 +9532,7 @@ function App() {
               </div>
             )}
           </div>
+          )}
 
           <form onSubmit={handleSaveCompanyInfo} className="bg-white rounded-2xl shadow p-6 space-y-4">
             <div className="flex items-center justify-between">
@@ -9517,15 +9604,23 @@ function App() {
                 onChange={handleMonthFilterChange}
                 className={recordFilterMode === 'month' ? 'border-pink-400 ring-2 ring-pink-100' : ''}
               />
-              {isManager && (
+              {canViewTeamPoint && (
+                <Input
+                  label="Pesquisar colaborador"
+                  value={employeeSearch}
+                  onChange={(event) => setEmployeeSearch(event.target.value)}
+                  placeholder="Nome ou e-mail"
+                />
+              )}
+              {canViewTeamPoint && (
                 <Select label="Colaborador" value={selectedEmployee} onChange={(e) => setSelectedEmployee(e.target.value)} disabled={employeesLoading} className="min-w-[200px]">
                   {employeesLoading ? (
                     <option>Carregando...</option>
                   ) : (
                     <>
                       <option value="all">Todos</option>
-                      {employees.map((employee) => (
-                        <option key={employee.id} value={employee.id}>{employee.nome || employee.email || employee.id}</option>
+                      {employeeOptions.map((employee) => (
+                        <option key={employee.id} value={employee.id}>{getPointEmployeeOptionLabel(employee)}</option>
                       ))}
                     </>
                   )}

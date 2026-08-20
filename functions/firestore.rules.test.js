@@ -111,6 +111,33 @@ const seedFirestore = async () => {
         ...userProfile("contador", [STORE_A]),
         permissions: {"nota-fiscal": false},
       }),
+      setDoc(doc(db, "users", "accountant-a"), {
+        ...userProfile("contador", [STORE_A]),
+        permissions: {"meu-espaco": false},
+      }),
+      setDoc(
+          doc(db, "users", "accountant-b"),
+          userProfile("contador", [STORE_B]),
+      ),
+      setDoc(
+          doc(db, "users", "accountant-multi"),
+          userProfile("contador", [STORE_A, STORE_B]),
+      ),
+      setDoc(doc(db, "users", "employee-a"), {
+        ...userProfile("atendente", [STORE_A]),
+        nome: "Funcionaria A",
+        status: "Ativo",
+      }),
+      setDoc(doc(db, "users", "employee-a-inactive"), {
+        ...userProfile("atendente", [STORE_A]),
+        nome: "Funcionaria A Inativa",
+        status: "Inativo",
+      }),
+      setDoc(doc(db, "users", "employee-b"), {
+        ...userProfile("atendente", [STORE_B]),
+        nome: "Funcionaria B",
+        status: "Ativo",
+      }),
       setDoc(doc(db, "customProfiles", "attendant-a"), {
         role: "atendente",
         permissions: {},
@@ -189,6 +216,32 @@ const seedFirestore = async () => {
         lojaDestinoId: STORE_B,
         status: "fechado",
         historico: [],
+      }),
+      setDoc(doc(db, "lojas", STORE_A, "meuEspaco", "empresa"), {
+        nome: "Loja A",
+      }),
+      setDoc(doc(db, "lojas", STORE_A, "pontos", "ponto-a"), {
+        funcionarioId: "employee-a",
+        competencia: "2026-07",
+        dia: "2026-07-01",
+      }),
+      setDoc(doc(db, "lojas", STORE_B, "pontos", "ponto-b"), {
+        funcionarioId: "employee-b",
+        competencia: "2026-07",
+        dia: "2026-07-01",
+      }),
+      setDoc(doc(db, "lojas", STORE_C, "pontos", "ponto-c"), {
+        funcionarioId: "employee-c",
+        competencia: "2026-07",
+        dia: "2026-07-01",
+      }),
+      setDoc(doc(db, "lojas", STORE_A, "pontosAuditoria", "audit-a"), {
+        funcionarioId: "employee-a",
+        tipo: "ajuste_ponto",
+      }),
+      setDoc(doc(db, "lojas", STORE_A, "ferias", "vacation-a"), {
+        funcionarioId: "employee-a",
+        inicio: "2026-07-10",
       }),
       setDoc(doc(db, "lojas", STORE_A, "caixas", "2026-07-27"), {
         dataOperacional: "2026-07-27",
@@ -998,5 +1051,91 @@ describe("regras de acao do modulo Entre Lojas", () => {
     await assertSucceeds(updateDoc(entreLojasDoc(
         ownerDb, "transferenciasEntreLojas", "remessa-cancelamento",
     ), {status: "cancelado"}));
+  });
+});
+
+describe("controle de ponto somente leitura para contador", () => {
+  test("contador de uma loja le ponto e historico somente da propria loja", async () => {
+    const db = testEnv.authenticatedContext("accountant-a").firestore();
+
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_A, "pontos", "ponto-a")),
+    );
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_A, "pontosAuditoria", "audit-a")),
+    );
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_A, "ferias", "vacation-a")),
+    );
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_A, "meuEspaco", "empresa")),
+    );
+    await assertFails(
+        getDoc(cashDoc(db, STORE_B, "pontos", "ponto-b")),
+    );
+    await assertFails(getDoc(doc(db, "users", "employee-b")));
+    await assertSucceeds(getDoc(doc(db, "users", "accountant-a")));
+  });
+
+  test("contador multiloja le apenas as lojas vinculadas", async () => {
+    const db = testEnv.authenticatedContext("accountant-multi").firestore();
+
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_A, "pontos", "ponto-a")),
+    );
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_B, "pontos", "ponto-b")),
+    );
+    await assertFails(
+        getDoc(cashDoc(db, STORE_C, "pontos", "ponto-c")),
+    );
+  });
+
+  test("contador da loja B nao le o ponto da loja A", async () => {
+    const db = testEnv.authenticatedContext("accountant-b").firestore();
+
+    await assertSucceeds(
+        getDoc(cashDoc(db, STORE_B, "pontos", "ponto-b")),
+    );
+    await assertFails(
+        getDoc(cashDoc(db, STORE_A, "pontos", "ponto-a")),
+    );
+  });
+
+  test("contador nao altera nenhum dado de ponto da loja autorizada", async () => {
+    const db = testEnv.authenticatedContext("accountant-a").firestore();
+
+    await assertFails(
+        setDoc(cashDoc(db, STORE_A, "pontos", "novo-ponto"), {
+          funcionarioId: "employee-a",
+          competencia: "2026-07",
+          dia: "2026-07-02",
+        }),
+    );
+    await assertFails(
+        updateDoc(cashDoc(db, STORE_A, "pontos", "ponto-a"), {
+          horaEntrada: "08:00",
+        }),
+    );
+    await assertFails(
+        deleteDoc(cashDoc(db, STORE_A, "pontos", "ponto-a")),
+    );
+    await assertFails(
+        setDoc(cashDoc(db, STORE_A, "pontosAuditoria", "forjada"), {
+          funcionarioId: "employee-a",
+          tipo: "ajuste_ponto",
+        }),
+    );
+    await assertFails(
+        setDoc(cashDoc(db, STORE_A, "ferias", "nova-ferias"), {
+          funcionarioId: "employee-a",
+          inicio: "2026-08-01",
+        }),
+    );
+    await assertFails(
+        updateDoc(cashDoc(db, STORE_A, "meuEspaco", "empresa"), {
+          nome: "Alteracao indevida",
+        }),
+    );
   });
 });

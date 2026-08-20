@@ -41,7 +41,10 @@ function accountantHasModule(moduleId) {
 
 function accountantHasStore(lojaId) {
   return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.lojaId == lojaId
-    || lojaId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.lojaIds;
+    || (
+      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['lojaIds'])
+      && lojaId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.lojaIds
+    );
 }
 
 function accountantCanReadFiscalClient() {
@@ -545,7 +548,7 @@ function canReadStoreCollection(lojaId, collection) {
         || accountantHasModule('financeiro')
         || accountantHasModule('relatorios')
       ))
-      || (collection in ['meuEspaco', 'pontos'] && accountantHasModule('meu-espaco'))
+      || collection in ['meuEspaco', 'pontos', 'ferias', 'feriasAuditoria']
     ))
   );
 }
@@ -680,7 +683,8 @@ match /lojas/{lojaId} {
   }
 
   match /pontosAuditoria/{auditId} {
-    allow read: if canManageStorePoints(lojaId);
+    allow read: if canManageStorePoints(lojaId)
+      || (isReadOnlyAccountant() && accountantHasStore(lojaId));
     allow create: if canManageStorePoints(lojaId);
     allow update, delete: if false;
 
