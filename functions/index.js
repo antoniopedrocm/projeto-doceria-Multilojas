@@ -20,6 +20,9 @@ const {createCaixaFunctions} = require('./caixa');
 const {createEntreLojasFunctions} = require('./entre-lojas');
 const {createEntreLojasReportFunctions} = require('./entre-lojas-report');
 const {
+  createCustomerPurchaseMetricsFunctions,
+} = require('./customer-purchase-metrics');
+const {
   defaultCashPermissions,
   sanitizeCashPermissions,
 } = require('./caixa-core');
@@ -431,6 +434,23 @@ const verifyPointStoreAccess = async (uid, lojaId) => {
     return {profile, role, stores, allStores: false};
   }
   throw new HttpsError('permission-denied', 'Você não tem permissão para registrar ponto nesta loja.');
+};
+
+const verifyCustomerMetricsStoreAccess = async (uid, lojaId) => {
+  const profile = await assertActiveUser(uid);
+  const role = normalizeRole(profile.role);
+  const stores = extractStoreIds(profile);
+  if (role === ROLE_OWNER && stores.length === 0) return;
+  if (
+    [ROLE_OWNER, ROLE_MANAGER, ROLE_ATTENDANT, ROLE_ACCOUNTANT].includes(role) &&
+    stores.includes(lojaId)
+  ) {
+    return;
+  }
+  throw new HttpsError(
+      'permission-denied',
+      'Você não tem permissão para sincronizar clientes desta loja.',
+  );
 };
 
 const POINT_DEFAULT_EXPECTED_MINUTES = 8 * 60;
@@ -4133,6 +4153,16 @@ Object.assign(exports, createEntreLojasReportFunctions({
     onCall: onActiveUserCall,
     HttpsError,
     logger,
+}));
+
+Object.assign(exports, createCustomerPurchaseMetricsFunctions({
+    admin,
+    db,
+    onCall: onActiveUserCall,
+    onDocumentWritten,
+    HttpsError,
+    logger,
+    verifyStoreAccess: verifyCustomerMetricsStoreAccess,
 }));
 
 Object.assign(exports, createFiscalFunctions({
