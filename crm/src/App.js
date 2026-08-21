@@ -81,6 +81,7 @@ import {
   getTransferActionPermissions,
   summarizeEntreLojasTransfers
 } from './utils/entreLojasPermissions';
+import { matchesOrderDateFilter } from './utils/orderDateFilter';
 import {
   PURCHASE_PAYMENT_METHOD,
   PURCHASE_PAYMENT_TYPE,
@@ -13578,21 +13579,8 @@ const effectiveStoreName = useMemo(() => {
             (p.id && p.id.toLowerCase().includes(term));
         
         const dateMatch = (() => {
-            if (!startDateFilter && !endDateFilter) return true;
-            
             const orderDate = getJSDate(p.createdAt);
-            if (!orderDate) return false;
-            
-            const startDate = startDateFilter ? new Date(startDateFilter) : null;
-            if(startDate) startDate.setHours(0, 0, 0, 0);
-
-            const endDate = endDateFilter ? new Date(endDateFilter) : null;
-            if(endDate) endDate.setHours(23, 59, 59, 999);
-
-            if (startDate && orderDate < startDate) return false;
-            if (endDate && orderDate > endDate) return false;
-            
-            return true;
+            return matchesOrderDateFilter(orderDate, startDateFilter, endDateFilter);
         })();
 
         const statusMatch = statusFilter === 'Todos' || p.status === statusFilter;
