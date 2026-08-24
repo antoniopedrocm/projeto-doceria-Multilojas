@@ -64,12 +64,14 @@ import NotificationsBell from './components/notifications/NotificationsBell';
 import {
   CAIXA_PERMISSION_KEYS,
   CAIXA_PERMISSION_LABELS,
+  canAdjustCaixaAfterClosing,
   getDefaultCaixaPermissionsForRole,
   getEmptyCaixaPermissions,
   sanitizeCaixaPermissions,
   createIdempotencyKey,
 } from './caixa/caixaCore';
-import { registrarRetiradaDespesaCaixa } from './services/caixaService';
+import { obterRegistroDiarioCaixa, registrarRetiradaDespesaCaixa } from './services/caixaService';
+import PostClosingConfirmation from './components/caixa/PostClosingConfirmation';
 import {
   canViewEntreLojasClosing,
   canViewEntreLojasTransfer,
@@ -2410,6 +2412,14 @@ const createNewPurchaseOrderFormData = () => hydratePurchaseOrder({
 
 const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete, effectiveStoreId, updateStock, currentUser, availableStores, storeInfoMap }) => {
     const [activeTab, setActiveTab] = usePersistentState('fornecedores_activeTab', 'fornecedores');
+    const currentCashPermissions = useMemo(() => sanitizeCaixaPermissions(
+        currentUser?.permissionDetails?.caixa || currentUser?.customPermissionDetails?.caixa,
+        currentUser?.role
+    ), [currentUser]);
+    const canAdjustAfterClosing = useMemo(() => canAdjustCaixaAfterClosing(
+        currentUser?.role,
+        currentCashPermissions
+    ), [currentCashPermissions, currentUser?.role]);
     
     // States
     const [searchTerm, setSearchTerm] = usePersistentState('fornecedores_searchTerm', '');
@@ -2443,9 +2453,11 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
     const [showRetiradaCaixaModal, setShowRetiradaCaixaModal] = useState(false);
     const [editingReceita, setEditingReceita] = useState(null);
     const [receitaFormData, setReceitaFormData] = useState({});
-    const [retiradaCaixaFormData, setRetiradaCaixaFormData] = useState({ data: new Date().toISOString().split('T')[0], motivo: '', valor: '', observacoes: '' });
+    const [retiradaCaixaFormData, setRetiradaCaixaFormData] = useState({ data: new Date().toISOString().split('T')[0], hora: '', motivo: '', valor: '', observacoes: '' });
     const [retiradaCaixaStoreId, setRetiradaCaixaStoreId] = useState(effectiveStoreId || '');
     const [isSavingRetiradaCaixa, setIsSavingRetiradaCaixa] = useState(false);
+    const [retiradaCaixaPostClosing, setRetiradaCaixaPostClosing] = useState(false);
+    const [pendingPostClosingRetirada, setPendingPostClosingRetirada] = useState(null);
     const retiradaCaixaSubmittingRef = useRef(false);
     const retiradaCaixaIdempotencyRef = useRef(createIdempotencyKey('retirada-despesa'));
     const [editingPerda, setEditingPerda] = useState(null);
@@ -2486,7 +2498,7 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
         setIsSavingReceitaCategoria(false);
         setPreviousReceitaCategoria('');
     };
-    const resetRetiradaCaixaForm = () => setRetiradaCaixaFormData({ data: new Date().toISOString().split('T')[0], motivo: '', valor: '', observacoes: '' });
+    const resetRetiradaCaixaForm = () => setRetiradaCaixaFormData({ data: new Date().toISOString().split('T')[0], hora: '', motivo: '', valor: '', observacoes: '' });
 
     const openStockMovementModal = (item, type) => {
         setStockMovementModal({ isOpen: true, type, item });
@@ -3425,14 +3437,28 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
         setShowReceitaModal(false);
     };
 
-    const handleNewRetiradaCaixa = (storeId = effectiveStoreId, dataOperacional = '') => {
+    const handleNewRetiradaCaixa = (storeId = effectiveStoreId, dataOperacional = '', postClosing = false) => {
         resetRetiradaCaixaForm();
         setRetiradaCaixaStoreId(storeId || '');
+        setRetiradaCaixaPostClosing(postClosing === true);
+        setPendingPostClosingRetirada(null);
         if (dataOperacional) {
             setRetiradaCaixaFormData((current) => ({ ...current, data: dataOperacional }));
         }
         retiradaCaixaIdempotencyRef.current = createIdempotencyKey(`retirada-despesa:${storeId || 'sem-loja'}`);
         setShowRetiradaCaixaModal(true);
+    };
+
+    const saveRetiradaCaixa = async (payload, postClosing = false) => {
+        await registrarRetiradaDespesaCaixa(payload);
+        alert(postClosing
+            ? 'Lançamento registrado com sucesso. A conferência do caixa foi recalculada.'
+            : 'Retirada para despesa registrada com sucesso.');
+        setShowRetiradaCaixaModal(false);
+        setPendingPostClosingRetirada(null);
+        setRetiradaCaixaPostClosing(false);
+        resetRetiradaCaixaForm();
+        retiradaCaixaIdempotencyRef.current = createIdempotencyKey(`retirada-despesa:${retiradaCaixaStoreId}`);
     };
 
     const handleRetiradaCaixaSubmit = async (e) => {
@@ -3450,20 +3476,49 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
         retiradaCaixaSubmittingRef.current = true;
         setIsSavingRetiradaCaixa(true);
         try {
-            await registrarRetiradaDespesaCaixa({
+            const payload = {
                 lojaId: retiradaCaixaStoreId,
                 dataOperacional: dataRetirada,
                 valorCentavos,
                 motivo,
                 observacao: String(retiradaCaixaFormData.observacoes || '').trim(),
+                horaMovimentacao: String(retiradaCaixaFormData.hora || '').trim(),
                 idempotencyKey: retiradaCaixaIdempotencyRef.current,
+            };
+            const dailyResponse = await obterRegistroDiarioCaixa({
+                lojaId: retiradaCaixaStoreId,
+                dataOperacional: dataRetirada,
             });
-            alert('Retirada para despesa registrada com sucesso.');
-            setShowRetiradaCaixaModal(false);
-            resetRetiradaCaixaForm();
-            retiradaCaixaIdempotencyRef.current = createIdempotencyKey(`retirada-despesa:${retiradaCaixaStoreId}`);
+            const daily = dailyResponse?.registro || null;
+            const isPostClosing = daily?.temValorEncerramento === true
+                || Number.isSafeInteger(daily?.valorEncerramentoCentavos);
+            setRetiradaCaixaPostClosing(isPostClosing);
+            if (isPostClosing) {
+                if (!canAdjustAfterClosing) {
+                    alert('Este caixa já foi encerrado. Seu usuário não possui permissão para realizar ajustes após o encerramento.');
+                    return;
+                }
+                setPendingPostClosingRetirada(payload);
+                return;
+            }
+            await saveRetiradaCaixa(payload, false);
         } catch (error) {
             console.error('Erro ao registrar retirada para despesa:', error);
+            alert(error?.message || 'Não foi possível registrar a retirada para despesa.');
+        } finally {
+            retiradaCaixaSubmittingRef.current = false;
+            setIsSavingRetiradaCaixa(false);
+        }
+    };
+
+    const confirmPostClosingRetirada = async () => {
+        if (!pendingPostClosingRetirada || retiradaCaixaSubmittingRef.current) return;
+        retiradaCaixaSubmittingRef.current = true;
+        setIsSavingRetiradaCaixa(true);
+        try {
+            await saveRetiradaCaixa(pendingPostClosingRetirada, true);
+        } catch (error) {
+            console.error('Erro ao registrar retirada para despesa após encerramento:', error);
             alert(error?.message || 'Não foi possível registrar a retirada para despesa.');
         } finally {
             retiradaCaixaSubmittingRef.current = false;
@@ -4005,7 +4060,12 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                     <div className="flex justify-end gap-3 pt-4"><Button variant="secondary" type="button" onClick={() => setShowEstoqueModal(false)}>Cancelar</Button><Button type="submit"><Save className="w-4 h-4"/> Salvar Item</Button></div>
                 </form>
             </Modal>
-            <Modal isOpen={showRetiradaCaixaModal} onClose={() => !isSavingRetiradaCaixa && setShowRetiradaCaixaModal(false)} title="Registrar retirada para despesa" size="md">
+            <Modal isOpen={showRetiradaCaixaModal} onClose={() => {
+                if (isSavingRetiradaCaixa) return;
+                setShowRetiradaCaixaModal(false);
+                setPendingPostClosingRetirada(null);
+                setRetiradaCaixaPostClosing(false);
+            }} title="Registrar retirada para despesa" size="md">
                 <form onSubmit={handleRetiradaCaixaSubmit} className="space-y-4">
                     <Input
                         label="Motivo da retirada"
@@ -4027,10 +4087,19 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                             label="Data da retirada"
                             type="date"
                             value={retiradaCaixaFormData.data || ''}
-                            onChange={e => setRetiradaCaixaFormData({ ...retiradaCaixaFormData, data: e.target.value })}
+                            onChange={e => {
+                                setRetiradaCaixaFormData({ ...retiradaCaixaFormData, data: e.target.value });
+                                setRetiradaCaixaPostClosing(false);
+                            }}
                             required
                         />
                     </div>
+                    <Input
+                        label="Horário da movimentação (opcional)"
+                        type="time"
+                        value={retiradaCaixaFormData.hora || ''}
+                        onChange={e => setRetiradaCaixaFormData({ ...retiradaCaixaFormData, hora: e.target.value })}
+                    />
                     <Textarea
                         label="Observação"
                         rows="3"
@@ -4041,12 +4110,23 @@ const Fornecedores = ({ data, addItem, updateItem, deleteItem, setConfirmDelete,
                     <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-sm text-rose-800">
                         Esta retirada para despesa será registrada automaticamente como paga no Financeiro.
                     </div>
+                    {retiradaCaixaPostClosing && canAdjustAfterClosing && (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                            Este caixa já possui encerramento. O lançamento será registrado como ajuste pós-encerramento e a conferência será recalculada. O encerramento original será preservado.
+                        </div>
+                    )}
                     <div className="flex justify-end gap-3 pt-2">
                         <Button variant="secondary" type="button" disabled={isSavingRetiradaCaixa} onClick={() => setShowRetiradaCaixaModal(false)}>Cancelar</Button>
                         <Button type="submit" disabled={isSavingRetiradaCaixa}><Save className="w-4 h-4"/> {isSavingRetiradaCaixa ? 'Registrando...' : 'Registrar retirada para despesa'}</Button>
                     </div>
                 </form>
             </Modal>
+            <PostClosingConfirmation
+                isOpen={Boolean(pendingPostClosingRetirada)}
+                isSaving={isSavingRetiradaCaixa}
+                onCancel={() => !isSavingRetiradaCaixa && setPendingPostClosingRetirada(null)}
+                onConfirm={confirmPostClosingRetirada}
+            />
             <ReceitasModal
                 isOpen={showReceitaModal}
                 onClose={() => setShowReceitaModal(false)}
@@ -13370,7 +13450,9 @@ const effectiveStoreName = useMemo(() => {
                                                 </div>
                                                 {supportsCashPermissions ? (
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                        {CAIXA_PERMISSION_KEYS.map((permissionKey) => (
+                                                        {CAIXA_PERMISSION_KEYS
+                                                            .filter((permissionKey) => permissionKey !== 'ajustarCaixaAposEncerramento')
+                                                            .map((permissionKey) => (
                                                             <label key={permissionKey} className="flex items-start gap-2 text-xs text-gray-700">
                                                                 <input
                                                                     type="checkbox"
@@ -13401,6 +13483,46 @@ const effectiveStoreName = useMemo(() => {
                                                     <p className="rounded-lg border border-amber-100 bg-amber-50 p-2 text-xs text-amber-700">
                                                         Este perfil não pode acessar operações ou informações do caixa.
                                                     </p>
+                                                )}
+                                                {normalizeRole(userFormData.role) === ROLE_MANAGER && (
+                                                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                                                        <div>
+                                                            <p className="text-xs font-semibold text-gray-800">Ajustes após encerramento</p>
+                                                            <p className="text-xs text-gray-600">
+                                                                Permite registrar retiradas para despesas e sangrias mesmo depois do encerramento do caixa do dia.
+                                                            </p>
+                                                        </div>
+                                                        <label className="flex items-start gap-2 text-xs text-gray-700">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="mt-0.5"
+                                                                checked={Boolean(selectedCaixaPermissions.ajustarCaixaAposEncerramento)}
+                                                                disabled={normalizeRole(user?.role) !== ROLE_OWNER}
+                                                                onChange={(event) => {
+                                                                    setUserFormData((prev) => {
+                                                                        const currentPermissions = sanitizePermissions(prev.permissions, prev.role);
+                                                                        const currentDetails = sanitizePermissionDetails(prev.permissionDetails, prev.role, currentPermissions);
+                                                                        return {
+                                                                            ...prev,
+                                                                            permissionDetails: {
+                                                                                ...currentDetails,
+                                                                                caixa: {
+                                                                                    ...currentDetails.caixa,
+                                                                                    ajustarCaixaAposEncerramento: event.target.checked,
+                                                                                },
+                                                                            },
+                                                                        };
+                                                                    });
+                                                                }}
+                                                            />
+                                                            <span>Permitir ajustes no Caixa após encerramento</span>
+                                                        </label>
+                                                        {normalizeRole(user?.role) !== ROLE_OWNER && (
+                                                            <p className="text-xs text-gray-500">
+                                                                Somente um Dono pode conceder ou remover esta autorização.
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
