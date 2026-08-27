@@ -36,7 +36,14 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CORREÇÃO: Importa o novo AudioManager ---
 import { audioManager } from './utils/AudioManager.js';
-import { registerDeviceForPush, listenForForegroundMessages, subscribeToServiceWorkerMessages } from './utils/notifications.js';
+import {
+  listenForForegroundMessages,
+  parseNotificationNavigation,
+  registerAndroidDeviceForPush,
+  registerDeviceForPush,
+  subscribeToAndroidPushTokens,
+  subscribeToServiceWorkerMessages
+} from './utils/notifications.js';
 import { updateStock as updateStockService } from './services/stockService.js';
 import ReceitasList from './components/fornecedores/ReceitasList';
 import ReceitasModal from './components/fornecedores/ReceitasModal';
@@ -113,6 +120,8 @@ import { Capacitor } from '@capacitor/core';
 // ✅ CORREÇÃO: URL local para evitar erro de pré-condição no Firebase Storage
 const ALARM_SOUND_URL = '/audio/alarm.mp3';
 const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
+const IS_ANA_ANDROID_APP = typeof navigator !== 'undefined'
+  && navigator.userAgent.includes('AnaGuimaraesAndroidApp/');
 
 const ROLE_OWNER = 'dono';
 const ROLE_MANAGER = 'gerente';
@@ -5144,6 +5153,7 @@ function App() {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const pendingOrderOpenRequestRef = useRef(null);
+  const [, setOrderOpenRequestVersion] = useState(0);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuButtonRef = useRef(null);
   const userMenuRef = useRef(null);
@@ -5241,6 +5251,51 @@ function App() {
   const [data, setData] = useState(getInitialDataState());
   const [loading, setLoading] = useState(true);
   const userId = user?.auth?.uid || null;
+  const openOrderFromNotificationUrl = useCallback((value) => {
+    const navigation = parseNotificationNavigation(value);
+    if (!navigation) return false;
+
+    pendingOrderOpenRequestRef.current = {
+      orderId: navigation.orderId,
+      lojaId: navigation.lojaId
+    };
+    setOrderOpenRequestVersion((version) => version + 1);
+    setCurrentPage('pedidos');
+    return true;
+  }, [setCurrentPage]);
+
+  useEffect(() => {
+    const consumeLocation = () => {
+      if (!openOrderFromNotificationUrl(window.location.href)) return;
+      window.history.replaceState({}, document.title, window.location.pathname || '/');
+    };
+    const consumeAndroidEvent = (event) => {
+      openOrderFromNotificationUrl(event?.detail?.url || event?.detail || '');
+    };
+    const consumeAndroidBridgeUrl = () => {
+      if (!IS_ANA_ANDROID_APP) return;
+      try {
+        openOrderFromNotificationUrl(window.AnaAndroidBridge?.consumeNotificationUrl?.());
+      } catch (error) {
+        console.warn('[Android] Não foi possível consultar a navegação da notificação.', error);
+      }
+    };
+
+    consumeLocation();
+    consumeAndroidBridgeUrl();
+    window.addEventListener('popstate', consumeLocation);
+    window.addEventListener('ana-android-notification-open', consumeAndroidEvent);
+    const pollingId = IS_ANA_ANDROID_APP
+      ? window.setInterval(consumeAndroidBridgeUrl, 2000)
+      : null;
+
+    return () => {
+      window.removeEventListener('popstate', consumeLocation);
+      window.removeEventListener('ana-android-notification-open', consumeAndroidEvent);
+      if (pollingId) window.clearInterval(pollingId);
+    };
+  }, [openOrderFromNotificationUrl]);
+
   const isGeneralViewSelected = user?.role === ROLE_OWNER && selectedStoreId === STORE_ALL_KEY;
   const selectedStoreIdForAlarm = useMemo(() => {
     if (!user || isGeneralViewSelected) return null;
@@ -5790,6 +5845,12 @@ function App() {
 
     setHasNewPendingOrders(true);
 
+    // No Android o FirebaseMessagingService é a única fonte sonora, evitando
+    // que o listener web e o serviço nativo toquem o mesmo pedido duas vezes.
+    if (IS_ANA_ANDROID_APP) {
+      return;
+    }
+
     if (isSnoozedRef.current) {
       console.log('[App.js] Push recebido durante soneca. Alarme permanecerá silenciado até o fim da soneca.');
       return;
@@ -5808,17 +5869,28 @@ function App() {
 
     let unsubscribeForeground = null;
     let unsubscribeServiceWorker = null;
+    let unsubscribeAndroidTokens = null;
     let cancelled = false;
 
     const setupPushNotifications = async () => {
-      try {
-        const token = await registerDeviceForPush(userId);
-        if (token) {
-          pushTokenRef.current = token;
-          console.log('[App.js] Token de push registrado para o usuário:', userId, token);
+      if (IS_ANA_ANDROID_APP) {
+        unsubscribeAndroidTokens = subscribeToAndroidPushTokens(async (nativeToken) => {
+          const token = await registerAndroidDeviceForPush(userId, nativeToken);
+          if (token) {
+            pushTokenRef.current = token;
+            console.log('[Android] Token FCM associado ao usuário autenticado.');
+          }
+        });
+      } else {
+        try {
+          const token = await registerDeviceForPush(userId);
+          if (token) {
+            pushTokenRef.current = token;
+            console.log('[App.js] Token de push registrado para o usuário:', userId);
+          }
+        } catch (error) {
+          console.error('[App.js] Erro ao configurar notificações push:', error);
         }
-      } catch (error) {
-        console.error('[App.js] Erro ao configurar notificações push:', error);
       }
 
       if (cancelled) {
@@ -5843,6 +5915,10 @@ function App() {
         if (message.type === 'NEW_ORDER_PUSH') {
           handleIncomingPushNotification(message.payload);
         }
+
+        if (message.type === 'OPEN_ORDER_FROM_NOTIFICATION') {
+          openOrderFromNotificationUrl(message.payload?.data?.url || message.url || '');
+        }
 		
         if (message.type === 'PLAY_ORDER_SOUND' && typeof playAlarmRef.current === 'function') {
           playAlarmRef.current();
@@ -5861,8 +5937,11 @@ function App() {
       if (typeof unsubscribeServiceWorker === 'function') {
         unsubscribeServiceWorker();
       }
+      if (typeof unsubscribeAndroidTokens === 'function') {
+        unsubscribeAndroidTokens();
+      }
     };
-  }, [userId, handleIncomingPushNotification]);
+  }, [userId, handleIncomingPushNotification, openOrderFromNotificationUrl]);
 
   const dataRef = useRef(data);
   useEffect(() => {
@@ -6054,7 +6133,7 @@ function App() {
                                                       && !change.doc.metadata?.hasPendingWrites
                                           );
 
-                                          if (newPendingOrdersDetected && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlayingRef.current && !isSnoozedRef.current) {
+                                          if (newPendingOrdersDetected && !IS_ANA_ANDROID_APP && !isGeneralViewSelected && selectedStoreIdForAlarm && !isAlarmPlayingRef.current && !isSnoozedRef.current) {
                                                 console.log('[App.js] Novo pedido pendente detectado pelo listener!');
                                                 setHasNewPendingOrders(true);
 
@@ -6977,10 +7056,30 @@ function App() {
     };
 
 
-  const handleLogout = async () => { 
+  const handleLogout = async () => {
       if (!confirmDiscardUnsavedChanges()) return;
       stopAlarm(); // Garante que o alarme pare
-      await signOut(auth); 
+
+      const registeredToken = pushTokenRef.current
+        || (IS_ANA_ANDROID_APP ? window.__anaAndroidPushTokenSync : null);
+      if (registeredToken) {
+        try {
+          await deleteDoc(doc(db, 'notificationTokens', registeredToken));
+        } catch (error) {
+          console.error('[Notifications] Não foi possível remover o token no logout:', error);
+        }
+      }
+
+      if (IS_ANA_ANDROID_APP) {
+        try {
+          window.AnaAndroidBridge?.onWebSignedOut?.();
+        } catch (error) {
+          console.warn('[Android] O bridge não confirmou o logout web.', error);
+        }
+      }
+
+      pushTokenRef.current = null;
+      await signOut(auth);
       // O useEffect do onAuthStateChanged agora cuida de resetar a página
   };
 
@@ -21490,6 +21589,7 @@ const handleSubmit = async (e) => {
       orderId: order.id,
       lojaId: order.lojaId || null
     };
+    setOrderOpenRequestVersion((version) => version + 1);
     setCurrentPage('pedidos');
     setShowNotifications(false);
   }, [confirmDiscardUnsavedChanges, setCurrentPage]);

@@ -1,12 +1,35 @@
 import { getToken, onMessage } from "firebase/messaging";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db, messagingPromise, VAPID_KEY } from "../firebaseConfig.js";
+import {
+  buildNotificationTokenRecord,
+  normalizePushToken,
+} from './notificationCore.js';
+export {parseNotificationNavigation} from './notificationCore.js';
 const isBrowser = typeof window !== "undefined";
 const runtimeEnv =
   (typeof process !== "undefined" && process.env && process.env.NODE_ENV) ||
   import.meta.env?.MODE ||
   "";
 const isDev = runtimeEnv !== "production";
+
+async function persistPushToken({uid, token, platform}) {
+  const normalizedToken = normalizePushToken(token);
+  if (!uid || !normalizedToken) return null;
+
+  await setDoc(
+    doc(db, "notificationTokens", normalizedToken),
+    buildNotificationTokenRecord({
+      uid,
+      platform,
+      devicePlatform: navigator.platform || "unknown",
+      userAgent: navigator.userAgent,
+      updatedAt: serverTimestamp(),
+    }),
+    {merge: true}
+  );
+  return normalizedToken;
+}
 
 async function ensureServiceWorkerRegistration() {
   if (!isBrowser || !('serviceWorker' in navigator)) {
@@ -81,18 +104,7 @@ export async function registerDeviceForPush(uid) {
       return null;
     }
 
-    await setDoc(
-      doc(db, "notificationTokens", token),
-      {
-        uid: uid || null,
-        platform: navigator.platform || "web",
-        userAgent: navigator.userAgent,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    return token;
+    return persistPushToken({uid, token, platform: "web"});
   } catch (error) {
     const errorCode = error?.code || "";
     const errorMessage = String(error?.message || "");
@@ -111,6 +123,61 @@ export async function registerDeviceForPush(uid) {
     console.error("Falha ao registrar notificações push:", error);
     throw error;
   }
+}
+
+export async function registerAndroidDeviceForPush(uid, token) {
+  if (!isBrowser) return null;
+  return persistPushToken({uid, token, platform: "android"});
+}
+
+export function subscribeToAndroidPushTokens(callback) {
+  if (!isBrowser || typeof callback !== "function") return () => {};
+
+  let lastToken = "";
+  const previousCallback = window.__anaAndroidRegisterPushToken;
+  const emitToken = (value) => {
+    const token = normalizePushToken(value);
+    if (!token || token === lastToken) return;
+    lastToken = token;
+    window.__anaAndroidPushTokenSync = token;
+    Promise.resolve(callback(token)).catch((error) => {
+      console.error("[Android] Falha ao sincronizar token FCM:", error);
+    });
+  };
+  const readNativeToken = () => {
+    emitToken(window.__anaAndroidPushTokenSync);
+    try {
+      emitToken(window.AnaAndroidBridge?.getPushToken?.());
+    } catch (error) {
+      console.warn("[Android] Bridge FCM ainda não está disponível.", error);
+    }
+  };
+  const handleTokenEvent = (event) => {
+    emitToken(event?.detail?.token || event?.detail || event?.data?.token);
+  };
+
+  window.__anaAndroidRegisterPushToken = emitToken;
+  window.addEventListener("ana-android-push-token", handleTokenEvent);
+  readNativeToken();
+  const pollingId = window.setInterval(readNativeToken, 2000);
+
+  try {
+    window.AnaAndroidBridge?.requestPushToken?.();
+  } catch (error) {
+    console.warn("[Android] Não foi possível solicitar o token ao bridge.", error);
+  }
+
+  return () => {
+    window.clearInterval(pollingId);
+    window.removeEventListener("ana-android-push-token", handleTokenEvent);
+    if (window.__anaAndroidRegisterPushToken === emitToken) {
+      if (typeof previousCallback === "function") {
+        window.__anaAndroidRegisterPushToken = previousCallback;
+      } else {
+        delete window.__anaAndroidRegisterPushToken;
+      }
+    }
+  };
 }
 
 export async function listenForForegroundMessages(callback) {

@@ -106,8 +106,10 @@ self.addEventListener('notificationclick', (event) => {
       .then((clientList) => {
         for (const client of clientList) {
           if ('focus' in client) {
-            client.postMessage({ type: PUSH_EVENT_TYPE, payload: { data: event.notification.data || {} } });
-            client.postMessage({ type: 'PLAY_ORDER_SOUND', payload: { data: event.notification.data || {} } });
+            client.postMessage({
+              type: 'OPEN_ORDER_FROM_NOTIFICATION',
+              payload: { data: event.notification.data || {} }
+            });
             return client.focus();
           }
         }

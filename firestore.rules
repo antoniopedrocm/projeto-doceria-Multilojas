@@ -811,6 +811,40 @@ match /fechamentosEntreLojas/{fechamentoId} {
   allow delete: if canDeleteFechamentoEntreLojas();
 }
 
+// Tokens FCM pertencem exclusivamente ao usuário autenticado. O cliente não
+// informa lojas: o backend sempre recalcula o escopo pelo perfil em /users.
+match /notificationTokens/{tokenId} {
+  allow read: if false;
+  allow create: if isSignedIn()
+    && request.resource.data.uid == request.auth.uid
+    && request.resource.data.platform in ['android', 'web']
+    && request.resource.data.keys().hasAll(['uid', 'platform', 'updatedAt'])
+    && request.resource.data.keys().hasOnly([
+      'uid',
+      'platform',
+      'devicePlatform',
+      'userAgent',
+      'updatedAt'
+    ]);
+  allow update: if isSignedIn()
+    && request.resource.data.uid == request.auth.uid
+    && (resource.data.uid == request.auth.uid || resource.data.uid == null)
+    && request.resource.data.platform in ['android', 'web']
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      'uid',
+      'platform',
+      'devicePlatform',
+      'userAgent',
+      'updatedAt'
+    ]);
+  allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+}
+
+// Ledger idempotente escrito exclusivamente pela Function notifyNewOrder.
+match /notificationEvents/{eventId} {
+  allow read, write: if false;
+}
+
 // --- REGRAS PARA OUTRAS COLEÇÕES (Acesso somente para usuários autenticados no CRM) ---
 match /{collection}/{document=**} {
   allow read: if isSignedIn()
@@ -821,6 +855,8 @@ match /{collection}/{document=**} {
     && collection != 'userStatusMetadata'
     && collection != 'transferenciasEntreLojas'
     && collection != 'fechamentosEntreLojas'
+    && collection != 'notificationTokens'
+    && collection != 'notificationEvents'
     && (!isReadOnlyAccountant()
       || (collection == 'transferenciasEntreLojas' && accountantHasModule('entre-lojas')));
   allow write: if canStaffWrite()
@@ -830,7 +866,9 @@ match /{collection}/{document=**} {
     && collection != 'customProfiles'
     && collection != 'userStatusMetadata'
     && collection != 'transferenciasEntreLojas'
-    && collection != 'fechamentosEntreLojas';
+    && collection != 'fechamentosEntreLojas'
+    && collection != 'notificationTokens'
+    && collection != 'notificationEvents';
 }
 
 }

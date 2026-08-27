@@ -35,6 +35,14 @@ const {
   managerHasUserStatusPermission,
   normalizeInactivationReason,
 } = require('./user-status-core');
+const {
+  buildNewOrderData,
+  buildNotificationEventKey,
+  canClaimNotificationEvent,
+  isInvalidMessagingTokenError,
+  isNewPendingOrder,
+  profileCanReceiveOrder,
+} = require('./new-order-notifications');
 
 // Inicializa o Firebase Admin SDK
 admin.initializeApp();
@@ -3816,55 +3824,60 @@ exports.reconcileConfirmedTransferFinancialRecords = onSchedule({
 exports.notifyNewOrder = onDocumentCreated({
     document: "lojas/{lojaId}/pedidos/{pedidoId}",
     region: "southamerica-east1",
+    retry: true,
 }, async (event) => {
     const orderData = event.data?.data();
+    const orderId = String(event.params?.pedidoId || "").trim();
+    const lojaId = String(event.params?.lojaId || "").trim();
 
-    if (!orderData) {
+    if (!orderData || !orderId || !lojaId) {
         logger.warn(
-            "Novo pedido criado sem dados. Notificação não enviada.",
+            "Novo pedido criado sem identificadores válidos. Notificação não enviada.",
         );
         return;
     }
 
-    try {
-        const orderId = String(
-            event.params?.pedidoId || "",
-        );
+    if (!isNewPendingOrder(orderData)) {
+        logger.info("Pedido criado fora do status Pendente. Notificação ignorada.", {
+            orderId,
+            lojaId,
+            status: orderData.status || "",
+        });
+        return;
+    }
 
-        const lojaId = String(
-            event.params?.lojaId ||
-            orderData.lojaId ||
-            "",
-        );
-
-        const status = orderData.status ?
-            String(orderData.status) :
-            "Pendente";
-
-        const customerName =
-            orderData.clienteNome ||
-            orderData.nomeCliente ||
-            orderData.nome ||
-            orderData.cliente?.nome ||
-            "";
-
-        const orderCode =
-            orderData.numeroPedido ||
-            orderData.codigo ||
-            orderData.numero ||
-            "";
-
-        const title =
-            "Novo pedido recebido";
-
-        let body = customerName ?
-            `Pedido de ${customerName}` :
-            "Um novo pedido foi recebido.";
-
-        if (orderCode) {
-            body =
-                `${body} (#${orderCode})`;
+    const eventRef = db.collection("notificationEvents")
+        .doc(buildNotificationEventKey(lojaId, orderId));
+    const claimed = await db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(eventRef);
+        if (!canClaimNotificationEvent(snapshot.exists ? snapshot.data() : null)) {
+            return false;
         }
+
+        transaction.set(eventRef, {
+            type: "new_order",
+            orderId,
+            storeId: lojaId,
+            triggerEventId: event.id || "",
+            status: "processing",
+            attemptCount: admin.firestore.FieldValue.increment(1),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        return true;
+    });
+
+    if (!claimed) {
+        logger.info("Evento de novo pedido já processado.", {orderId, lojaId});
+        return;
+    }
+
+    try {
+        const dataPayload = buildNewOrderData({
+            orderId,
+            storeId: lojaId,
+            order: orderData,
+        });
+        const {title, body} = dataPayload;
 
         /*
          * Busca os dispositivos cadastrados.
@@ -3878,6 +3891,11 @@ exports.notifyNewOrder = onDocumentCreated({
             logger.info(
                 "Nenhum token de notificação cadastrado.",
             );
+            await eventRef.set({
+                status: "sent",
+                authorizedDeviceCount: 0,
+                sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
             return;
         }
 
@@ -3886,73 +3904,39 @@ exports.notifyNewOrder = onDocumentCreated({
          * para conseguirmos separar Android nativo,
          * web e dispositivos antigos.
          */
-        const tokenEntries =
-            tokensSnapshot.docs.map((doc) => ({
-                token: doc.id,
-                data: doc.data() || {},
-            }));
+        const tokenEntries = tokensSnapshot.docs.map((tokenDoc) => ({
+            token: tokenDoc.id,
+            data: tokenDoc.data() || {},
+        }));
+        const userIds = [...new Set(tokenEntries
+            .map((entry) => String(entry.data.uid || "").trim())
+            .filter(Boolean))];
+        const profilesByUid = new Map();
 
-        /*
-         * Filtra os tokens que possuem acesso
-         * à loja deste pedido.
-         *
-         * Tokens antigos que não possuem informação
-         * de loja continuam sendo aceitos para não
-         * quebrar o CRM/web existente.
-         */
-        const storeTokenEntries =
-            tokenEntries.filter((entry) => {
-                const tokenData =
-                    entry.data || {};
-
-                const directStoreId =
-                    String(
-                        tokenData.storeId ||
-                        tokenData.lojaId ||
-                        "",
-                    ).trim();
-
-                const rawStoreIds =
-                    tokenData.storeIds ||
-                    tokenData.lojaIds ||
-                    [];
-
-                const storeIds =
-                    Array.isArray(rawStoreIds) ?
-                        rawStoreIds
-                            .map((value) =>
-                                String(value || "").trim(),
-                            )
-                            .filter(Boolean) :
-                        [];
-
-                const allStores =
-                    tokenData.allStores === true;
-
-                const hasStoreScope =
-                    allStores ||
-                    directStoreId.length > 0 ||
-                    storeIds.length > 0;
-
-                /*
-                 * Token legado.
-                 * Mantém o comportamento atual.
-                 */
-                if (!hasStoreScope) {
-                    return true;
-                }
-
-                return (
-                    allStores ||
-                    directStoreId === lojaId ||
-                    storeIds.includes(lojaId)
-                );
+        for (let index = 0; index < userIds.length; index += 100) {
+            const userIdChunk = userIds.slice(index, index + 100);
+            const profiles = await db.getAll(...userIdChunk.map((uid) => (
+                db.collection("users").doc(uid)
+            )));
+            profiles.forEach((profile) => {
+                if (profile.exists) profilesByUid.set(profile.id, profile.data() || {});
             });
+        }
+
+        const storeTokenEntries = tokenEntries.filter((entry) => {
+            const uid = String(entry.data.uid || "").trim();
+            return uid && profileCanReceiveOrder(profilesByUid.get(uid), lojaId);
+        });
 
         if (storeTokenEntries.length === 0) {
             logger.info(
                 `Nenhum dispositivo cadastrado para a loja ${lojaId}.`,
             );
+            await eventRef.set({
+                status: "sent",
+                authorizedDeviceCount: 0,
+                sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, {merge: true});
             return;
         }
 
@@ -3987,17 +3971,6 @@ exports.notifyNewOrder = onDocumentCreated({
                 )
                 .map((entry) => entry.token);
 
-        const dataPayload = {
-            title,
-            body,
-            orderId,
-            lojaId,
-            status,
-            url: "/",
-            source: "new-order",
-            playAlarm: "true",
-        };
-
         const tokensToDelete =
             new Set();
 
@@ -4019,12 +3992,7 @@ exports.notifyNewOrder = onDocumentCreated({
                         result.error,
                     );
 
-                    if (
-                        errorCode ===
-                            "messaging/registration-token-not-registered" ||
-                        errorCode ===
-                            "messaging/invalid-registration-token"
-                    ) {
+                    if (isInvalidMessagingTokenError(errorCode)) {
                         tokensToDelete.add(
                             sentTokens[index],
                         );
@@ -4051,6 +4019,9 @@ exports.notifyNewOrder = onDocumentCreated({
 
                 android: {
                     priority: "high",
+                    ttl: 10 * 60 * 1000,
+                    collapseKey: `new-order-${orderId}`,
+                    restrictedPackageName: "br.com.anaguimaraes.doceria",
                 },
             };
 
@@ -4149,12 +4120,12 @@ exports.notifyNewOrder = onDocumentCreated({
                         data: {
                             orderId,
                             lojaId,
-                            url: "/",
+                            url: dataPayload.url,
                         },
                     },
 
                     fcmOptions: {
-                        link: "/",
+                        link: dataPayload.url,
                     },
                 },
             };
@@ -4202,6 +4173,13 @@ exports.notifyNewOrder = onDocumentCreated({
             );
         }
 
+        await eventRef.set({
+            status: "sent",
+            authorizedDeviceCount: storeTokenEntries.length,
+            invalidDeviceCount: tokensToDelete.size,
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+
         logger.info(
             `Processamento do pedido ${orderId} concluído. ` +
             `Loja: ${lojaId}. ` +
@@ -4209,10 +4187,15 @@ exports.notifyNewOrder = onDocumentCreated({
             `Legados: ${legacyTokens.length}.`,
         );
     } catch (error) {
+        await eventRef.set({
+            status: "failed",
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true}).catch(() => undefined);
         logger.error(
             "Erro ao enviar notificações de novo pedido:",
             error,
         );
+        throw error;
     }
 });
 

@@ -15,10 +15,16 @@ import java.util.Map;
 
 public class DoceriaFirebaseMessagingService extends FirebaseMessagingService {
     private static final String TAG = "DoceriaMessaging";
+    private static final String PUSH_PREFERENCES = "ana_push_notifications";
+    private static final String PUSH_TOKEN_KEY = "fcm_token";
 
     @Override
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
+        getSharedPreferences(PUSH_PREFERENCES, MODE_PRIVATE)
+                .edit()
+                .putString(PUSH_TOKEN_KEY, token)
+                .apply();
         Log.d(TAG, "Novo token FCM gerado: " + token);
     }
 
@@ -54,11 +60,11 @@ public class DoceriaFirebaseMessagingService extends FirebaseMessagingService {
 
         boolean isForeground = isAppInForeground();
         if (isForeground) {
-            Log.d(TAG, "Aplicativo em primeiro plano - notificando camada web para tratar o pedido.");
+            Log.d(TAG, "Aplicativo em primeiro plano - iniciando alerta nativo único.");
         } else {
             Log.d(TAG, "Aplicativo em segundo plano - iniciando serviço de alarme.");
-            MediaPlaybackService.startAlarm(this, title, body, url);
         }
+        MediaPlaybackService.startAlarm(this, title, body, url);
     }
 
     private boolean isAppInForeground() {

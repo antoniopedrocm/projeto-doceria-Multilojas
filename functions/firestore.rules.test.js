@@ -1000,3 +1000,60 @@ describe("regras de acao do modulo Entre Lojas", () => {
     ), {status: "cancelado"}));
   });
 });
+
+describe("tokens FCM e ledger de notificacoes", () => {
+  const tokenPayload = (uid, platform = "android") => ({
+    uid,
+    platform,
+    devicePlatform: "Android",
+    userAgent: "AnaGuimaraesAndroidApp/1.0",
+    updatedAt: new Date("2026-08-27T12:00:00.000Z"),
+  });
+
+  test("usuario ativo registra e remove somente o proprio token", async () => {
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+    const otherDb = testEnv.authenticatedContext("manager-b").firestore();
+    const tokenRef = doc(managerDb, "notificationTokens", "token-manager-a");
+
+    await assertSucceeds(setDoc(tokenRef, tokenPayload("manager-a")));
+    await assertFails(getDoc(tokenRef));
+    await assertFails(updateDoc(
+        doc(otherDb, "notificationTokens", "token-manager-a"),
+        tokenPayload("manager-b"),
+    ));
+    await assertFails(deleteDoc(doc(otherDb, "notificationTokens", "token-manager-a")));
+    await assertSucceeds(deleteDoc(tokenRef));
+  });
+
+  test("token nao aceita UID alheio, plataforma desconhecida ou escopo de loja", async () => {
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+
+    await assertFails(setDoc(
+        doc(managerDb, "notificationTokens", "uid-alheio"),
+        tokenPayload("manager-b"),
+    ));
+    await assertFails(setDoc(
+        doc(managerDb, "notificationTokens", "plataforma-invalida"),
+        tokenPayload("manager-a", "Win32"),
+    ));
+    await assertFails(setDoc(
+        doc(managerDb, "notificationTokens", "escopo-forjado"),
+        {...tokenPayload("manager-a"), lojaIds: [STORE_B]},
+    ));
+  });
+
+  test("usuario inativo nao registra token e ledger e exclusivo do backend", async () => {
+    const inactiveDb = testEnv.authenticatedContext("inactive-attendant").firestore();
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+
+    await assertFails(setDoc(
+        doc(inactiveDb, "notificationTokens", "token-inativo"),
+        tokenPayload("inactive-attendant"),
+    ));
+    await assertFails(setDoc(
+        doc(managerDb, "notificationEvents", "evento-forjado"),
+        {status: "sent", orderId: "pedido-1"},
+    ));
+    await assertFails(getDoc(doc(managerDb, "notificationEvents", "evento-forjado")));
+  });
+});
