@@ -61,6 +61,7 @@ import CaixaTab from './components/caixa/CaixaTab';
 import AlertasNotificacoesTab from './components/configuracoes/AlertasNotificacoesTab';
 import EntreLojasReport from './components/relatorios/EntreLojasReport';
 import NotificationsBell from './components/notifications/NotificationsBell';
+import SearchableClientSelect from './components/orders/SearchableClientSelect';
 import {
   CAIXA_PERMISSION_KEYS,
   CAIXA_PERMISSION_LABELS,
@@ -13676,6 +13677,7 @@ const effectiveStoreName = useMemo(() => {
     const [editingOrder, setEditingOrder] = useState(null);
     const [isSavingOrder, setIsSavingOrder] = useState(false);
     const [saveOrderError, setSaveOrderError] = useState('');
+    const [clientSelectionError, setClientSelectionError] = useState('');
     const [orderSyncNotice, setOrderSyncNotice] = useState('');
     const [formData, setFormData] = useState({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
     const [viewingOrder, setViewingOrder] = useState(null);
@@ -14203,6 +14205,7 @@ const effectiveStoreName = useMemo(() => {
     const resetForm = () => {
         setEditingOrder(null);
         setSaveOrderError('');
+        setClientSelectionError('');
         setOrderSyncNotice('');
         setFormData({ clienteId: '', clienteNome: '', itens: [], subtotal: 0, desconto: 0, total: 0, status: 'Pendente', origem: 'Manual', categoria: 'Delivery', dataEntrega: '', observacao: '', formaPagamento: 'Pix', cupom: null });
         setDescontoValor('');
@@ -14287,9 +14290,18 @@ const effectiveStoreName = useMemo(() => {
 
 const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsSavingOrder(true);
     setSaveOrderError('');
     setOrderSyncNotice('');
+    const clienteSelecionado = data.clientes.find(
+        (client) => String(client.id) === String(formData.clienteId)
+    );
+    if (!clienteSelecionado) {
+        setClientSelectionError('Selecione um cliente cadastrado na lista.');
+        return;
+    }
+
+    setClientSelectionError('');
+    setIsSavingOrder(true);
     console.log('[Sales][Create] Iniciando tentativa de criar pedido pelo modal.', {
         isEditing: Boolean(editingOrder),
         authCurrentUserUid: auth.currentUser?.uid || null,
@@ -14297,7 +14309,6 @@ const handleSubmit = async (e) => {
     });
 
     try {
-        const clienteSelecionado = data.clientes.find(c => c.id === formData.clienteId);
         const initialOrderData = buildOrderWithTotals({
             ...formData,
             clienteNome: clienteSelecionado ? clienteSelecionado.nome : formData.clienteNome
@@ -14338,6 +14349,7 @@ const handleSubmit = async (e) => {
     
     const handleEdit = useCallback((order) => {
         setEditingOrder(order);
+        setClientSelectionError('');
         const subtotal = (order.itens || []).reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
         const desconto = order.cupom?.valorDesconto || order.desconto || 0;
         const total = subtotal - desconto;
@@ -14429,7 +14441,22 @@ const handleSubmit = async (e) => {
             <Modal isOpen={showModal} onClose={() => { setShowModal(false); resetForm(); }} title={editingOrder ? "Editar Pedido" : "Novo Pedido"} size="xl">
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <Select label="Cliente" value={formData.clienteId} onChange={(e) => setFormData({...formData, clienteId: e.target.value})} required><option value="">Selecione um cliente</option>{data.clientes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+                        <SearchableClientSelect
+                            clients={data.clientes}
+                            value={formData.clienteId}
+                            error={clientSelectionError}
+                            onChange={(selectedClient) => {
+                                setClientSelectionError('');
+                                setFormData((current) => ({
+                                    ...current,
+                                    clienteId: selectedClient?.id || '',
+                                    clienteNome: selectedClient?.nome || '',
+                                    clienteEndereco: selectedClient
+                                        ? getClientPrimaryAddressText(selectedClient)
+                                        : ''
+                                }));
+                            }}
+                        />
                         <Select label="Status" value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} required><option>Pendente</option><option>Em Produção</option><option>Pronto para Entrega</option><option>Finalizado</option><option>Cancelado</option></Select>
                         <Select label="Categoria do Pedido" value={formData.categoria} onChange={(e) => setFormData({...formData, categoria: e.target.value, itens: [], subtotal: 0, desconto: 0, total: 0, cupom: null})} required>
                             <option value="Delivery">Delivery</option>
