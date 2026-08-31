@@ -24,16 +24,29 @@ public class AlarmPausePlugin extends Plugin {
         SharedPreferences preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
         long pausedUntil = preferences.getLong(pauseKey(uid, storeId), 0L);
         if (pausedUntil > 0L && pausedUntil <= System.currentTimeMillis()) {
-            preferences.edit().remove(pauseKey(uid, storeId)).apply();
+            clearPause(context, uid, storeId);
             return 0L;
         }
         return pausedUntil;
     }
 
+    static void clearPause(Context context, String uid, String storeId) {
+        if (uid == null || uid.isEmpty() || storeId == null || storeId.isEmpty()) return;
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .remove(pauseKey(uid, storeId))
+                .apply();
+    }
+
+    private static String normalizedString(PluginCall call, String key) {
+        String value = call.getString(key);
+        return value == null ? "" : value.trim();
+    }
+
     @PluginMethod
     public void syncContext(PluginCall call) {
-        String uid = call.getString("uid", "").trim();
-        String storeId = call.getString("storeId", "").trim();
+        String uid = normalizedString(call, "uid");
+        String storeId = normalizedString(call, "storeId");
         long pausedUntil = call.getLong("pausedUntil", 0L);
 
         if (uid.isEmpty() || storeId.isEmpty()) {

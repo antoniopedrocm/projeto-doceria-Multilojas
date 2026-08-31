@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "847824537421",
+    "project_id": "ana-guimaraes",
+    "storage_bucket": "ana-guimaraes.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:847824537421:android:d5f979a4291a31b3e49904",
+        "android_client_info": {
+          "package_name": "br.com.anaguimaraes.doceria"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "847824537421-3f389jmi5ds03993ekdj0672cb9cdg8t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.com.anaguimaraes.doceria",
+            "certificate_hash": "79f9937e4f821f6f0431b6903160a3b929902157"
+          }
+        },
+        {
+          "client_id": "847824537421-cm8r92r2179sb1br4vib69brdcu25bnl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.com.anaguimaraes.doceria",
+            "certificate_hash": "7db4b7e1ddb5b9fac433d8acabb5047e14f1149b"
+          }
+        },
+        {
+          "client_id": "847824537421-skiiadrvn9vjfupd16tdkiqqt43rq9or.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.com.anaguimaraes.doceria",
+            "certificate_hash": "4a471cce2968289ce02d87672c0d402fe73565f9"
+          }
+        },
+        {
+          "client_id": "847824537421-h5ev6qogjcv0k3elig9gifid1hqpc6k3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4QgrJ__gRBOO9cM4aSWNlPHafXEsoJw8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "847824537421-h5ev6qogjcv0k3elig9gifid1hqpc6k3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

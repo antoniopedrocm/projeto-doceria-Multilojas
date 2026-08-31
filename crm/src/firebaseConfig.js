@@ -16,7 +16,6 @@ import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 import {
   getMessaging,
-  getToken,
   isSupported as messagingIsSupported,
 } from 'firebase/messaging';
 
@@ -423,17 +422,9 @@ export const messagingPromise = (async () => {
   try {
     const supported = await messagingIsSupported();
     if (!supported) return null;
-    const messaging = getMessaging(app);
-    if (!VAPID_KEY) {
-      return messaging;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      console.warn('🔔 Notification permission not granted');
-      return messaging;
-    }
-    await getToken(messaging, { vapidKey: VAPID_KEY });
-    return messaging;
+    // A permissão deve ser solicitada diretamente por uma ação do usuário,
+    // especialmente no Safari/iOS. O token é registrado por notifications.js.
+    return getMessaging(app);
   } catch (err) {
     console.error('Failed to initialise Firebase Messaging:', err);
     return null;
