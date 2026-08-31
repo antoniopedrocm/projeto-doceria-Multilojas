@@ -10456,9 +10456,12 @@ function App() {
     const vendasSemana = (pedidos || []).filter(pedido => { const pedidoDate = getJSDate(pedido.createdAt); if (!pedidoDate) return false; return pedidoDate >= lastSunday && pedidoDate <= new Date() && pedido.status === 'Finalizado'; }).reduce((acc, pedido) => acc + (pedido.total || 0), 0);
     const numVendasSemana = (pedidos || []).filter(pedido => { const pedidoDate = getJSDate(pedido.createdAt); if (!pedidoDate) return false; return pedidoDate >= lastSunday && pedidoDate <= new Date() && pedido.status === 'Finalizado'; }).length;
     
-    const activeStatuses = ['Pendente', 'Em Produção', 'Pronto para Entrega'];
-    const pedidosPendentesCRM = (pedidos || []).filter(p => activeStatuses.includes(p.status) && p.origem !== 'Cardapio Online').length;
-    const pedidosPendentesWhatsApp = (pedidos || []).filter(p => activeStatuses.includes(p.status) && p.origem === 'Cardapio Online').length;
+    const pedidosPendentesCRM = (pedidos || []).filter(
+      p => isPendingOrder(p) && p.origem !== 'Cardapio Online'
+    ).length;
+    const pedidosPendentesWhatsApp = (pedidos || []).filter(
+      p => isPendingOrder(p) && p.origem === 'Cardapio Online'
+    ).length;
     
     const clientesAtivos = (clientes || []).length;
     
