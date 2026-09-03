@@ -24,6 +24,7 @@ const PROJECT_ID = "demo-caixa-rules";
 const STORE_A = "loja-a";
 const STORE_B = "loja-b";
 const STORE_C = "loja-c";
+const STORE_D = "loja-d";
 
 let testEnv;
 
@@ -63,6 +64,10 @@ const seedFirestore = async () => {
       ),
       setDoc(doc(db, "users", "manager-b"), userProfile("gerente", [STORE_B])),
       setDoc(doc(db, "users", "manager-c"), userProfile("gerente", [STORE_C])),
+      setDoc(doc(db, "users", "manager-no-entre-lojas"), {
+        ...userProfile("gerente", [STORE_A]),
+        permissions: {"entre-lojas": false},
+      }),
       setDoc(
           doc(db, "users", "manager-ab"),
           userProfile("gerente", [STORE_B, STORE_A]),
@@ -119,6 +124,13 @@ const seedFirestore = async () => {
       setDoc(doc(db, "lojas", STORE_A), {nome: "Loja A"}),
       setDoc(doc(db, "lojas", STORE_B), {nome: "Loja B"}),
       setDoc(doc(db, "lojas", STORE_C), {nome: "Loja C"}),
+      setDoc(doc(db, "lojas", STORE_D), {nome: "Loja D", ativo: false}),
+      setDoc(doc(db, "lojas", STORE_A, "configuracoes", "config"), {
+        entreLojas: {authorizedDestinationStoreIds: [STORE_B, STORE_D]},
+      }),
+      setDoc(doc(db, "lojas", STORE_B, "configuracoes", "config"), {
+        entreLojas: {authorizedDestinationStoreIds: [STORE_A]},
+      }),
       setDoc(doc(db, "clientes", "cliente-a"), {nome: "Cliente A", lojasVisitadas: [STORE_A]}),
       setDoc(doc(db, "clientes", "cliente-b"), {nome: "Cliente B", lojasVisitadas: [STORE_B]}),
       setDoc(doc(db, "lojas", STORE_A, "pedidos", "pedido-fiscal"), {total: 10}),
@@ -735,6 +747,96 @@ const confirmTransferPatch = (uid, status, relation) => ({
       status,
       relation,
   )],
+});
+
+const newTransferPayload = (originStoreId, destinationStoreId, status = "rascunho") => ({
+  lojaOrigemId: originStoreId,
+  lojaDestinoId: destinationStoreId,
+  status,
+  historico: [],
+});
+
+describe("rotas autorizadas para novas remessas entre lojas", () => {
+  test("usuario da origem cria para destino autorizado sem acesso geral ao destino", async () => {
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+    const attendantDb = testEnv.authenticatedContext("attendant-a").firestore();
+
+    await assertSucceeds(setDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "nova-manager"),
+        newTransferPayload(STORE_A, STORE_B),
+    ));
+    await assertSucceeds(setDoc(
+        entreLojasDoc(attendantDb, "transferenciasEntreLojas", "nova-atendente"),
+        newTransferPayload(STORE_A, STORE_B, "aguardando_conferencia"),
+    ));
+  });
+
+  test("configuracao e direcional e usa somente a origem escolhida", async () => {
+    const managerBDb = testEnv.authenticatedContext("manager-b").firestore();
+
+    await assertSucceeds(setDoc(
+        entreLojasDoc(managerBDb, "transferenciasEntreLojas", "volta-autorizada"),
+        newTransferPayload(STORE_B, STORE_A),
+    ));
+    await assertFails(setDoc(
+        entreLojasDoc(managerBDb, "transferenciasEntreLojas", "origem-manipulada"),
+        newTransferPayload(STORE_A, STORE_B),
+    ));
+  });
+
+  test("bloqueia destino nao autorizado, inativo e igual a origem", async () => {
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+
+    await assertFails(setDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "destino-nao-autorizado"),
+        newTransferPayload(STORE_A, STORE_C),
+    ));
+    await assertFails(setDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "destino-inativo"),
+        newTransferPayload(STORE_A, STORE_D),
+    ));
+    await assertFails(setDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "mesma-loja"),
+        newTransferPayload(STORE_A, STORE_A),
+    ));
+  });
+
+  test("bloqueia criacao sem acesso ao modulo Entre Lojas", async () => {
+    const db = testEnv.authenticatedContext("manager-no-entre-lojas").firestore();
+    await assertFails(setDoc(
+        entreLojasDoc(db, "transferenciasEntreLojas", "sem-modulo"),
+        newTransferPayload(STORE_A, STORE_B),
+    ));
+  });
+
+  test("revalida rascunho no envio sem afetar remessa historica", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(
+          doc(context.firestore(), "lojas", STORE_A, "configuracoes", "config"),
+          {"entreLojas.authorizedDestinationStoreIds": []},
+      );
+    });
+    const managerDb = testEnv.authenticatedContext("manager-a").firestore();
+
+    await assertFails(updateDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "remessa-rascunho"),
+        {status: "aguardando_conferencia"},
+    ));
+    await assertSucceeds(getDoc(
+        entreLojasDoc(managerDb, "transferenciasEntreLojas", "remessa-origem"),
+    ));
+  });
+
+  test("configuracao e auditoria nao podem ser manipuladas diretamente", async () => {
+    const ownerDb = testEnv.authenticatedContext("owner").firestore();
+    await assertFails(updateDoc(
+        doc(ownerDb, "lojas", STORE_A, "configuracoes", "config"),
+        {"entreLojas.authorizedDestinationStoreIds": [STORE_C]},
+    ));
+    await assertFails(getDoc(
+        doc(ownerDb, "transferDestinationAuditLogs", "qualquer"),
+    ));
+  });
 });
 
 describe("regras de acao do modulo Entre Lojas", () => {

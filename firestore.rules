@@ -389,17 +389,71 @@ function isTransferDraftSendUpdate() {
     && request.resource.data.status == 'aguardando_conferencia';
 }
 
+function transferDestinationConfigExists(originStoreId) {
+  return exists(
+    /databases/$(database)/documents/lojas/$(originStoreId)/configuracoes/config
+  );
+}
+
+function transferStoreExists(storeId) {
+  return exists(/databases/$(database)/documents/lojas/$(storeId));
+}
+
+function transferDestinationStoreIsActive(destinationStoreId) {
+  return transferStoreExists(destinationStoreId)
+    && get(
+      /databases/$(database)/documents/lojas/$(destinationStoreId)
+    ).data.get('ativo', true) != false
+    && !(get(
+      /databases/$(database)/documents/lojas/$(destinationStoreId)
+    ).data.get('status', '').lower() in [
+      'inativo', 'inativa', 'inactive', 'desativado', 'desativada'
+    ]);
+}
+
+function isAuthorizedTransferRoute(data) {
+  return data.lojaOrigemId is string
+    && data.lojaDestinoId is string
+    && data.lojaOrigemId != data.lojaDestinoId
+    && transferStoreExists(data.lojaOrigemId)
+    && transferDestinationStoreIsActive(data.lojaDestinoId)
+    && transferDestinationConfigExists(data.lojaOrigemId)
+    && data.lojaDestinoId in get(
+      /databases/$(database)/documents/lojas/$(data.lojaOrigemId)/configuracoes/config
+    ).data.get('entreLojas', {}).get('authorizedDestinationStoreIds', []);
+}
+
+function transferRouteChanged() {
+  return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+    'lojaOrigemId', 'lojaDestinoId'
+  ]);
+}
+
+function transferRouteRequiresValidation() {
+  return isTransferDraftSendUpdate() || transferRouteChanged();
+}
+
 function canCreateTransferenciaEntreLojas() {
-  return isEntreLojasOwnerUser()
-    || (
-      (isManagerUser() || isAttendantUser())
-      && currentUserHasStore(request.resource.data.lojaOrigemId)
+  return isSignedIn()
+    && currentUserHasEntreLojasModule()
+    && request.resource.data.status in ['rascunho', 'aguardando_conferencia']
+    && isAuthorizedTransferRoute(request.resource.data)
+    && (
+      isEntreLojasOwnerUser()
+      || (
+        (isManagerUser() || isAttendantUser())
+        && currentUserHasStore(request.resource.data.lojaOrigemId)
+      )
     );
 }
 
 function canUpdateTransferenciaEntreLojas() {
-  return isEntreLojasOwnerUser()
-    || (
+  return isSignedIn()
+    && currentUserHasEntreLojasModule()
+    && (!transferRouteRequiresValidation() || isAuthorizedTransferRoute(request.resource.data))
+    && (
+      isEntreLojasOwnerUser()
+      || (
       isManagerUser()
       && (
         (
@@ -422,6 +476,7 @@ function canUpdateTransferenciaEntreLojas() {
       && (request.resource.data.status == resource.data.status || isTransferDraftSendUpdate())
       && currentUserHasStore(resource.data.lojaOrigemId)
       && currentUserHasStore(request.resource.data.lojaOrigemId)
+      )
     );
 }
 
@@ -621,7 +676,18 @@ match /lojas/{lojaId} {
     // - /lojas/{lojaId}/configuracoes/config
     // - /lojas/{lojaId}/configuracoes/frete
     allow get, list: if isPublicRead();
-    allow create, update, delete: if canStaffWrite();
+    allow create: if canStaffWrite()
+      && !request.resource.data.get('entreLojas', {}).keys().hasAny([
+        'authorizedDestinationStoreIds'
+      ]);
+    allow update: if canStaffWrite()
+      && request.resource.data.get('entreLojas', {})
+        .get('authorizedDestinationStoreIds', [])
+        == resource.data.get('entreLojas', {})
+          .get('authorizedDestinationStoreIds', []);
+    allow delete: if canStaffWrite()
+      && resource.data.get('entreLojas', {})
+        .get('authorizedDestinationStoreIds', []).size() == 0;
 
     match /{subcollection}/{configDocId} {
       allow get, list: if subcollection == 'cupons'
@@ -808,6 +874,11 @@ match /customProfiles/{userId} {
   allow create, update, delete: if false;
 }
 
+// Configuração direcional e auditoria são manipuladas somente pelas Functions.
+match /transferDestinationAuditLogs/{auditId} {
+  allow read, write: if false;
+}
+
 match /transferenciasEntreLojas/{transferenciaId} {
   allow get: if canReadTransferenciaEntreLojasDoc();
   allow list: if canReadTransferenciaEntreLojasDoc();
@@ -863,6 +934,7 @@ match /{collection}/{document=**} {
     && collection != 'fechamentosEntreLojas'
     && collection != 'notificationTokens'
     && collection != 'notificationEvents'
+    && collection != 'transferDestinationAuditLogs'
     && (!isReadOnlyAccountant()
       || (collection == 'transferenciasEntreLojas' && accountantHasModule('entre-lojas')));
   allow write: if canStaffWrite()
@@ -874,7 +946,8 @@ match /{collection}/{document=**} {
     && collection != 'transferenciasEntreLojas'
     && collection != 'fechamentosEntreLojas'
     && collection != 'notificationTokens'
-    && collection != 'notificationEvents';
+    && collection != 'notificationEvents'
+    && collection != 'transferDestinationAuditLogs';
 }
 
 }

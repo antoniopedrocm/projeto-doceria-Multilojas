@@ -190,6 +190,7 @@ const getDefaultPermissionDetailsForRole = (role, permissionsInput = null) => {
   return {
     'entre-lojas': {
       statuses: permissions?.['entre-lojas'] ? [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES] : [],
+      manageTransferDestinations: normalizedRole === ROLE_OWNER,
     },
     caixa: permissions?.fornecedores ?
       defaultCashPermissions(role) :
@@ -217,7 +218,13 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
   const normalizedRole = normalizeRole(role);
 
   return {
-    'entre-lojas': {statuses},
+    'entre-lojas': {
+      statuses,
+      manageTransferDestinations: normalizedRole === ROLE_OWNER || (
+        normalizedRole === ROLE_MANAGER &&
+        entreLojasDetails?.manageTransferDestinations === true
+      ),
+    },
     caixa: permissions?.fornecedores ?
       sanitizeCashPermissions(caixaDetails, role) :
       defaultCashPermissions(ROLE_ACCOUNTANT),
@@ -375,6 +382,34 @@ const assertManagerCannotGrantOwnerAccess = (requester, targetRole, permissionsI
   if (normalizeRole(targetRole) === ROLE_OWNER || grantsOwnerEquivalentPermissions(targetRole, permissionsInput, targetStores)) {
     throw new HttpsError('permission-denied', 'Gerentes não podem conceder perfil ou permissões de dono.');
   }
+};
+
+const managerHasTransferDestinationPermission = (permissionDetails = {}) => (
+  permissionDetails?.['entre-lojas']?.manageTransferDestinations === true ||
+  permissionDetails?.entreLojas?.manageTransferDestinations === true
+);
+
+const assertManagerCannotGrantTransferDestinationAccess = async (
+    requester,
+    targetUid,
+    requestedPermissionDetails,
+) => {
+  if (requester.role !== ROLE_MANAGER) return;
+  const requested = managerHasTransferDestinationPermission(
+      requestedPermissionDetails,
+  );
+  let existing = false;
+  if (targetUid) {
+    const existingCustomProfile = await db.collection('customProfiles')
+        .doc(targetUid).get();
+    const existingDetails = existingCustomProfile.data()?.permissionDetails || {};
+    existing = managerHasTransferDestinationPermission(existingDetails);
+  }
+  if (requested === existing) return;
+  throw new HttpsError(
+      'permission-denied',
+      'Somente um Dono pode alterar a permissão de gerenciar destinos de remessas.',
+  );
 };
 
 const getPostClosingCashPermissionDetails = (permissionDetails) => {
@@ -3132,6 +3167,11 @@ exports.createUser = onCall(async (request) => {
             }
         }
         assertManagerCannotGrantOwnerAccess(requester, normalizedRole, requestedPermissions, targetStores);
+        await assertManagerCannotGrantTransferDestinationAccess(
+            requester,
+            null,
+            requestedPermissionDetails,
+        );
         await assertManagerCannotGrantUserStatusAccess(
             requester,
             null,
@@ -3243,6 +3283,11 @@ exports.updateUser = onCall(async (request) => {
         }
 
         assertManagerCannotGrantOwnerAccess(requester, normalizedRole, requestedPermissions, targetStores);
+        await assertManagerCannotGrantTransferDestinationAccess(
+            requester,
+            uid,
+            requestedPermissionDetails,
+        );
         await assertManagerCannotGrantUserStatusAccess(
             requester,
             uid,
