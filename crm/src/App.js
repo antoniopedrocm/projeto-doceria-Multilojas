@@ -13836,9 +13836,9 @@ const effectiveStoreName = useMemo(() => {
                                                 {normalizeRole(userFormData.role) === ROLE_MANAGER && (
                                                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
                                                         <div>
-                                                            <p className="text-xs font-semibold text-gray-800">Ajustes após encerramento</p>
+                                                            <p className="text-xs font-semibold text-gray-800">Ajustes e correções após encerramento</p>
                                                             <p className="text-xs text-gray-600">
-                                                                Permite registrar retiradas para despesas e sangrias mesmo depois do encerramento do caixa do dia.
+                                                                Permite corrigir abertura/encerramento e registrar retiradas ou sangrias após o fechamento, somente nas lojas atribuídas ao gerente.
                                                             </p>
                                                         </div>
                                                         <label className="flex items-start gap-2 text-xs text-gray-700">
@@ -13864,7 +13864,7 @@ const effectiveStoreName = useMemo(() => {
                                                                     });
                                                                 }}
                                                             />
-                                                            <span>Permitir ajustes no Caixa após encerramento</span>
+                                                            <span>{CAIXA_PERMISSION_LABELS.ajustarCaixaAposEncerramento}</span>
                                                         </label>
                                                         {normalizeRole(user?.role) !== ROLE_OWNER && (
                                                             <p className="text-xs text-gray-500">
