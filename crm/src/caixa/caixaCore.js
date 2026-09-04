@@ -17,7 +17,7 @@ export const CAIXA_PERMISSION_LABELS = {
   registrarEncerramento: 'Informar valor de encerramento',
   registrarRetiradaDespesa: 'Registrar retirada para despesa',
   registrarSangria: 'Registrar sangria',
-  ajustarCaixaAposEncerramento: 'Permitir ajustes no Caixa após encerramento',
+  ajustarCaixaAposEncerramento: 'Ajustes e correções após encerramento',
   visualizarSangrias: 'Consultar sangrias',
   visualizarConferencia: 'Consultar histórico gerencial',
   visualizarValoresCalculados: 'Visualizar valores calculados',
