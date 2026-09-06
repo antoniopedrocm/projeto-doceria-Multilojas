@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { getExplicitTransferStatuses } from './utils/transferStatusVisibility';
 import {
   LayoutDashboard, Users, ShoppingCart, Package, Calendar, Truck, DollarSign, BarChart3,
   Search, Bell, Menu, User as UserIcon, Settings, LogOut, Plus, Heart,
@@ -1336,7 +1337,7 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
     ? (Array.isArray(entreLojasDetails.statuses)
       ? entreLojasDetails.statuses
       : (Array.isArray(entreLojasDetails.status) ? entreLojasDetails.status : []))
-    : (permissions?.['entre-lojas'] ? ENTRE_LOJAS_TRANSFER_STATUS_VALUES : []);
+    : [];
 
   const validStatuses = permissions?.['entre-lojas']
     ? rawStatuses
@@ -1375,12 +1376,9 @@ const isUserAccountActive = (profile = {}) => {
 const getEntreLojasAllowedStatusesFromProfile = (profile) => {
   if (!profile) return [];
   const role = normalizeRole(profile.role);
-  const permissionsSource = profile.customPermissions || profile.permissions;
-  const permissions = sanitizePermissions(permissionsSource, role);
+  const permissions = sanitizePermissions(profile.permissions, role);
   if (!permissions['entre-lojas']) return [];
-  const detailsSource = profile.customPermissionDetails || profile.permissionDetails;
-  const details = sanitizePermissionDetails(detailsSource, role, permissions);
-  return details['entre-lojas']?.statuses || [];
+  return getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES);
 };
 
 const extractStoreIdsFromProfile = (profile) => {
@@ -1406,7 +1404,14 @@ const buildUserDataFromProfile = (authUser, profile = {}, customProfileData = nu
   const customPermissionDetails = customProfileData
     ? sanitizePermissionDetails(customProfileData.permissionDetails, role, permissions)
     : null;
-  const permissionDetails = customPermissionDetails || sanitizePermissionDetails(profile.permissionDetails, role, permissions);
+  permissions['entre-lojas'] = sanitizePermissions(profile.permissions, role)['entre-lojas'];
+  const permissionDetails = {
+    ...(customPermissionDetails || sanitizePermissionDetails(profile.permissionDetails, role, permissions)),
+    'entre-lojas': {
+      ...profile.permissionDetails?.['entre-lojas'],
+      statuses: getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES)
+    }
+  };
 
   return {
     auth: authUser,
@@ -6867,7 +6872,24 @@ function App() {
         const uid = user?.auth?.uid;
         if (!uid) return undefined;
 
+        const applyTransferProfile = (profile = {}) => setUser((previous) => (
+            previous?.auth?.uid !== uid ? previous : {
+                ...previous,
+                permissions: {
+                    ...previous.permissions,
+                    'entre-lojas': profile.permissions?.['entre-lojas'] !== false
+                },
+                permissionDetails: {
+                    ...previous.permissionDetails,
+                    'entre-lojas': {
+                        ...profile.permissionDetails?.['entre-lojas'],
+                        statuses: getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES)
+                    }
+                }
+            }
+        ));
         return onSnapshot(doc(db, 'users', uid), (snapshot) => {
+            applyTransferProfile(snapshot.exists() ? snapshot.data() : {permissions: {'entre-lojas': false}});
             if (!snapshot.exists() || isUserAccountActive(snapshot.data() || {})) return;
             setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
             setShowLogin(true);
@@ -6877,6 +6899,7 @@ function App() {
             });
         }, (error) => {
             console.error('Erro ao acompanhar status da conta:', error);
+            applyTransferProfile({permissions: {'entre-lojas': false}});
             if (error?.code === 'permission-denied') {
                 setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
                 setShowLogin(true);
@@ -15349,6 +15372,7 @@ const handleSubmit = async (e) => {
       }
 
       const transfersRef = collection(db, 'transferenciasEntreLojas');
+      setTransferencias([]);
       let isActive = true;
       const unsubscribes = [];
 
@@ -15372,6 +15396,7 @@ const handleSubmit = async (e) => {
           setTransferencias(rows);
         }, (error) => {
           console.error('[EntreLojas] Erro ao carregar transferências:', error);
+          if (isActive) setTransferencias([]);
         });
 
         return () => {
@@ -15450,6 +15475,8 @@ const handleSubmit = async (e) => {
             mergeTransfers();
           }, (error) => {
             console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
+            originDocsByQuery.delete(originKey);
+            mergeTransfers();
           });
 
           unsubscribes.push(unsubscribeOrigin);
@@ -15475,6 +15502,8 @@ const handleSubmit = async (e) => {
             mergeTransfers();
           }, (error) => {
             console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
+            destinationDocsByQuery.delete(destinationKey);
+            mergeTransfers();
           });
 
           unsubscribes.push(unsubscribeDestination);
@@ -15812,6 +15841,16 @@ const handleSubmit = async (e) => {
         setViewingTransfer(latestTransfer);
       }
     }, [canReadTransferForCurrentViewer, transferencias, viewingTransfer]);
+
+    useEffect(() => {
+      if (!editingTransfer?.id) return;
+      const latest = transferencias.find((item) => item.id === editingTransfer.id);
+      if (!latest || !canReadTransferForCurrentViewer(latest)) {
+        setEditingTransfer(null);
+        setShowModal(false);
+        setFormData((previous) => ({ ...previous, itens: [], observacaoOrigem: '' }));
+      }
+    }, [canReadTransferForCurrentViewer, editingTransfer, transferencias]);
 
     const formatMoney = (value) => `R$ ${(Number(value) || 0).toFixed(2)}`;
     const formatDate = (value) => parseLocalDate(value)?.toLocaleDateString('pt-BR') || '-';
@@ -17286,7 +17325,7 @@ const handleSubmit = async (e) => {
     const visibleTransferTableColumns = columns.filter((column) => visibleTransferColumnSet.has(column.id));
 
     const actions = [
-      { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingTransfer(row) },
+      { icon: Eye, label: 'Visualizar', onClick: (row) => { if (canReadTransferForCurrentViewer(row)) setViewingTransfer(row); } },
       {
         icon: ArrowLeftRight,
         label: 'Mover para fechamento',
@@ -17870,7 +17909,7 @@ const handleSubmit = async (e) => {
           )}
         </Modal>
 
-        <Modal isOpen={!!viewingTransfer} onClose={() => { setViewingTransfer(null); setActionComment(''); }} title="Detalhe da Remessa" size="xl">
+        <Modal isOpen={!!viewingTransfer && canReadTransferForCurrentViewer(viewingTransfer)} onClose={() => { setViewingTransfer(null); setActionComment(''); }} title="Detalhe da Remessa" size="xl">
           {viewingTransfer && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 rounded-xl p-4 text-sm">
