@@ -192,36 +192,71 @@ export const formatSupplementalPeriodLabel = (period = {}) => {
   return `${label} ${period.horaInicio || '--:--'}–${period.horaFim || '--:--'}`;
 };
 
-const legacyPunchEvents = (record = {}) => [
-  record.horaEntrada && {
-    tipo: 'entrada',
-    hora: record.horaEntrada,
-    origem: record.manualPeloGestor || record.lancamentoManualGestor ? 'gestor' : 'funcionaria',
-    localizacao: record.localizacaoEntrada || null,
-    endereco: record.localizacaoEntradaEndereco || ''
-  },
-  record.horaAlmocoSaida && {
-    tipo: 'almoco_inicio',
-    hora: record.horaAlmocoSaida,
-    origem: record.manualPeloGestor || record.lancamentoManualGestor ? 'gestor' : 'funcionaria'
-  },
-  record.horaAlmocoRetorno && {
-    tipo: 'almoco_fim',
-    hora: record.horaAlmocoRetorno,
-    origem: record.manualPeloGestor || record.lancamentoManualGestor ? 'gestor' : 'funcionaria'
-  },
-  record.horaSaida && {
-    tipo: 'saida',
-    hora: record.horaSaida,
-    origem: record.manualPeloGestor || record.lancamentoManualGestor ? 'gestor' : 'funcionaria',
-    localizacao: record.localizacaoSaida || null,
-    endereco: record.localizacaoSaidaEndereco || ''
-  }
-].filter(Boolean);
+export const buildPointPunchEventsFromTimes = (record = {}, metadata = {}) => {
+  const origin = metadata.origem
+    || (record.manualPeloGestor || record.lancamentoManualGestor ? 'gestor' : 'funcionaria');
+  const managerId = metadata.gestorId || record.gestorId || '';
+  const managerName = metadata.gestorNome || record.gestorNome || '';
+  const recordedAt = metadata.registradoEm || '';
+  const common = {
+    origem: origin,
+    ...(managerId ? { gestorId: managerId } : {}),
+    ...(managerName ? { gestorNome: managerName } : {}),
+    ...(recordedAt ? { registradoEm: recordedAt } : {})
+  };
+  const eventId = (type, time) => metadata.idPrefix
+    ? `${metadata.idPrefix}_${type}`
+    : `horario_${type}_${time}`;
+
+  return [
+    record.horaEntrada && {
+      ...common,
+      id: eventId('entrada', record.horaEntrada),
+      tipo: 'entrada',
+      hora: record.horaEntrada,
+      localizacao: record.localizacaoEntrada || null,
+      endereco: record.localizacaoEntradaEndereco || ''
+    },
+    record.horaAlmocoSaida && {
+      ...common,
+      id: eventId('almoco_inicio', record.horaAlmocoSaida),
+      tipo: 'almoco_inicio',
+      hora: record.horaAlmocoSaida
+    },
+    record.horaAlmocoRetorno && {
+      ...common,
+      id: eventId('almoco_fim', record.horaAlmocoRetorno),
+      tipo: 'almoco_fim',
+      hora: record.horaAlmocoRetorno
+    },
+    record.horaSaida && {
+      ...common,
+      id: eventId('saida', record.horaSaida),
+      tipo: 'saida',
+      hora: record.horaSaida,
+      localizacao: record.localizacaoSaida || null,
+      endereco: record.localizacaoSaidaEndereco || ''
+    }
+  ].filter(Boolean);
+};
+
+const legacyPunchEvents = (record = {}) => buildPointPunchEventsFromTimes(record);
+
+const hasManagerTimeCorrection = (record = {}) => Boolean(
+  (record.manualPeloGestor || record.lancamentoManualGestor)
+  && [record.horaEntrada, record.horaAlmocoSaida, record.horaAlmocoRetorno, record.horaSaida].some(hasTime)
+);
 
 export const getPointPunchEvents = (record = {}) => {
   const storedEvents = Array.isArray(record.batidas) ? record.batidas.filter(Boolean) : [];
-  const events = storedEvents.length ? storedEvents : legacyPunchEvents(record);
+  // Ajustes antigos atualizaram os quatro campos consolidados, mas deixaram
+  // `batidas` com o estado anterior. Até esses documentos serem novamente
+  // salvos, os horários corrigidos são a fonte vigente da jornada.
+  const shouldUseCorrectedTimes = hasManagerTimeCorrection(record)
+    && record.batidasSincronizadasComAjuste !== true;
+  const events = shouldUseCorrectedTimes || !storedEvents.length
+    ? legacyPunchEvents(record)
+    : storedEvents;
   return events
     .map((event, index) => ({
       ...event,

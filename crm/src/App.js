@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { getExplicitTransferStatuses } from './utils/transferStatusVisibility';
 import {
   LayoutDashboard, Users, ShoppingCart, Package, Calendar, Truck, DollarSign, BarChart3,
   Search, Bell, Menu, User as UserIcon, Settings, LogOut, Plus, Heart,
@@ -1322,7 +1323,8 @@ const getDefaultPermissionDetailsForRole = (role, permissionsInput = null) => {
   const normalizedRole = normalizeRole(role);
   return {
     'entre-lojas': {
-      statuses: permissions?.['entre-lojas'] ? [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES] : []
+      statuses: permissions?.['entre-lojas'] ? [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES] : [],
+      manageTransferDestinations: normalizedRole === ROLE_OWNER
     },
     caixa: permissions?.fornecedores
       ? getDefaultCaixaPermissionsForRole(role)
@@ -1344,7 +1346,7 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
     ? (Array.isArray(entreLojasDetails.statuses)
       ? entreLojasDetails.statuses
       : (Array.isArray(entreLojasDetails.status) ? entreLojasDetails.status : []))
-    : (permissions?.['entre-lojas'] ? ENTRE_LOJAS_TRANSFER_STATUS_VALUES : []);
+    : [];
 
   const validStatuses = permissions?.['entre-lojas']
     ? rawStatuses
@@ -1354,7 +1356,11 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
 
   return {
     'entre-lojas': {
-      statuses: Array.from(new Set(validStatuses))
+      statuses: Array.from(new Set(validStatuses)),
+      manageTransferDestinations: normalizedRole === ROLE_OWNER || (
+        normalizedRole === ROLE_MANAGER &&
+        entreLojasDetails?.manageTransferDestinations === true
+      )
     },
     caixa: permissions?.fornecedores
       ? sanitizeCaixaPermissions(caixaDetails, role)
@@ -1379,12 +1385,9 @@ const isUserAccountActive = (profile = {}) => {
 const getEntreLojasAllowedStatusesFromProfile = (profile) => {
   if (!profile) return [];
   const role = normalizeRole(profile.role);
-  const permissionsSource = profile.customPermissions || profile.permissions;
-  const permissions = sanitizePermissions(permissionsSource, role);
+  const permissions = sanitizePermissions(profile.permissions, role);
   if (!permissions['entre-lojas']) return [];
-  const detailsSource = profile.customPermissionDetails || profile.permissionDetails;
-  const details = sanitizePermissionDetails(detailsSource, role, permissions);
-  return details['entre-lojas']?.statuses || [];
+  return getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES);
 };
 
 const extractStoreIdsFromProfile = (profile) => {
@@ -1410,7 +1413,14 @@ const buildUserDataFromProfile = (authUser, profile = {}, customProfileData = nu
   const customPermissionDetails = customProfileData
     ? sanitizePermissionDetails(customProfileData.permissionDetails, role, permissions)
     : null;
-  const permissionDetails = customPermissionDetails || sanitizePermissionDetails(profile.permissionDetails, role, permissions);
+  permissions['entre-lojas'] = sanitizePermissions(profile.permissions, role)['entre-lojas'];
+  const permissionDetails = {
+    ...(customPermissionDetails || sanitizePermissionDetails(profile.permissionDetails, role, permissions)),
+    'entre-lojas': {
+      ...profile.permissionDetails?.['entre-lojas'],
+      statuses: getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES)
+    }
+  };
 
   return {
     auth: authUser,
@@ -7214,7 +7224,24 @@ function App() {
         const uid = user?.auth?.uid;
         if (!uid) return undefined;
 
+        const applyTransferProfile = (profile = {}) => setUser((previous) => (
+            previous?.auth?.uid !== uid ? previous : {
+                ...previous,
+                permissions: {
+                    ...previous.permissions,
+                    'entre-lojas': profile.permissions?.['entre-lojas'] !== false
+                },
+                permissionDetails: {
+                    ...previous.permissionDetails,
+                    'entre-lojas': {
+                        ...profile.permissionDetails?.['entre-lojas'],
+                        statuses: getExplicitTransferStatuses(profile.permissionDetails, ENTRE_LOJAS_TRANSFER_STATUS_VALUES)
+                    }
+                }
+            }
+        ));
         return onSnapshot(doc(db, 'users', uid), (snapshot) => {
+            applyTransferProfile(snapshot.exists() ? snapshot.data() : {permissions: {'entre-lojas': false}});
             if (!snapshot.exists() || isUserAccountActive(snapshot.data() || {})) return;
             setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
             setShowLogin(true);
@@ -7224,6 +7251,7 @@ function App() {
             });
         }, (error) => {
             console.error('Erro ao acompanhar status da conta:', error);
+            applyTransferProfile({permissions: {'entre-lojas': false}});
             if (error?.code === 'permission-denied') {
                 setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
                 setShowLogin(true);
@@ -12044,8 +12072,18 @@ const effectiveStoreName = useMemo(() => {
     const [storeHoursConfig, setStoreHoursConfig] = useState(getDefaultStoreHoursConfig());
     const [isSavingStoreHours, setIsSavingStoreHours] = useState(false);
     const [entreLojasConfig, setEntreLojasConfig] = useState({ percentualRepasse: 0 });
+    const [transferDestinationConfig, setTransferDestinationConfig] = useState({
+        authorizedDestinationStoreIds: [],
+        stores: [],
+        loading: false,
+        error: ''
+    });
     const [isSavingEntreLojasConfig, setIsSavingEntreLojasConfig] = useState(false);
     const canEditEntreLojasConfig = user?.role === ROLE_OWNER;
+    const canManageTransferDestinations = user?.role === ROLE_OWNER || (
+        user?.role === ROLE_MANAGER &&
+        user?.permissionDetails?.['entre-lojas']?.manageTransferDestinations === true
+    );
 
     useEffect(() => {
         if (activeTab !== 'frete') return;
@@ -12145,22 +12183,47 @@ const effectiveStoreName = useMemo(() => {
         if (activeTab !== 'entre-lojas') return;
         if (!effectiveStoreId) {
             setEntreLojasConfig({ percentualRepasse: 0 });
+            setTransferDestinationConfig({
+                authorizedDestinationStoreIds: [],
+                stores: [],
+                loading: false,
+                error: ''
+            });
             return;
         }
         const fetchEntreLojasConfig = async () => {
+            setTransferDestinationConfig((prev) => ({ ...prev, loading: canManageTransferDestinations, error: '' }));
             try {
-                const configSnap = await getDoc(getStoreConfigDocRef(effectiveStoreId));
+                const destinationConfigurationPromise = canManageTransferDestinations
+                    ? httpsCallable(functions, 'getTransferDestinationConfiguration')({ originStoreId: effectiveStoreId })
+                    : Promise.resolve(null);
+                const [configSnap, destinationResult] = await Promise.all([
+                    getDoc(getStoreConfigDocRef(effectiveStoreId)),
+                    destinationConfigurationPromise
+                ]);
                 const percentual = Number(configSnap.data()?.entreLojas?.percentualRepasse);
                 setEntreLojasConfig({
                     percentualRepasse: Number.isFinite(percentual) && percentual >= 0 ? percentual : 0
                 });
+                setTransferDestinationConfig({
+                    authorizedDestinationStoreIds: destinationResult?.data?.authorizedDestinationStoreIds || [],
+                    stores: destinationResult?.data?.stores || [],
+                    loading: false,
+                    error: ''
+                });
             } catch (error) {
                 console.error('Erro ao carregar configuração de Entre Lojas:', error);
                 setEntreLojasConfig({ percentualRepasse: 0 });
+                setTransferDestinationConfig({
+                    authorizedDestinationStoreIds: [],
+                    stores: [],
+                    loading: false,
+                    error: error?.message || 'Não foi possível carregar os destinos autorizados.'
+                });
             }
         };
         fetchEntreLojasConfig();
-    }, [activeTab, effectiveStoreId]);
+    }, [activeTab, canManageTransferDestinations, effectiveStoreId]);
 	
 	//Limpeza quando o componente desmontar
         useEffect(() => {
@@ -12807,7 +12870,7 @@ const effectiveStoreName = useMemo(() => {
             alert('Selecione uma loja específica para salvar a configuração de Entre Lojas.');
             return;
         }
-        if (!canEditEntreLojasConfig) {
+        if (!canEditEntreLojasConfig && !canManageTransferDestinations) {
             alert('Você não tem permissão para alterar essa configuração.');
             return;
         }
@@ -12818,13 +12881,24 @@ const effectiveStoreName = useMemo(() => {
         }
         setIsSavingEntreLojasConfig(true);
         try {
-            await setDoc(getStoreConfigDocRef(effectiveStoreId), {
-                entreLojas: {
-                    percentualRepasse: Number.isFinite(percentual) ? percentual : 0,
-                    updatedAt: serverTimestamp(),
-                    updatedBy: user?.auth?.email || user?.email || 'Sistema'
-                }
-            }, { merge: true });
+            const updates = [];
+            if (canEditEntreLojasConfig) {
+                updates.push(setDoc(getStoreConfigDocRef(effectiveStoreId), {
+                    entreLojas: {
+                        percentualRepasse: Number.isFinite(percentual) ? percentual : 0,
+                        updatedAt: serverTimestamp(),
+                        updatedBy: user?.auth?.email || user?.email || 'Sistema'
+                    }
+                }, { merge: true }));
+            }
+            if (canManageTransferDestinations) {
+                const updateDestinations = httpsCallable(functions, 'updateTransferDestinations');
+                updates.push(updateDestinations({
+                    originStoreId: effectiveStoreId,
+                    authorizedDestinationStoreIds: transferDestinationConfig.authorizedDestinationStoreIds
+                }));
+            }
+            await Promise.all(updates);
             alert('Configuração de Entre Lojas salva com sucesso!');
         } catch (error) {
             console.error('Erro ao salvar configuração de Entre Lojas:', error);
@@ -13470,8 +13544,57 @@ const effectiveStoreName = useMemo(() => {
                                     Apenas Admin/Dono pode alterar esse percentual.
                                 </p>
                             )}
+                            <div className="border-t border-gray-100 pt-5 space-y-3">
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-800">Destinos autorizados para Remessas</h3>
+                                    <p className="text-sm text-gray-500">
+                                        Escolha as lojas que podem receber novas remessas desta origem. A autorização é direcional e não concede acesso administrativo ao destino.
+                                    </p>
+                                </div>
+                                {transferDestinationConfig.loading && (
+                                    <p className="text-sm text-gray-500">Carregando lojas...</p>
+                                )}
+                                {transferDestinationConfig.error && (
+                                    <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{transferDestinationConfig.error}</p>
+                                )}
+                                {!canManageTransferDestinations && (
+                                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                        Apenas Dono ou Gerente com a permissão “Gerenciar destinos de remessas” pode alterar esta lista.
+                                    </p>
+                                )}
+                                {canManageTransferDestinations && !transferDestinationConfig.loading && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {transferDestinationConfig.stores.map((store) => {
+                                            const checked = transferDestinationConfig.authorizedDestinationStoreIds.includes(store.id);
+                                            return (
+                                                <label key={store.id} className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${store.active ? 'cursor-pointer text-gray-700' : 'bg-gray-50 text-gray-400'}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mt-0.5"
+                                                        checked={checked}
+                                                        disabled={!store.active && !checked}
+                                                        onChange={(event) => setTransferDestinationConfig((prev) => ({
+                                                            ...prev,
+                                                            authorizedDestinationStoreIds: event.target.checked
+                                                                ? Array.from(new Set([...prev.authorizedDestinationStoreIds, store.id]))
+                                                                : prev.authorizedDestinationStoreIds.filter((storeId) => storeId !== store.id)
+                                                        }))}
+                                                    />
+                                                    <span>
+                                                        <strong>{store.nome || store.id}</strong>
+                                                        {store.identificacao ? <span className="block text-xs">{store.identificacao}</span> : null}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
+                                        {!transferDestinationConfig.stores.length && (
+                                            <p className="text-sm text-gray-500 sm:col-span-2">Nenhuma outra loja cadastrada.</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                             <div className="pt-2">
-                                <Button type="submit" disabled={isSavingEntreLojasConfig || !canEditEntreLojasConfig}>
+                                <Button type="submit" disabled={isSavingEntreLojasConfig || (!canEditEntreLojasConfig && !canManageTransferDestinations)}>
                                     <Save className="w-4 h-4" /> {isSavingEntreLojasConfig ? 'Salvando...' : 'Salvar Configurações'}
                                 </Button>
                             </div>
@@ -13858,6 +13981,7 @@ const effectiveStoreName = useMemo(() => {
                                     sanitizedFormPermissions
                                 );
                                 const selectedEntreLojasStatuses = sanitizedDetails['entre-lojas']?.statuses || [];
+                                const canManageTransferDestinations = sanitizedDetails['entre-lojas']?.manageTransferDestinations === true;
                                 const selectedCaixaPermissions = sanitizedDetails.caixa || getEmptyCaixaPermissions();
                                 const canManageUserStatuses = sanitizedDetails.configuracoes?.gerenciarStatusUsuarios === true;
 
@@ -13909,7 +14033,10 @@ const effectiveStoreName = useMemo(() => {
                                                                 ...prev,
                                                                 permissionDetails: {
                                                                     ...sanitizePermissionDetails(prev.permissionDetails, prev.role, prev.permissions),
-                                                                    'entre-lojas': { statuses: [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES] }
+                                                                    'entre-lojas': {
+                                                                        ...sanitizePermissionDetails(prev.permissionDetails, prev.role, prev.permissions)['entre-lojas'],
+                                                                        statuses: [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES]
+                                                                    }
                                                                 }
                                                             }))}
                                                         >
@@ -13922,7 +14049,10 @@ const effectiveStoreName = useMemo(() => {
                                                                 ...prev,
                                                                 permissionDetails: {
                                                                     ...sanitizePermissionDetails(prev.permissionDetails, prev.role, prev.permissions),
-                                                                    'entre-lojas': { statuses: [] }
+                                                                    'entre-lojas': {
+                                                                        ...sanitizePermissionDetails(prev.permissionDetails, prev.role, prev.permissions)['entre-lojas'],
+                                                                        statuses: []
+                                                                    }
                                                                 }
                                                             }))}
                                                         >
@@ -13948,7 +14078,10 @@ const effectiveStoreName = useMemo(() => {
                                                                             ...prev,
                                                                             permissionDetails: {
                                                                                 ...currentDetails,
-                                                                                'entre-lojas': { statuses: nextStatuses }
+                                                                                'entre-lojas': {
+                                                                                    ...currentDetails['entre-lojas'],
+                                                                                    statuses: nextStatuses
+                                                                                }
                                                                             }
                                                                         };
                                                                     });
@@ -13962,6 +14095,38 @@ const effectiveStoreName = useMemo(() => {
                                                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">
                                                         O usuário acessará o menu, mas não verá remessas até que pelo menos um status seja marcado.
                                                     </p>
+                                                )}
+                                                {normalizeRole(userFormData.role) === ROLE_MANAGER && (
+                                                    <div className="border-t border-pink-100 pt-3">
+                                                        <label className="flex items-start gap-2 text-xs text-gray-700">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="mt-0.5"
+                                                                checked={canManageTransferDestinations}
+                                                                disabled={user?.role !== ROLE_OWNER}
+                                                                onChange={(event) => {
+                                                                    setUserFormData((prev) => {
+                                                                        const currentPermissions = sanitizePermissions(prev.permissions, prev.role);
+                                                                        const currentDetails = sanitizePermissionDetails(prev.permissionDetails, prev.role, currentPermissions);
+                                                                        return {
+                                                                            ...prev,
+                                                                            permissionDetails: {
+                                                                                ...currentDetails,
+                                                                                'entre-lojas': {
+                                                                                    ...currentDetails['entre-lojas'],
+                                                                                    manageTransferDestinations: event.target.checked,
+                                                                                },
+                                                                            },
+                                                                        };
+                                                                    });
+                                                                }}
+                                                            />
+                                                            <span>Permitir gerenciar destinos de remessas das lojas às quais este gerente possui acesso.</span>
+                                                        </label>
+                                                        {user?.role !== ROLE_OWNER && (
+                                                            <p className="mt-1 text-xs text-gray-500">Somente um Dono pode conceder ou remover esta permissão.</p>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
@@ -14047,9 +14212,9 @@ const effectiveStoreName = useMemo(() => {
                                                 {normalizeRole(userFormData.role) === ROLE_MANAGER && (
                                                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
                                                         <div>
-                                                            <p className="text-xs font-semibold text-gray-800">Ajustes após encerramento</p>
+                                                            <p className="text-xs font-semibold text-gray-800">Ajustes e correções após encerramento</p>
                                                             <p className="text-xs text-gray-600">
-                                                                Permite registrar retiradas para despesas e sangrias mesmo depois do encerramento do caixa do dia.
+                                                                Permite corrigir abertura/encerramento e registrar retiradas ou sangrias após o fechamento, somente nas lojas atribuídas ao gerente.
                                                             </p>
                                                         </div>
                                                         <label className="flex items-start gap-2 text-xs text-gray-700">
@@ -14075,7 +14240,7 @@ const effectiveStoreName = useMemo(() => {
                                                                     });
                                                                 }}
                                                             />
-                                                            <span>Permitir ajustes no Caixa após encerramento</span>
+                                                            <span>{CAIXA_PERMISSION_LABELS.ajustarCaixaAposEncerramento}</span>
                                                         </label>
                                                         {normalizeRole(user?.role) !== ROLE_OWNER && (
                                                             <p className="text-xs text-gray-500">
@@ -15328,6 +15493,9 @@ const handleSubmit = async (e) => {
     const [transferSyncNotice, setTransferSyncNotice] = useState('');
     const [closingSyncNotice, setClosingSyncNotice] = useState('');
     const [repasseConfigPercentual, setRepasseConfigPercentual] = useState(0);
+    const [authorizedDestinationStores, setAuthorizedDestinationStores] = useState([]);
+    const [isLoadingAuthorizedDestinations, setIsLoadingAuthorizedDestinations] = useState(false);
+    const [authorizedDestinationsError, setAuthorizedDestinationsError] = useState('');
     const [actionComment, setActionComment] = useState('');
     const [closingActionComment, setClosingActionComment] = useState('');
     const [closingPaymentForm, setClosingPaymentForm] = useState({
@@ -15366,6 +15534,10 @@ const handleSubmit = async (e) => {
     }, [user]);
 
     const canAccessAllTransfers = user?.role === ROLE_OWNER;
+    const canManageTransferDestinations = user?.role === ROLE_OWNER || (
+      user?.role === ROLE_MANAGER &&
+      user?.permissionDetails?.['entre-lojas']?.manageTransferDestinations === true
+    );
     const allowedOriginStoreIds = useMemo(() => {
       if (!user) return [];
       if (user.role === ROLE_OWNER) return availableStores;
@@ -15553,6 +15725,7 @@ const handleSubmit = async (e) => {
       }
 
       const transfersRef = collection(db, 'transferenciasEntreLojas');
+      setTransferencias([]);
       let isActive = true;
       const unsubscribes = [];
 
@@ -15576,6 +15749,7 @@ const handleSubmit = async (e) => {
           setTransferencias(rows);
         }, (error) => {
           console.error('[EntreLojas] Erro ao carregar transferências:', error);
+          if (isActive) setTransferencias([]);
         });
 
         return () => {
@@ -15654,6 +15828,8 @@ const handleSubmit = async (e) => {
             mergeTransfers();
           }, (error) => {
             console.error('[EntreLojas] Erro ao carregar transferências por origem:', error);
+            originDocsByQuery.delete(originKey);
+            mergeTransfers();
           });
 
           unsubscribes.push(unsubscribeOrigin);
@@ -15679,6 +15855,8 @@ const handleSubmit = async (e) => {
             mergeTransfers();
           }, (error) => {
             console.error('[EntreLojas] Erro ao carregar transferências por destino:', error);
+            destinationDocsByQuery.delete(destinationKey);
+            mergeTransfers();
           });
 
           unsubscribes.push(unsubscribeDestination);
@@ -15787,6 +15965,53 @@ const handleSubmit = async (e) => {
       () => availableStores.map((storeId) => ({ id: storeId, nome: storeInfoMap[storeId]?.nome || storeId })),
       [availableStores, storeInfoMap]
     );
+
+    const authorizedDestinationStoreIds = useMemo(
+      () => new Set(authorizedDestinationStores.map((store) => store.id)),
+      [authorizedDestinationStores]
+    );
+
+    useEffect(() => {
+      const originStoreId = normalizeStoreId(formData.lojaOrigemId);
+      if (!showModal || !originStoreId) {
+        setAuthorizedDestinationStores([]);
+        setAuthorizedDestinationsError('');
+        setIsLoadingAuthorizedDestinations(false);
+        return undefined;
+      }
+
+      let active = true;
+      setIsLoadingAuthorizedDestinations(true);
+      setAuthorizedDestinationsError('');
+      const listDestinations = httpsCallable(functions, 'listAuthorizedTransferDestinations');
+      listDestinations({ originStoreId })
+        .then((result) => {
+          if (!active) return;
+          const destinations = Array.isArray(result?.data?.destinations)
+            ? result.data.destinations
+            : [];
+          setAuthorizedDestinationStores(destinations);
+          setFormData((prev) => {
+            if (!prev.lojaDestinoId || isEditingTransfer) return prev;
+            return destinations.some((store) => store.id === prev.lojaDestinoId)
+              ? prev
+              : { ...prev, lojaDestinoId: '' };
+          });
+        })
+        .catch((error) => {
+          if (!active) return;
+          console.error('[EntreLojas] Erro ao carregar destinos autorizados:', error);
+          setAuthorizedDestinationStores([]);
+          setAuthorizedDestinationsError(error?.message || 'Não foi possível carregar os destinos autorizados.');
+        })
+        .finally(() => {
+          if (active) setIsLoadingAuthorizedDestinations(false);
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [formData.lojaOrigemId, isEditingTransfer, showModal]);
 
     const productOptions = useMemo(() => {
       const originStoreId = normalizeStoreId(formData.lojaOrigemId);
@@ -15970,6 +16195,16 @@ const handleSubmit = async (e) => {
       }
     }, [canReadTransferForCurrentViewer, transferencias, viewingTransfer]);
 
+    useEffect(() => {
+      if (!editingTransfer?.id) return;
+      const latest = transferencias.find((item) => item.id === editingTransfer.id);
+      if (!latest || !canReadTransferForCurrentViewer(latest)) {
+        setEditingTransfer(null);
+        setShowModal(false);
+        setFormData((previous) => ({ ...previous, itens: [], observacaoOrigem: '' }));
+      }
+    }, [canReadTransferForCurrentViewer, editingTransfer, transferencias]);
+
     const formatMoney = (value) => `R$ ${(Number(value) || 0).toFixed(2)}`;
     const formatDate = (value) => parseLocalDate(value)?.toLocaleDateString('pt-BR') || '-';
     const statusLabelMap = ENTRE_LOJAS_TRANSFER_STATUS_LABELS;
@@ -16124,7 +16359,7 @@ const handleSubmit = async (e) => {
       setFormData((prev) => ({ ...prev, itens: prev.itens.filter((_, itemIndex) => itemIndex !== index) }));
     };
 
-    const validateTransfer = () => {
+    const validateTransfer = (mode = 'rascunho') => {
       if (!formData.lojaOrigemId || !formData.lojaDestinoId || !formData.itens.length) {
         return 'Informe loja origem, loja destino e pelo menos um item.';
       }
@@ -16135,6 +16370,14 @@ const handleSubmit = async (e) => {
         return isEditingTransfer
           ? 'Você não pode editar remessa para essa loja de origem.'
           : 'Você não pode criar remessa para essa loja de origem.';
+      }
+      const routeNeedsCurrentAuthorization = !isEditingTransfer ||
+        editingTransfer?.status === 'rascunho' ||
+        mode === 'enviar';
+      if (routeNeedsCurrentAuthorization && !authorizedDestinationStoreIds.has(formData.lojaDestinoId)) {
+        return editingTransfer?.status === 'rascunho' && mode === 'enviar'
+          ? 'Esta loja não está mais autorizada como destino de remessas desta origem.'
+          : 'A loja destino não está autorizada para receber remessas desta origem.';
       }
       for (const item of formData.itens) {
         if (!item.produtoId) return 'Selecione um produto para todos os itens.';
@@ -16166,10 +16409,6 @@ const handleSubmit = async (e) => {
       const fechamentoId = normalizeStoreId(formData.fechamentoId);
       const changes = [];
 
-      if (!canAccessAllTransfers && (!allowedStoreIds.includes(origemId) || !allowedStoreIds.includes(destinoId))) {
-        throw new Error('Você não tem permissão para esta loja de origem ou destino.');
-      }
-
       if (!allowedOriginStoreIds.includes(origemId)) {
         throw new Error(isEditingTransfer ? 'Você não pode editar remessa para essa loja de origem.' : 'Você não pode criar remessa para essa loja de origem.');
       }
@@ -16178,9 +16417,32 @@ const handleSubmit = async (e) => {
         throw new Error('A loja destino deve ser diferente da loja origem.');
       }
 
-      const [origemSnap, destinoSnap, configSnap, currentTransferSnap, fechamentoSnap, productSnaps] = await Promise.all([
+      const routeChanged = isEditingTransfer && (
+        normalizeStoreId(editingTransfer?.lojaOrigemId) !== origemId ||
+        normalizeStoreId(editingTransfer?.lojaDestinoId) !== destinoId
+      );
+      const mustRevalidateDestination = !isEditingTransfer ||
+        routeChanged ||
+        (editingTransfer?.status === 'rascunho' && mode === 'enviar');
+      let validatedDestination = null;
+      if (mustRevalidateDestination) {
+        const listDestinations = httpsCallable(functions, 'listAuthorizedTransferDestinations');
+        const destinationResult = await listDestinations({ originStoreId: origemId });
+        const currentDestinations = Array.isArray(destinationResult?.data?.destinations)
+          ? destinationResult.data.destinations
+          : [];
+        validatedDestination = currentDestinations.find((store) => store.id === destinoId) || null;
+        if (!validatedDestination) {
+          throw new Error(
+            isEditingTransfer && editingTransfer?.status === 'rascunho' && mode === 'enviar'
+              ? 'Esta loja não está mais autorizada como destino de remessas desta origem.'
+              : 'A loja destino não está autorizada para receber remessas desta origem.'
+          );
+        }
+      }
+
+      const [origemSnap, configSnap, currentTransferSnap, fechamentoSnap, productSnaps] = await Promise.all([
         readStoreSnapshotOrThrow(origemId, 'origem'),
-        readStoreSnapshotOrThrow(destinoId, 'destino'),
         getDoc(getStoreConfigDocRef(origemId)),
         isEditingTransfer && editingTransfer?.id
           ? getDoc(doc(db, 'transferenciasEntreLojas', editingTransfer.id))
@@ -16299,7 +16561,7 @@ const handleSubmit = async (e) => {
         ? (mode === 'enviar' && editingTransfer?.status === 'rascunho' ? 'aguardando_conferencia' : (editingTransfer?.status || 'rascunho'))
         : (mode === 'enviar' ? 'aguardando_conferencia' : 'rascunho');
       const origemNome = storeInfoMap[origemId]?.nome || origemSnap.data()?.nome || origemId;
-      const destinoNome = storeInfoMap[destinoId]?.nome || destinoSnap.data()?.nome || destinoId;
+      const destinoNome = validatedDestination?.nome || editingTransfer?.lojaDestinoNome || storeInfoMap[destinoId]?.nome || destinoId;
 
       return {
         changes,
@@ -16439,7 +16701,7 @@ const handleSubmit = async (e) => {
         setFormError(blockedByStatus ? 'Remessa com pagamento confirmado não pode ser editada.' : 'Você não tem permissão para editar esta remessa.');
         return;
       }
-      const validationError = validateTransfer();
+      const validationError = validateTransfer(mode);
       if (validationError) {
         setFormError(validationError);
         return;
@@ -17416,7 +17678,7 @@ const handleSubmit = async (e) => {
     const visibleTransferTableColumns = columns.filter((column) => visibleTransferColumnSet.has(column.id));
 
     const actions = [
-      { icon: Eye, label: 'Visualizar', onClick: (row) => setViewingTransfer(row) },
+      { icon: Eye, label: 'Visualizar', onClick: (row) => { if (canReadTransferForCurrentViewer(row)) setViewingTransfer(row); } },
       {
         icon: ArrowLeftRight,
         label: 'Mover para fechamento',
@@ -17658,7 +17920,7 @@ const handleSubmit = async (e) => {
                   setFormData((prev) => ({
                     ...prev,
                     lojaOrigemId: nextOriginId,
-                    lojaDestinoId: prev.lojaDestinoId === nextOriginId ? '' : prev.lojaDestinoId,
+                    lojaDestinoId: '',
                     itens: []
                   }));
                 }}
@@ -17668,14 +17930,28 @@ const handleSubmit = async (e) => {
                   <option key={store.id} value={store.id}>{store.nome}</option>
                 ))}
               </Select>
-              <Select label="Loja destino" disabled={Boolean(formData.fechamentoId) || (isEditingTransfer && editingTransfer?.status !== 'rascunho')} value={formData.lojaDestinoId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
-                <option value="">Selecione</option>
-                {storesForSelect.filter((store) => store.id !== formData.lojaOrigemId).map((store) => (
+              <Select label="Loja destino" disabled={!formData.lojaOrigemId || isLoadingAuthorizedDestinations || Boolean(formData.fechamentoId) || (isEditingTransfer && editingTransfer?.status !== 'rascunho')} value={formData.lojaDestinoId} onChange={(e) => setFormData((prev) => ({ ...prev, lojaDestinoId: e.target.value }))}>
+                <option value="">{isLoadingAuthorizedDestinations ? 'Carregando destinos...' : 'Selecione'}</option>
+                {formData.lojaDestinoId && !authorizedDestinationStoreIds.has(formData.lojaDestinoId) && (
+                  <option value={formData.lojaDestinoId} disabled>
+                    {editingTransfer?.lojaDestinoNome || formData.lojaDestinoId} — não autorizado
+                  </option>
+                )}
+                {authorizedDestinationStores.map((store) => (
                   <option key={store.id} value={store.id}>{store.nome}</option>
                 ))}
               </Select>
               <Input label="Data da remessa" type="date" value={formData.dataRemessa} onChange={(e) => setFormData((prev) => ({ ...prev, dataRemessa: e.target.value }))} />
             </div>
+            {!isLoadingAuthorizedDestinations && formData.lojaOrigemId && !authorizedDestinationStores.length && !authorizedDestinationsError && (
+              <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p>Nenhuma loja destino está autorizada para receber remessas desta unidade.</p>
+                {canManageTransferDestinations && <p className="mt-1">Configure os destinos em Configurações &gt; Entre Lojas.</p>}
+              </div>
+            )}
+            {authorizedDestinationsError && (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{authorizedDestinationsError}</div>
+            )}
             <Textarea label="Observação da origem" value={formData.observacaoOrigem} onChange={(e) => setFormData((prev) => ({ ...prev, observacaoOrigem: e.target.value }))} rows={3} />
 
             <div className="border rounded-xl p-4 space-y-3">
@@ -17745,8 +18021,8 @@ const handleSubmit = async (e) => {
                 <Button variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>Cancelar</Button>
                 {(!isEditingTransfer || editingTransfer?.status === 'rascunho') && (
                   <>
-                    <Button variant="outline" disabled={isSavingTransfer} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
-                    <Button disabled={isSavingTransfer} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
+                    <Button variant="outline" disabled={isSavingTransfer || isLoadingAuthorizedDestinations || !authorizedDestinationStores.length} onClick={() => saveTransfer('rascunho')}>Salvar Rascunho</Button>
+                    <Button disabled={isSavingTransfer || isLoadingAuthorizedDestinations || !authorizedDestinationStores.length} onClick={() => saveTransfer('enviar')}>{isSavingTransfer ? 'Salvando...' : 'Enviar para Conferência'}</Button>
                   </>
                 )}
                 {isEditingTransfer && editingTransfer?.status !== 'rascunho' && (
@@ -17986,7 +18262,7 @@ const handleSubmit = async (e) => {
           )}
         </Modal>
 
-        <Modal isOpen={!!viewingTransfer} onClose={() => { setViewingTransfer(null); setActionComment(''); }} title="Detalhe da Remessa" size="xl">
+        <Modal isOpen={!!viewingTransfer && canReadTransferForCurrentViewer(viewingTransfer)} onClose={() => { setViewingTransfer(null); setActionComment(''); }} title="Detalhe da Remessa" size="xl">
           {viewingTransfer && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 rounded-xl p-4 text-sm">

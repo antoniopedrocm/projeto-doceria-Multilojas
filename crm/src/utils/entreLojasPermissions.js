@@ -19,7 +19,6 @@ const normalizeStatusSet = (statuses = []) => (
     ? statuses
     : new Set((Array.isArray(statuses) ? statuses : []).map(normalizeValue).filter(Boolean))
 );
-const MANAGER_ALWAYS_VISIBLE_TRANSFER_STATUSES = new Set(['pagamento_confirmado']);
 
 export const ENTRE_LOJAS_RELATION = Object.freeze({
   OWNER: 'dono',
@@ -57,11 +56,8 @@ const isRelatedManager = (relation) => (
   || relation === ENTRE_LOJAS_RELATION.DESTINATION
 );
 
-export const getEntreLojasVisibleTransferStatuses = ({ user, allowedStatuses = [] }) => {
+export const getEntreLojasVisibleTransferStatuses = ({ allowedStatuses = [] }) => {
   const visibleStatuses = new Set(normalizeStatusSet(allowedStatuses));
-  if (normalizeRole(user?.role) === 'gerente') {
-    MANAGER_ALWAYS_VISIBLE_TRANSFER_STATUSES.forEach((status) => visibleStatuses.add(status));
-  }
   return Array.from(visibleStatuses);
 };
 
@@ -70,6 +66,8 @@ export const canViewEntreLojasTransfer = ({ user, transfer, allowedStatuses = []
 
   const relation = getEntreLojasStoreRelation({ user, record: transfer });
   if (isOwnerRelation(relation)) return true;
+
+  if (user.permissions?.['entre-lojas'] === false) return false;
 
   const status = normalizeValue(transfer.status);
   const visibleStatuses = getEntreLojasVisibleTransferStatuses({ user, allowedStatuses });

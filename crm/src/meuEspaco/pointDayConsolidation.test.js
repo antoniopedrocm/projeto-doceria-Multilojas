@@ -187,4 +187,65 @@ describe('consolidação diária de múltiplos documentos do Meu Espaço', () =>
     expect(result.summary.workedMinutes).toBe(300);
     expect(result.summary.workedLabel).toBe('05:00');
   });
+
+  test('Celeste — correção de entrada e almoço existente formam uma única jornada', () => {
+    const grouped = groupPointRecordsByDay([
+      {
+        ...base,
+        id: 'evento-original',
+        horaAlmocoSaida: '12:04',
+        batidas: [{ id: 'almoco-original', tipo: 'almoco_inicio', hora: '12:04', origem: 'funcionaria' }],
+        updatedAt: new Date('2026-09-04T15:04:00-03:00')
+      },
+      {
+        ...base,
+        id: 'ajuste-manual',
+        tipoLancamento: 'manual_pelo_gestor',
+        lancamentoManualGestor: true,
+        manualPeloGestor: true,
+        horaEntrada: '09:30',
+        horaAlmocoSaida: '12:04',
+        justificativaGestor: 'Falha no ponto de entrada',
+        updatedAt: new Date('2026-09-04T16:00:00-03:00')
+      }
+    ], { storeId: 'loja-1' });
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].sourceRecordIds).toEqual(expect.arrayContaining(['evento-original', 'ajuste-manual']));
+    const rows = buildPointPresentationRows(grouped[0]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      horaEntrada: '09:30',
+      horaAlmocoSaida: '12:04',
+      horaAlmocoRetorno: '',
+      horaSaida: ''
+    });
+  });
+
+  test('documentos parciais complementam a jornada aberta em vez de duplicá-la', () => {
+    const record = consolidatePointDayRecords([
+      { ...base, id: 'entrada', horaEntrada: '08:00' },
+      { ...base, id: 'almoco', horaAlmocoSaida: '12:00' },
+      { ...base, id: 'retorno', horaAlmocoRetorno: '13:00' }
+    ], { storeId: 'loja-1' });
+    const rows = buildPointPresentationRows(record);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      horaEntrada: '08:00',
+      horaAlmocoSaida: '12:00',
+      horaAlmocoRetorno: '13:00',
+      horaSaida: ''
+    });
+  });
+
+  test('dois documentos só geram duas jornadas quando a primeira terminou antes da nova entrada', () => {
+    const record = consolidatePointDayRecords([
+      workRecord('primeira', '08:00', '12:00'),
+      workRecord('segunda', '15:00', '18:00')
+    ], { storeId: 'loja-1' });
+    expect(buildPointPresentationRows(record).map((row) => [row.horaEntrada, row.horaSaida])).toEqual([
+      ['08:00', '12:00'],
+      ['15:00', '18:00']
+    ]);
+  });
 });
