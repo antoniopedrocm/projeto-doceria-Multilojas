@@ -84,7 +84,9 @@ async function showOrderNotification(payload) {
   const hasVisibleClient = clientsList.some(
     (client) => client.visibilityState === 'visible'
   );
-  const notificationPayload = buildNotificationPayload(payload, { silent: hasVisibleClient });
+  const notificationPayload = buildNotificationPayload(payload, {
+    silent: hasVisibleClient || data.alertAllowed === 'false'
+  });
   await self.registration.showNotification(notificationPayload.title, notificationPayload.options);
   clientsList.forEach((client) => client.postMessage({ type: PUSH_EVENT_TYPE, payload }));
 }

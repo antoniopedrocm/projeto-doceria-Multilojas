@@ -25,24 +25,14 @@ export const resolveOrderAlarmCondition = ({
   orders = [],
   storeId = '',
   isPaused = false,
-  pausedPendingOrderIds = null,
 } = {}) => {
   const pendingOrderIds = getPendingOrderIdsForStore(orders, storeId);
   const hasPendingOrders = pendingOrderIds.length > 0;
-  const pauseBaselineIsKnown = Array.isArray(pausedPendingOrderIds);
-  const pausedOrderIdSet = new Set(
-    pauseBaselineIsKnown ? pausedPendingOrderIds.map(normalizeId).filter(Boolean) : []
-  );
-  const hasNewPendingOrderDuringPause = Boolean(
-    isPaused
-    && pauseBaselineIsKnown
-    && pendingOrderIds.some((orderId) => !pausedOrderIdSet.has(orderId))
-  );
 
   return {
     pendingOrderIds,
     hasPendingOrders,
-    hasNewPendingOrderDuringPause,
-    shouldPlay: hasPendingOrders && (!isPaused || hasNewPendingOrderDuringPause),
+    hasNewPendingOrderDuringPause: false,
+    shouldPlay: hasPendingOrders && !isPaused,
   };
 };

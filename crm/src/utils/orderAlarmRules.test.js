@@ -56,7 +56,7 @@ describe('orderAlarmRules', () => {
     expect(result.shouldPlay).toBe(false);
   });
 
-  test('uma nova ID Pendente interrompe a pausa mesmo com a mesma contagem', () => {
+  test('uma nova ID Pendente não interrompe a pausa', () => {
     const result = resolveOrderAlarmCondition({
       orders: [order('B'), order('C')],
       storeId: 'matriz',
@@ -65,8 +65,8 @@ describe('orderAlarmRules', () => {
     });
 
     expect(result.pendingOrderIds).toEqual(['B', 'C']);
-    expect(result.hasNewPendingOrderDuringPause).toBe(true);
-    expect(result.shouldPlay).toBe(true);
+    expect(result.hasNewPendingOrderDuringPause).toBe(false);
+    expect(result.shouldPlay).toBe(false);
   });
 
   test('isola os pedidos pela loja selecionada', () => {

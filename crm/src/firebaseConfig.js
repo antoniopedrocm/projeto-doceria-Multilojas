@@ -100,6 +100,7 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+export const southAmericaFunctions = getFunctions(app, 'southamerica-east1');
 
 // Expose the underlying app and analytics for advanced use cases.
 export { app, analytics };

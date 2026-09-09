@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { getToken, onMessage } from 'firebase/messaging';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db, messagingPromise, VAPID_KEY } from '../firebaseConfig.js';
 import { claimOrderAlert } from './orderAlertDeduper.js';
 
@@ -170,6 +170,18 @@ export async function registerDeviceForPush(uid, { requestPermission = false } =
     console.error('Falha ao registrar notificações push:', error);
     throw error;
   }
+}
+
+export async function unregisterDeviceForPush(uid, token) {
+  const normalizedUid = String(uid || '').trim();
+  const normalizedToken = String(token || '').trim();
+  if (!isBrowser || !normalizedUid || !normalizedToken) return false;
+
+  await deleteDoc(doc(db, 'notificationTokens', normalizedToken));
+  if (window.__anaAndroidPushTokenSync === normalizedToken) {
+    delete window.__anaAndroidPushTokenSync;
+  }
+  return true;
 }
 
 export async function listenForForegroundMessages(callback) {

@@ -14,6 +14,7 @@ import {
   db,
   storage,
   functions,
+  southAmericaFunctions,
   onSnapshot,
   getDoc,
   getDocs,
@@ -45,6 +46,13 @@ import {
 } from './utils/alarmPauseStorage.js';
 import { clearNativeAlarmContext, syncNativeAlarmPause } from './utils/alarmPauseNative.js';
 import {
+  hasStandaloneAndroidOrderTerminalBridge,
+  isAllowedAndroidOrderTerminalStore,
+  matchesAndroidOrderTerminalTargetUid,
+  postAndroidOrderTerminalMessage,
+  requestAndroidOrderTerminalSession,
+} from './utils/androidOrderTerminalBridge.js';
+import {
   getPendingOrderIdsForStore,
   isPendingOrder,
   resolveOrderAlarmCondition,
@@ -57,6 +65,7 @@ import {
   PUSH_PERMISSION_STATUS,
   registerDeviceForPush,
   subscribeToServiceWorkerMessages,
+  unregisterDeviceForPush,
 } from './utils/notifications.js';
 import { updateStock as updateStockService } from './services/stockService.js';
 import ReceitasList from './components/fornecedores/ReceitasList';
@@ -5167,6 +5176,7 @@ function App() {
   const [isAlarmSnoozed, setIsAlarmSnoozed] = useState(false);
   const [snoozeEndTime, setSnoozeEndTime] = useState(null);
   const [pausedPendingOrderIds, setPausedPendingOrderIds] = useState(null);
+  const [androidTerminalSessionReady, setAndroidTerminalSessionReady] = useState(false);
   const [, setAudioAllowed] = useState(audioManager.unlocked);
   // --- Estado audioUnlocked agora é derivado do AudioManager ---
   // const [audioUnlocked, setAudioUnlocked] = useState(...);
@@ -5199,6 +5209,9 @@ function App() {
   const customerMetricsEnsuredStoresRef = useRef(new Set());
   const pushTokenRef = useRef(null);
   const configMigrationStatusRef = useRef(new Set());
+  const androidTerminalSessionRef = useRef(null);
+  const androidTerminalSessionRequestRef = useRef(null);
+  const androidTerminalLastOperationalStateRef = useRef(null);
   // --- REMOVIDO: audioRef e alarmIntervalRef ---
 
   
@@ -5214,6 +5227,53 @@ function App() {
     return user.lojaId || null;
   }, [user, isGeneralViewSelected, selectedStoreId, availableStores]);
   const [resolvedAlarmPauseMinutes, setResolvedAlarmPauseMinutes] = useState(DEFAULT_ALARM_PAUSE_MINUTES);
+  const [selectedStoreAlarmConfig, setSelectedStoreAlarmConfig] = useState({});
+  const [storeOpenCheckTime, setStoreOpenCheckTime] = useState(Date.now());
+  const isStandaloneAndroidOrderTerminal = hasStandaloneAndroidOrderTerminalBridge();
+  const nativeAndroidTerminalOwnsAlerts = Boolean(
+    isStandaloneAndroidOrderTerminal && androidTerminalSessionReady
+  );
+  const selectedStoreOpenForAlarm = useMemo(() => (
+    Boolean(selectedStoreIdForAlarm) &&
+    isStoreOpenNow(selectedStoreAlarmConfig, new Date(storeOpenCheckTime))
+  ), [selectedStoreAlarmConfig, selectedStoreIdForAlarm, storeOpenCheckTime]);
+  const selectedStoreNameForAlarm = useMemo(() => {
+    const storeInfo = storeInfoMap[selectedStoreIdForAlarm] || {};
+    return storeInfo.nome || storeInfo.nomeFantasia || selectedStoreIdForAlarm || '';
+  }, [selectedStoreIdForAlarm, storeInfoMap]);
+
+  const notifyAndroidTerminalLogout = useCallback(() => {
+    const session = androidTerminalSessionRef.current;
+    if (session && hasStandaloneAndroidOrderTerminalBridge()) {
+      postAndroidOrderTerminalMessage('logout', {
+        uid: session.uid,
+        sessionId: session.sessionId,
+      });
+    }
+    androidTerminalSessionRef.current = null;
+    androidTerminalSessionRequestRef.current = null;
+    androidTerminalLastOperationalStateRef.current = null;
+    setAndroidTerminalSessionReady(false);
+  }, []);
+
+  const unregisterCurrentWebPush = useCallback(async () => {
+    const token = pushTokenRef.current;
+    const uid = auth.currentUser?.uid;
+    pushTokenRef.current = null;
+    if (!token || !uid) return;
+    try {
+      await unregisterDeviceForPush(uid, token);
+    } catch (error) {
+      // O logout não pode ficar preso à rede. Token inválido é removido pelo
+      // sender e o próximo login reassocia o mesmo token ao UID autenticado.
+      console.warn('[App.js] Não foi possível remover o token push no logout:', error);
+    }
+  }, []);
+
+  const signOutAfterPushCleanup = useCallback(async () => {
+    await unregisterCurrentWebPush();
+    await signOut(auth);
+  }, [unregisterCurrentWebPush]);
 
   useEffect(() => {
     const markFormAsDirty = (event) => {
@@ -5287,6 +5347,228 @@ function App() {
   }, [currentPage, userId]);
 
   useEffect(() => {
+    if (!isStandaloneAndroidOrderTerminal || !userId) {
+      if (!userId) {
+        androidTerminalSessionRef.current = null;
+        androidTerminalSessionRequestRef.current = null;
+        androidTerminalLastOperationalStateRef.current = null;
+        setAndroidTerminalSessionReady(false);
+      }
+      return undefined;
+    }
+
+    const existingSession = androidTerminalSessionRef.current;
+    if (existingSession?.uid === userId) {
+      setAndroidTerminalSessionReady(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let retryTimer = null;
+    let retryDelayMs = 2_000;
+    let handoffController = null;
+    let handoffInFlight = false;
+    let automaticAttemptCount = 0;
+    let waitingForExternalRetry = false;
+    let nextRetryNeedsNewSession = false;
+    const maxAutomaticAttempts = 4;
+
+    const loadSession = (forceNew = false) => {
+      let requestState = androidTerminalSessionRequestRef.current;
+      const cachedHandoffIsValid = requestState?.session &&
+        Number(requestState.session.handoffExpiresAt || 0) > Date.now() + 5_000;
+      if (!forceNew && requestState?.uid === userId) {
+        if (cachedHandoffIsValid) return Promise.resolve(requestState.session);
+        if (requestState.promise) return requestState.promise;
+      }
+
+      const createSession = httpsCallable(
+        southAmericaFunctions,
+        'createAndroidOrderTerminalSession'
+      );
+      requestState = {uid: userId, session: null, promise: null};
+      requestState.promise = createSession({})
+        .then((result) => {
+          const session = result?.data || {};
+          requestState.session = session;
+          requestState.promise = null;
+          return session;
+        })
+        .catch((error) => {
+          if (androidTerminalSessionRequestRef.current === requestState) {
+            androidTerminalSessionRequestRef.current = null;
+          }
+          throw error;
+        });
+      androidTerminalSessionRequestRef.current = requestState;
+      return requestState.promise;
+    };
+
+    const scheduleRetry = (forceNewSession) => {
+      if (cancelled || retryTimer) return;
+      nextRetryNeedsNewSession = forceNewSession;
+      if (automaticAttemptCount >= maxAutomaticAttempts) {
+        waitingForExternalRetry = true;
+        return;
+      }
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        attemptHandoff(forceNewSession);
+      }, retryDelayMs);
+      retryDelayMs = Math.min(retryDelayMs * 2, 30_000);
+    };
+
+    const attemptHandoff = async (forceNewSession = false) => {
+      if (cancelled || handoffInFlight) return;
+      handoffInFlight = true;
+      automaticAttemptCount += 1;
+      try {
+        const session = await loadSession(forceNewSession);
+        if (cancelled) return;
+        const customToken = String(session?.customToken || '');
+        const sessionId = String(session?.sessionId || '');
+        const sessionUid = String(session?.uid || '');
+        const handoffExpiresAt = Number(session?.handoffExpiresAt || 0);
+        if (
+          !customToken || !sessionId || sessionUid !== userId ||
+          handoffExpiresAt <= Date.now()
+        ) {
+          androidTerminalSessionRequestRef.current = null;
+          throw new Error('Resposta de sessão do terminal inválida ou expirada.');
+        }
+        handoffController = new AbortController();
+        await requestAndroidOrderTerminalSession({
+          customToken,
+          uid: sessionUid,
+          sessionId,
+          expiresAt: Number(session?.expiresAt || 0),
+        }, {signal: handoffController.signal});
+        if (cancelled) return;
+        androidTerminalSessionRef.current = {uid: sessionUid, sessionId};
+        androidTerminalLastOperationalStateRef.current = null;
+        waitingForExternalRetry = false;
+        setAndroidTerminalSessionReady(true);
+      } catch (error) {
+        if (cancelled || error?.name === 'AbortError') return;
+        const needsNewSession = error?.code === 'session_nack' ||
+          !androidTerminalSessionRequestRef.current?.session;
+        if (needsNewSession) androidTerminalSessionRequestRef.current = null;
+        setAndroidTerminalSessionReady(false);
+        console.error('[AndroidOrderTerminal] Não foi possível confirmar a sessão nativa:', error);
+        scheduleRetry(needsNewSession);
+      } finally {
+        handoffInFlight = false;
+      }
+    };
+
+    const retryAfterExternalSignal = () => {
+      if (cancelled || !waitingForExternalRetry || handoffInFlight || retryTimer) return;
+      waitingForExternalRetry = false;
+      automaticAttemptCount = 0;
+      retryDelayMs = 2_000;
+      attemptHandoff(nextRetryNeedsNewSession);
+    };
+
+    attemptHandoff();
+    window.addEventListener('online', retryAfterExternalSignal);
+    window.addEventListener('focus', retryAfterExternalSignal);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      handoffController?.abort();
+      window.removeEventListener('online', retryAfterExternalSignal);
+      window.removeEventListener('focus', retryAfterExternalSignal);
+    };
+  }, [isStandaloneAndroidOrderTerminal, userId]);
+
+  useEffect(() => {
+    if (!isStandaloneAndroidOrderTerminal) return undefined;
+    setStoreOpenCheckTime(Date.now());
+    const intervalId = setInterval(() => setStoreOpenCheckTime(Date.now()), 30_000);
+    return () => clearInterval(intervalId);
+  }, [isStandaloneAndroidOrderTerminal]);
+
+  useEffect(() => {
+    if (!isStandaloneAndroidOrderTerminal || !userId) return undefined;
+
+    const openOrdersFromAndroid = (event) => {
+      const detail = event?.detail || {};
+      let storedStoreId = '';
+      try {
+        const storedValue = sessionStorage.getItem('android_order_target_store_id')
+          || localStorage.getItem('android_order_target_store_id')
+          || '';
+        try {
+          const parsedValue = JSON.parse(storedValue);
+          storedStoreId = String(typeof parsedValue === 'string' ? parsedValue : storedValue).trim();
+        } catch (parseError) {
+          storedStoreId = String(storedValue).trim();
+        }
+      } catch (error) {
+        console.warn('[AndroidOrderTerminal] Não foi possível ler a loja de destino:', error);
+      }
+      const storeId = String(detail.storeId || detail.lojaId || storedStoreId || '').trim();
+      const orderId = String(detail.orderId || '').trim();
+      const targetUid = String(detail.targetUid || '').trim();
+
+      if (!matchesAndroidOrderTerminalTargetUid(targetUid, userId)) {
+        console.warn('[AndroidOrderTerminal] Evento ignorado por pertencer a outro usuário.');
+        return;
+      }
+
+      if (!isAllowedAndroidOrderTerminalStore(storeId, availableStores)) {
+        if (availableStores.length > 0) {
+          console.warn('[AndroidOrderTerminal] Loja de destino fora do escopo do usuário.');
+        }
+        try {
+          localStorage.removeItem('android_order_target_store_id');
+          sessionStorage.removeItem('android_order_target_store_id');
+        } catch (error) {
+          // A validação pelo escopo carregado continua sendo a fonte de autorização.
+        }
+        return;
+      }
+
+      setSelectedStoreId(storeId);
+      try {
+        localStorage.removeItem('android_order_target_store_id');
+        sessionStorage.removeItem('android_order_target_store_id');
+      } catch (error) {
+        // O estado React já foi atualizado; a remoção é apenas limpeza.
+      }
+
+      if (orderId) {
+        pendingOrderOpenRequestRef.current = {
+          orderId,
+          lojaId: storeId || null,
+        };
+      }
+      setCurrentPage('pedidos');
+    };
+
+    window.addEventListener('ana-android-open-orders', openOrdersFromAndroid);
+    let hasStoredTarget = false;
+    try {
+      hasStoredTarget = Boolean(
+        sessionStorage.getItem('android_order_target_store_id')
+        || localStorage.getItem('android_order_target_store_id')
+      );
+    } catch (error) {
+      hasStoredTarget = false;
+    }
+    if (hasStoredTarget) openOrdersFromAndroid();
+
+    return () => window.removeEventListener('ana-android-open-orders', openOrdersFromAndroid);
+  }, [
+    availableStores,
+    isStandaloneAndroidOrderTerminal,
+    setCurrentPage,
+    setSelectedStoreId,
+    userId,
+  ]);
+
+  useEffect(() => {
     const handleListenerStatus = (event) => {
       const detail = event?.detail || {};
       if (detail.collection !== 'pedidos') return;
@@ -5305,31 +5587,19 @@ function App() {
   useEffect(() => {
     if (isGeneralViewSelected || !selectedStoreIdForAlarm) {
       setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
-      return;
+      setSelectedStoreAlarmConfig({});
+      return undefined;
     }
 
-    let isMounted = true;
-
-    const fetchAlarmPauseMinutes = async () => {
-      try {
-        const configSnap = await getDoc(getStoreConfigDocRef(selectedStoreIdForAlarm));
-        if (!isMounted) return;
-
-        const configData = configSnap.exists() ? (configSnap.data() || {}) : {};
-        setResolvedAlarmPauseMinutes(sanitizeAlarmPauseMinutes(configData.alarmPauseMinutes));
-      } catch (error) {
-        console.error('[App.js] Erro ao buscar tempo de pausa do alarme:', error);
-        if (isMounted) {
-          setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
-        }
-      }
-    };
-
-    fetchAlarmPauseMinutes();
-
-    return () => {
-      isMounted = false;
-    };
+    return onSnapshot(getStoreConfigDocRef(selectedStoreIdForAlarm), (configSnap) => {
+      const configData = configSnap.exists() ? (configSnap.data() || {}) : {};
+      setSelectedStoreAlarmConfig(configData);
+      setResolvedAlarmPauseMinutes(sanitizeAlarmPauseMinutes(configData.alarmPauseMinutes));
+    }, (error) => {
+      console.error('[App.js] Erro ao acompanhar configuração operacional da loja:', error);
+      setSelectedStoreAlarmConfig({});
+      setResolvedAlarmPauseMinutes(DEFAULT_ALARM_PAUSE_MINUTES);
+    });
   }, [isGeneralViewSelected, selectedStoreIdForAlarm]);
 
 
@@ -5693,7 +5963,7 @@ function App() {
   useEffect(() => {
       // Define um pequeno delay para dar tempo ao audioManager.init() tentar o resume automático
       const timer = setTimeout(() => {
-          if (user && (
+          if (user && !nativeAndroidTerminalOwnsAlerts && (
             !audioManager.unlocked
             || pushPermissionStatus === PUSH_PERMISSION_STATUS.PROMPT
           )) {
@@ -5706,7 +5976,7 @@ function App() {
 
       return () => clearTimeout(timer);
 
-  }, [pushPermissionStatus, user]);
+  }, [nativeAndroidTerminalOwnsAlerts, pushPermissionStatus, user]);
 
 
   const loadAlarmPauseForCurrentContext = useCallback(() => {
@@ -5825,14 +6095,19 @@ function App() {
 
     clearAlarmPause({ uid: userId, storeId: selectedStoreIdForAlarm });
     syncNativeAlarmPause({ uid: userId, storeId: selectedStoreIdForAlarm, pausedUntil: null });
-    deleteDoc(doc(db, 'users', userId, 'alarmPauses', selectedStoreIdForAlarm)).catch((error) => {
+    const clearRemotePause = isStandaloneAndroidOrderTerminal
+      ? httpsCallable(southAmericaFunctions, 'reactivateAndroidOrderAlerts')({
+          storeId: selectedStoreIdForAlarm,
+        })
+      : deleteDoc(doc(db, 'users', userId, 'alarmPauses', selectedStoreIdForAlarm));
+    clearRemotePause.catch((error) => {
       console.warn('[App.js] Não foi possível remover a pausa compartilhada do alarme:', error);
     });
     isSnoozedRef.current = false;
     setIsAlarmSnoozed(false);
     setSnoozeEndTime(null);
     setPausedPendingOrderIds(null);
-  }, [selectedStoreIdForAlarm, userId]);
+  }, [isStandaloneAndroidOrderTerminal, selectedStoreIdForAlarm, userId]);
 
   // --- Refs para estabilizar callbacks ---
   const playAlarmRef = useRef(playAlarm);
@@ -5855,16 +6130,32 @@ function App() {
     const notificationType = String(notificationData.type || '').trim();
     const notificationOrderId = String(notificationData.orderId || '').trim();
     const notificationStoreId = String(notificationData.storeId || '').trim();
+    const notificationTargetUid = String(notificationData.targetUid || '').trim();
     if (notificationType !== 'new_order' || !notificationOrderId || !notificationStoreId) {
+      return;
+    }
+    if (!matchesAndroidOrderTerminalTargetUid(notificationTargetUid, userId)) {
+      console.warn('[App.js] Notificação push ignorada por pertencer a outro usuário.');
       return;
     }
     if (notificationStoreId !== selectedStoreIdForAlarm) {
       return;
     }
 
-    if (readAlarmPauseUntil({ uid: userId, storeId: notificationStoreId })) {
-      console.log('[App.js] Novo pedido recebido durante a pausa. Reativando o alarme.');
-      clearAlarmPauseForCurrentContext();
+    setHasNewPendingOrders(true);
+
+    if (
+      notificationData.alertAllowed === 'false'
+      || readAlarmPauseUntil({ uid: userId, storeId: notificationStoreId })
+    ) {
+      console.log('[App.js] Novo pedido recebido sem permissão sonora no estado atual.');
+      stopAlarm();
+      return;
+    }
+
+    if (nativeAndroidTerminalOwnsAlerts) {
+      stopAlarm();
+      return;
     }
 
     if (!await claimOrderAlertForRuntime({
@@ -5875,8 +6166,6 @@ function App() {
       return;
     }
 
-    setHasNewPendingOrders(true);
-
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
       console.log('[App.js] Página em segundo plano; o alerta ficará a cargo da notificação do sistema.');
       return;
@@ -5885,10 +6174,16 @@ function App() {
     if (typeof playAlarmRef.current === 'function') {
       playAlarmRef.current();
     }
-  }, [clearAlarmPauseForCurrentContext, isGeneralViewSelected, selectedStoreIdForAlarm, userId]);
+  }, [
+    isGeneralViewSelected,
+    nativeAndroidTerminalOwnsAlerts,
+    selectedStoreIdForAlarm,
+    stopAlarm,
+    userId,
+  ]);
 
   useEffect(() => {
-    if (!userId) {
+    if (!userId || isStandaloneAndroidOrderTerminal) {
       pushTokenRef.current = null;
       return;
     }
@@ -5953,7 +6248,7 @@ function App() {
         unsubscribeServiceWorker();
       }
     };
-  }, [userId, handleIncomingPushNotification]);
+  }, [userId, handleIncomingPushNotification, isStandaloneAndroidOrderTerminal]);
 
   const activateOrderAlerts = useCallback(async () => {
     const hadPendingAlarm = audioManager.pendingPlay;
@@ -6004,12 +6299,19 @@ function App() {
     ).length > 0;
     setHasNewPendingOrders(Boolean(hasPending));
 
-    if (hasPending) {
+    if (hasPending && !nativeAndroidTerminalOwnsAlerts) {
       playAlarmRef.current();
     } else {
       stopAlarm();
     }
-  }, [clearAlarmPauseForCurrentContext, isGeneralViewSelected, selectedStoreIdForAlarm, stopAlarm, userId]);
+  }, [
+    clearAlarmPauseForCurrentContext,
+    isGeneralViewSelected,
+    nativeAndroidTerminalOwnsAlerts,
+    selectedStoreIdForAlarm,
+    stopAlarm,
+    userId,
+  ]);
 
   const handleStopAndSnoozeAlarm = useCallback(() => {
     if (!userId || !selectedStoreIdForAlarm || isGeneralViewSelected) return;
@@ -6216,15 +6518,6 @@ function App() {
                                           const shouldAlertCurrentStore =
                                             !isGeneralViewSelected && selectedStoreIdForAlarm === storeId;
 
-                                          if (
-                                            shouldAlertCurrentStore
-                                            && addedPendingOrderChanges.length > 0
-                                            && isSnoozedRef.current
-                                          ) {
-                                            console.log('[App.js] Novo pedido pendente entrou durante a pausa. Reativando o alarme.');
-                                            clearAlarmPauseForCurrentContext();
-                                          }
-
                                           const candidateOrderIds = shouldAlertCurrentStore
                                             ? newPendingOrderChanges.map((change) => change.doc.id)
                                             : [];
@@ -6241,11 +6534,15 @@ function App() {
                                               }
                                             }
 
-                                            if (!isMounted || claimedOrderIds.length === 0) return;
-                                            console.log('[App.js] Novo pedido pendente detectado pelo listener!');
-                                            setHasNewPendingOrders(true);
+                                             if (!isMounted || claimedOrderIds.length === 0) return;
+                                             console.log('[App.js] Novo pedido pendente detectado pelo listener!');
+                                             setHasNewPendingOrders(true);
 
-                                            if (
+                                             if (isSnoozedRef.current || nativeAndroidTerminalOwnsAlerts) {
+                                               return;
+                                             }
+
+                                             if (
                                               typeof document !== 'undefined'
                                               && document.visibilityState !== 'visible'
                                             ) {
@@ -6356,15 +6653,65 @@ function App() {
                 debugCacheSync('Listeners por loja encerrados', { storeIds, uid: userId });
                 initialDataLoaded.current = false;
           };
-        }, [user, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, selectedStoreIdForAlarm, userId, clearAlarmPauseForCurrentContext]);
+        }, [user, resolveStoreIdsForView, recomputeDataForView, selectedStoreId, availableStores, migrateLegacyConfigCollection, isGeneralViewSelected, nativeAndroidTerminalOwnsAlerts, selectedStoreIdForAlarm, userId]);
     // A condição do alarme acompanha o estado atual dos pedidos, inclusive após reload.
     useEffect(() => {
         const alarmCondition = resolveOrderAlarmCondition({
           orders: data.pedidos,
           storeId: isGeneralViewSelected ? null : selectedStoreIdForAlarm,
           isPaused: isAlarmSnoozed,
-          pausedPendingOrderIds,
         });
+
+        const terminalSession = androidTerminalSessionRef.current;
+        const canPostTerminalContext = androidTerminalSessionReady
+          && isStandaloneAndroidOrderTerminal
+          && terminalSession?.uid === userId;
+        if (
+          canPostTerminalContext
+          && isAllowedAndroidOrderTerminalStore(selectedStoreIdForAlarm, availableStores)
+        ) {
+          const pausedUntil = isAlarmSnoozed ? Number(snoozeEndTime || 0) : 0;
+          const operationalState = {
+            uid: userId,
+            sessionId: terminalSession.sessionId,
+            storeId: selectedStoreIdForAlarm || '',
+            pendingCount: alarmCondition.pendingOrderIds.length,
+            storeOpen: selectedStoreOpenForAlarm,
+            pausedUntil,
+            alertAllowed: Boolean(
+              selectedStoreIdForAlarm
+              && alarmCondition.hasPendingOrders
+              && selectedStoreOpenForAlarm
+              && !isAlarmSnoozed
+            ),
+            storeName: selectedStoreNameForAlarm,
+          };
+          const operationalSignature = JSON.stringify(operationalState);
+          if (androidTerminalLastOperationalStateRef.current !== operationalSignature) {
+            const posted = postAndroidOrderTerminalMessage('operational_state', {
+              ...operationalState,
+              asOf: Date.now(),
+            });
+            if (posted) {
+              androidTerminalLastOperationalStateRef.current = operationalSignature;
+            }
+          }
+        } else if (canPostTerminalContext) {
+          const clearedSignature = JSON.stringify({
+            type: 'operational_context_cleared',
+            uid: userId,
+            sessionId: terminalSession.sessionId,
+          });
+          if (androidTerminalLastOperationalStateRef.current !== clearedSignature) {
+            const posted = postAndroidOrderTerminalMessage('operational_context_cleared', {
+              uid: userId,
+              sessionId: terminalSession.sessionId,
+            });
+            if (posted) {
+              androidTerminalLastOperationalStateRef.current = clearedSignature;
+            }
+          }
+        }
 
         if (isIOSWebBrowser()) {
           console.info('[ORDER-ALARM][iOS] alarm state', {
@@ -6378,31 +6725,35 @@ function App() {
 
         setHasNewPendingOrders(alarmCondition.hasPendingOrders);
 
+        if (nativeAndroidTerminalOwnsAlerts) {
+          stopAlarm();
+          return;
+        }
+
         if (!alarmCondition.hasPendingOrders) {
           console.log('[App.js] Nenhum pedido Pendente na loja atual. Parando alarme.');
           stopAlarm();
           return;
         }
 
-        if (isAlarmSnoozed && !alarmCondition.hasNewPendingOrderDuringPause) {
+        if (isAlarmSnoozed) {
           stopAlarm();
-          return;
-        }
-
-        if (alarmCondition.hasNewPendingOrderDuringPause) {
-          console.log('[App.js] Nova ID Pendente detectada durante a pausa. Reativando o alarme.');
-          reactivateAlarmForCurrentContext();
           return;
         }
 
         playAlarmRef.current();
     }, [
+      androidTerminalSessionReady,
+      nativeAndroidTerminalOwnsAlerts,
+      availableStores,
       data.pedidos,
       isAlarmSnoozed,
       isGeneralViewSelected,
-      pausedPendingOrderIds,
-      reactivateAlarmForCurrentContext,
+      isStandaloneAndroidOrderTerminal,
       selectedStoreIdForAlarm,
+      selectedStoreNameForAlarm,
+      selectedStoreOpenForAlarm,
+      snoozeEndTime,
       stopAlarm,
       userId,
     ]);
@@ -6780,7 +7131,7 @@ function App() {
           error?.code === 'permission-denied'
         ) {
           try {
-            await signOut(auth);
+            await signOutAfterPushCleanup();
           } catch (signOutError) {
             console.warn('Erro ao encerrar sessão de perfil Cliente:', signOutError);
           }
@@ -6812,6 +7163,7 @@ function App() {
     };
 
     const applySignedOutState = () => {
+      notifyAndroidTerminalLogout();
       setUser(null);
       storeCollectionsDataRef.current = {};
       clientesDataRef.current = [];
@@ -6856,7 +7208,7 @@ function App() {
       isMounted = false;
       unsubscribe();
     };
-  }, [stopAlarm, setCurrentPage]);
+  }, [notifyAndroidTerminalLogout, signOutAfterPushCleanup, stopAlarm, setCurrentPage]);
 
     useEffect(() => {
         const uid = user?.auth?.uid;
@@ -6867,7 +7219,7 @@ function App() {
             setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
             setShowLogin(true);
             setCurrentPage('pagina-inicial');
-            signOut(auth).catch((error) => {
+            signOutAfterPushCleanup().catch((error) => {
                 console.error('Erro ao encerrar sessão de usuário inativo:', error);
             });
         }, (error) => {
@@ -6876,12 +7228,12 @@ function App() {
                 setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
                 setShowLogin(true);
                 setCurrentPage('pagina-inicial');
-                signOut(auth).catch((signOutError) => {
+                signOutAfterPushCleanup().catch((signOutError) => {
                     console.error('Erro ao encerrar sessão sem permissão:', signOutError);
                 });
             }
         });
-    }, [user?.auth?.uid, setCurrentPage]);
+    }, [signOutAfterPushCleanup, user?.auth?.uid, setCurrentPage]);
 
     useEffect(() => {
         if (!user?.auth?.uid) return undefined;
@@ -7173,7 +7525,8 @@ function App() {
   const handleLogout = async () => { 
       if (!confirmDiscardUnsavedChanges()) return;
       stopAlarm(); // Garante que o alarme pare
-      await signOut(auth); 
+      notifyAndroidTerminalLogout();
+      await signOutAfterPushCleanup();
       // O useEffect do onAuthStateChanged agora cuida de resetar a página
   };
 

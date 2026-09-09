@@ -34,9 +34,29 @@ test('Service Worker possui uma única fonte de push e usa o áudio oficial como
   assert.equal((serviceWorker.match(/onBackgroundMessage/g) || []).length, 1);
   assert.doesNotMatch(serviceWorker, /addEventListener\(['"]push['"]/);
   assert.doesNotMatch(serviceWorker, /PLAY_ORDER_SOUND/);
+  assert.match(serviceWorker, /data\.alertAllowed === 'false'/);
 });
 
-test('Android usa dedupe, interrompe a pausa por usuário e loja e mantém um único player sonoro', () => {
+test('Web preserva pausa e só delega áudio ao terminal standalone validado', () => {
+  const appSource = readText('crm', 'src', 'App.js');
+  const bridgeSource = readText('crm', 'src', 'utils', 'androidOrderTerminalBridge.js');
+
+  assert.doesNotMatch(appSource, /Novo pedido recebido durante a pausa\. Reativando o alarme/);
+  assert.doesNotMatch(appSource, /Nova ID Pendente detectada durante a pausa\. Reativando o alarme/);
+  assert.match(appSource, /postAndroidOrderTerminalMessage\('operational_state'/);
+  assert.match(appSource, /postAndroidOrderTerminalMessage\('logout'/);
+  assert.match(appSource, /maxAutomaticAttempts = 4/);
+  assert.match(appSource, /isStandaloneAndroidOrderTerminal && androidTerminalSessionReady/);
+  assert.doesNotMatch(appSource, /if \(isStandaloneAndroidOrderTerminal\) \{\s*stopAlarm\(\)/);
+  assert.match(appSource, /window\.addEventListener\('online', retryAfterExternalSignal\)/);
+  assert.match(appSource, /window\.addEventListener\('focus', retryAfterExternalSignal\)/);
+  assert.match(appSource, /postAndroidOrderTerminalMessage\('operational_context_cleared'/);
+  assert.match(appSource, /unregisterDeviceForPush\(uid, token\)/);
+  assert.match(bridgeSource, /AnaGuimaraesAndroidApp\//);
+  assert.match(bridgeSource, /Capacitor\.isNativePlatform\(\)/);
+});
+
+test('Android legado usa dedupe, preserva a pausa por usuário e loja e mantém um único player sonoro', () => {
   const messagingService = readText(
       'crm',
       'android',
@@ -66,31 +86,42 @@ test('Android usa dedupe, interrompe a pausa por usuário e loja e mantém um ú
 
   assert.match(messagingService, /OrderAlertDedupeStore\.claim/);
   assert.match(messagingService, /AlarmPausePlugin\.getPausedUntil/);
-  assert.match(messagingService, /AlarmPausePlugin\.clearPause/);
+  assert.doesNotMatch(messagingService, /AlarmPausePlugin\.clearPause/);
+  assert.match(messagingService, /alertAllowedByBackend/);
+  assert.match(messagingService, /showSilentNotification/);
   assert.match(messagingService, /CURRENT_UID_KEY/);
   assert.match(messagingService, /CURRENT_STORE_KEY/);
   assert.match(playbackService, /MediaPlayer\.create\(this, R\.raw\.alarm\)/);
   assert.match(playbackService, /channel\.setSound\(null, null\)/);
 
   const pauseCheck = messagingService.indexOf('AlarmPausePlugin.getPausedUntil');
-  const pauseClear = messagingService.indexOf('AlarmPausePlugin.clearPause', pauseCheck);
-  const foregroundHandoff = messagingService.indexOf('if (appInForeground)', pauseClear);
-  const alarmStart = messagingService.indexOf('MediaPlaybackService.startAlarm', pauseClear);
+  const foregroundHandoff = messagingService.indexOf('if (appInForeground)', pauseCheck);
+  const silentNotification = messagingService.indexOf('showSilentNotification', foregroundHandoff);
+  const alarmStart = messagingService.indexOf('MediaPlaybackService.startAlarm', silentNotification);
   assert.ok(
-      pauseCheck >= 0 && pauseClear > pauseCheck && foregroundHandoff > pauseClear && alarmStart > foregroundHandoff,
+      pauseCheck >= 0 && foregroundHandoff > pauseCheck &&
+      silentNotification > foregroundHandoff && alarmStart > silentNotification,
   );
-  assert.doesNotMatch(messagingService.slice(pauseCheck, foregroundHandoff), /return;/);
   assert.match(messagingService.slice(foregroundHandoff, alarmStart), /return;/);
 });
 
-test('Function encerra pausas anteriores ao novo Pendente antes de enviar o push', () => {
-  const functionsIndex = readText('functions', 'index.js');
-  const pauseClear = functionsIndex.indexOf('clearInterruptedAlarmPauses(storeId, event.time)');
-  const tokenLookup = functionsIndex.indexOf('getAuthorizedOrderTokenDocs(storeId)', pauseClear);
+test('Function preserva pausas e calcula alertAllowed por destinatário', () => {
+  const terminalFunctions = readText('functions', 'android-order-terminal.js');
 
-  assert.ok(pauseClear >= 0 && tokenLookup > pauseClear);
-  assert.doesNotMatch(
-      functionsIndex.slice(functionsIndex.indexOf('const getAuthorizedOrderTokenDocs'), tokenLookup),
-      /!isAlarmPauseActive/,
+  assert.match(terminalFunctions, /getPausesByUid/);
+  assert.match(terminalFunctions, /pausedUntil: pausesByUid\.get\(uid\) \|\| 0/);
+  assert.match(
+      terminalFunctions,
+      /const alertAllowed = Boolean\(storeOpen\) && Number\(pendingCount\) > 0 && !Number\(pausedUntil\)/,
   );
+  assert.doesNotMatch(terminalFunctions, /collectionGroup\(['"]alarmPauses['"]\)/);
+  assert.doesNotMatch(terminalFunctions, /clearInterruptedAlarmPauses/);
+});
+
+test('registro do terminal substitui sessão da instalação e deduplica token legado', () => {
+  const terminalFunctions = readText('functions', 'android-order-terminal.js');
+
+  assert.match(terminalFunctions, /getAndroidTerminalTokenId\(installationId\)/);
+  assert.match(terminalFunctions, /deduplicateTokenDocs\(candidateDocs\)/);
+  assert.match(terminalFunctions, /revokedReason: 'installation_session_replaced'/);
 });
