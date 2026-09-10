@@ -1,3 +1,4 @@
+import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { getExplicitTransferStatuses } from './utils/transferStatusVisibility';
 import {
@@ -14138,50 +14139,12 @@ const effectiveStoreName = useMemo(() => {
         };
     };
 
-    const mapOrderItemsByProduct = (items = []) => {
-        const grouped = new Map();
-
-        items.forEach((item) => {
-            const productId = getOrderItemProductId(item);
-            if (!productId) {
-                console.error('[Stock][Pedidos] Item sem identificador de produto. Item ignorado.', item);
-                return;
-            }
-
-            const quantity = getOrderItemQuantity(item);
-            if (quantity <= 0) return;
-
-            grouped.set(productId, (grouped.get(productId) || 0) + quantity);
-        });
-
-        return grouped;
-    };
-
-    const calculateOrderStockDelta = (oldItems = [], newItems = []) => {
-        const oldMap = mapOrderItemsByProduct(oldItems);
-        const newMap = mapOrderItemsByProduct(newItems);
-        const productIds = new Set([...oldMap.keys(), ...newMap.keys()]);
-        const delta = {};
-
-        productIds.forEach((productId) => {
-            const oldQty = oldMap.get(productId) || 0;
-            const newQty = newMap.get(productId) || 0;
-            const diff = newQty - oldQty;
-            if (diff !== 0) {
-                delta[productId] = diff;
-            }
-        });
-
-        return delta;
-    };
-
     const resolveOrderStoreId = (orderData = {}) => (
         editingOrder?.lojaId ||
         orderData?.lojaId ||
         resolveActiveStoreForWrite()
     );
 
-    const isFinalizedStatus = (status) => status === 'Finalizado';
 
     const getCouponDocRefForOrder = async (storeId, cupom) => {
         if (!cupom?.codigo && !cupom?.id) return null;
@@ -14397,16 +14360,17 @@ const effectiveStoreName = useMemo(() => {
                 throw new Error('A loja fechou antes do salvamento. Revise o status de funcionamento e tente novamente.');
             }
 
-            let previousOrder = null;
-            if (editingOrder) {
-                const orderSnap = await transaction.get(orderRef);
-                if (!orderSnap.exists()) {
-                    throw new Error('Este pedido não existe mais. Atualize a lista e tente novamente.');
-                }
-                previousOrder = { id: orderSnap.id, ...orderSnap.data() };
+            const orderSnap = await transaction.get(orderRef);
+            if (editingOrder && !orderSnap.exists()) {
+                throw new Error('Este pedido não existe mais. Atualize a lista e tente novamente.');
             }
-
-            const productIds = Array.from(new Set(orderData.itens.map(getOrderItemProductId).filter(Boolean)));
+            // A committed creation may be retried after a transport error.
+            if (!editingOrder && orderSnap.exists()) return;
+            const previousOrder = orderSnap.exists() ? { id: orderSnap.id, ...orderSnap.data() } : null;
+            const productIds = Array.from(new Set([
+                ...orderData.itens.map(getOrderItemProductId).filter(Boolean),
+                ...Object.keys(getAppliedOrderStock(previousOrder))
+            ]));
             const productSnapMap = new Map();
             for (const productId of productIds) {
                 const productSnap = await transaction.get(getStoreDocRef(storeId, 'produtos', productId));
@@ -14449,19 +14413,8 @@ const effectiveStoreName = useMemo(() => {
             };
             finalOrderData.total = roundCurrency(finalOrderData.subtotal - finalOrderData.desconto);
 
-            const wasFinalized = isFinalizedStatus(previousOrder?.status);
-            const isNowFinalized = isFinalizedStatus(finalOrderData.status);
-            let stockDelta = {};
-
-            if (!previousOrder && isNowFinalized) {
-                stockDelta = calculateOrderStockDelta([], finalOrderData.itens || []);
-            } else if (previousOrder && !wasFinalized && isNowFinalized) {
-                stockDelta = calculateOrderStockDelta([], finalOrderData.itens || []);
-            } else if (previousOrder && wasFinalized && !isNowFinalized) {
-                stockDelta = calculateOrderStockDelta(previousOrder.itens || [], []);
-            } else if (previousOrder && wasFinalized && isNowFinalized) {
-                stockDelta = calculateOrderStockDelta(previousOrder.itens || [], finalOrderData.itens || []);
-            }
+            const { delta: stockDelta, applied } = planOrderStock(previousOrder, finalOrderData);
+            finalOrderData.estoqueAplicado = applied;
 
             Object.entries(stockDelta).forEach(([productId, delta]) => {
                 if (delta === 0) return;

@@ -1,3 +1,4 @@
+import { groupOrderStockItems } from './orderStock';
 import { collection, doc, increment, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig.js';
 
@@ -88,6 +89,7 @@ export const updateStock = async (
         ...quickSaleOrder,
         lojaId: storeId,
         estoqueMovimentacaoId: movementRef.id,
+        estoqueAplicado: groupOrderStockItems(quickSaleOrder.itens),
         createdAt: serverTimestamp(),
       });
     }

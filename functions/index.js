@@ -1782,7 +1782,7 @@ app.post("/checkout/confirmar", async (req, res) => {
         );
       }
 
-      const stockUpdates = [];
+      const stockUpdates = new Map();
       const validatedItems = [];
       let calculatedSubtotal = 0;
 
@@ -1821,11 +1821,11 @@ app.post("/checkout/confirmar", async (req, res) => {
         }
 
         if (typeof productData.estoque === 'number') {
-          const newStock = productData.estoque - quantity;
+          const newStock = (stockUpdates.get(String(produtoId))?.newStock ?? productData.estoque) - quantity;
           if (newStock < 0) {
             throw createHttpError(409, `Estoque insuficiente para ${productData.nome || produtoId}.`);
           }
-          stockUpdates.push({ref: productRef, newStock});
+          stockUpdates.set(String(produtoId), {ref: productRef, newStock, quantity: (stockUpdates.get(String(produtoId))?.quantity || 0) + quantity});
         }
 
         calculatedSubtotal += currentPrice * quantity;
@@ -1926,6 +1926,7 @@ app.post("/checkout/confirmar", async (req, res) => {
         telefone: cliente.telefone,
         formaPagamento: pagamento.forma || pagamento.formaPagamento || '',
         itens: validatedItems,
+        estoqueAplicado: Object.fromEntries([...stockUpdates].map(([id, movement]) => [id, movement.quantity])),
         subtotal: subtotalFinal,
         desconto: descontoFinal,
         valorFrete,
@@ -1936,7 +1937,7 @@ app.post("/checkout/confirmar", async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      for (const stockUpdate of stockUpdates) {
+      for (const stockUpdate of stockUpdates.values()) {
         transaction.update(stockUpdate.ref, {estoque: stockUpdate.newStock});
       }
 
