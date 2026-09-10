@@ -14915,6 +14915,8 @@ const handleSubmit = async (e) => {
                     const telefone = viewingOrder.telefone || cliente?.telefone || '';
                     const subtotal = (viewingOrder.itens || []).reduce((sum, item) => sum + ((item.preco || 0) * (item.quantity || 1)), 0);
 					const frete = parseFloat(viewingOrder.valorFrete ?? viewingOrder.frete ?? 0) || 0;
+                    // O total salvo já contém os descontos dos produtos; soma apenas o frete exibido.
+                    const totalFinal = ((Number(viewingOrder.total) || 0) + frete).toFixed(2);
 
                     
                     const handleSendToWhatsApp = () => {
@@ -14947,7 +14949,7 @@ const handleSubmit = async (e) => {
                         }
 
                         message += `*Frete:* R$ ${frete.toFixed(2)}\n`;
-                        message += `*Total:* R$ ${(viewingOrder.total || 0).toFixed(2)}\n`;
+                        message += `*Total:* R$ ${totalFinal}\n`;
                         if(viewingOrder.formaPagamento) message += `*Pagamento:* ${viewingOrder.formaPagamento}\n`;
                         message += `*Status:* ${viewingOrder.status}\n\n`;
                         if(viewingOrder.observacao) message += `*Observações:* ${viewingOrder.observacao}\n\n`;
@@ -15060,7 +15062,7 @@ const handleSubmit = async (e) => {
                                 )}
                                 <p className="text-sm text-gray-600">Frete: R$ {frete.toFixed(2)}</p>
                                 <p className="font-bold text-2xl text-pink-600">
-                                    Total: R$ ${(viewingOrder.total || 0).toFixed(2)}
+                                    Total: R$ {totalFinal}
                                 </p>
                            </div>
 
