@@ -509,19 +509,29 @@ function isClosingCloseUpdate() {
   return resource.data.status == 'aberto' && request.resource.data.status == 'fechado';
 }
 
+function closingRouteChanged() {
+  return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+    'lojaOrigemId', 'lojaDestinoId'
+  ]);
+}
+
 function canCreateFechamentoEntreLojas() {
-  return isEntreLojasOwnerUser()
-    || (
-      isManagerUser()
-      && (
-        currentUserHasStore(request.resource.data.lojaOrigemId)
-        || currentUserHasStore(request.resource.data.lojaDestinoId)
+  return isSignedIn()
+    && currentUserHasEntreLojasModule()
+    && request.resource.data.status == 'aberto'
+    && isAuthorizedTransferRoute(request.resource.data)
+    && (
+      isEntreLojasOwnerUser()
+      || (
+        (isManagerUser() || isAttendantUser())
+        && currentUserHasStore(request.resource.data.lojaOrigemId)
       )
     );
 }
 
 function canUpdateFechamentoEntreLojas() {
-  return isEntreLojasOwnerUser()
+  return (!closingRouteChanged() || isAuthorizedTransferRoute(request.resource.data))
+    && (isEntreLojasOwnerUser()
     || (
       isManagerUser()
       && (
@@ -536,9 +546,8 @@ function canUpdateFechamentoEntreLojas() {
           && isEntreLojasManagerOrigin(resource.data)
         )
       )
-    );
+    ));
 }
-
 function canDeleteFechamentoEntreLojas() {
   return isEntreLojasOwnerUser()
     || (
