@@ -1,4 +1,5 @@
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
+import { isCompleteClientDocument, normalizeClientDocumentInput } from './utils/clientDocument';
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { getExplicitTransferStatuses } from './utils/transferStatusVisibility';
 import {
@@ -2220,8 +2221,8 @@ const normalizeClientForForm = (client = {}) => {
     nome: client.nome || '',
     email: client.email || '',
     telefone: client.telefone || client.phone || '',
-    cpf: documentValue,
-    documento: documentValue,
+    cpf: onlyDigitsText(documentValue),
+    documento: onlyDigitsText(documentValue),
     aniversario: normalizeClientDateInput(client.aniversario || client.dataAniversario || client.birthDate),
     cep: onlyDigitsText(pickClientAddressValue(sources, ['cep', 'zip', 'enderecoCep'])),
     endereco: streetValue || '',
@@ -10735,6 +10736,10 @@ function App() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!isCompleteClientDocument(formData.cpf)) {
+            alert('Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos.');
+            return;
+        }
         const payload = buildClientFiscalPayload(formData, editingClient);
         if (editingClient) {
             await updateItem('clientes', editingClient.id, payload);
@@ -10797,12 +10802,14 @@ function App() {
                 required
               />
               <Input
-                label="CPF"
+                label="CPF/CNPJ"
                 type="text"
                 inputMode="numeric"
-                maxLength={14}
+                maxLength={18}
+                pattern="[0-9]{11}|[0-9]{14}"
+                title="Informe 11 dígitos para CPF ou 14 dígitos para CNPJ"
                 value={formData.cpf || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, cpf: onlyDigitsText(e.target.value), documento: onlyDigitsText(e.target.value) }))}
+                onChange={(e) => setFormData(prev => ({ ...prev, cpf: normalizeClientDocumentInput(e.target.value), documento: normalizeClientDocumentInput(e.target.value) }))}
                 required
               />
               <Input
