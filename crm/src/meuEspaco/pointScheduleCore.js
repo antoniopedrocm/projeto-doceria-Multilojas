@@ -1,4 +1,11 @@
 // Canonical source: functions/point-schedule-core.js. Generate its ESM browser copy with scripts/sync-point-schedule.cjs.
+// Production correction confirmed by the owner: this employee has raw
+// punches since September, but legacy snapshots were normalized as seg-sex.
+// This is a read-time effective schedule; stored history is never rewritten.
+const POINT_HOURLY_HISTORY_CORRECTIONS = Object.freeze({
+  "zBiD2jxl1MO8lu6QrUcW6VYiysC2": "2026-09-01"
+});
+
 const POINT_WORK_SCHEDULE_TYPES = [
   { value: 'seg-sex', label: 'Segunda a sexta' },
   { value: 'seg-sab-folga', label: 'Segunda a sábado com uma folga semanal' },
@@ -151,6 +158,31 @@ const resolvePointWorkSchedule = (input, dayKey = '') => {
   return entry ? sanitizeEmployeeWorkSchedule(entry.jornadaTrabalho) : schedule;
 };
 
+const applyPointHourlyHistoryCorrection = (input, employeeId = '') => {
+  const schedule = sanitizeEmployeeWorkSchedule(input);
+  const since = POINT_HOURLY_HISTORY_CORRECTIONS[employeeId];
+  if (!since) return schedule;
+  const history = schedule.historicoEscalas || [];
+  // Never turn an unrelated fixed employee into Horista. A later explicit
+  // fixed effective date also remains authoritative when resolving the day.
+  if (!isHourlyWorkSchedule(schedule) && !history.some((entry) => isHourlyWorkSchedule(entry.jornadaTrabalho))) return schedule;
+  const snapshot = { ...schedule, tipoEscala: 'horista' };
+  delete snapshot.historicoEscalas;
+  return { ...schedule, historicoEscalas: [
+    ...history.filter((entry) => entry.inicio !== since),
+    { inicio: since, jornadaTrabalho: snapshot }
+  ] };
+};
+
+// A declared hourly effective date must not fall back to a legacy fixed
+// snapshot when the employee registers another punch on that date.
+const resolvePointRecordWorkSchedule = (employeeInput, recordInput, dayKey = '') => {
+  const effective = resolvePointWorkSchedule(employeeInput, dayKey);
+  return isHourlyWorkSchedule(effective)
+    ? effective
+    : recordInput ? sanitizeEmployeeWorkSchedule(recordInput) : effective;
+};
+
 // History is owned by the server. Client-supplied history must not replace it.
 const buildPointScheduleUpdate = (previousInput, nextInput, dayKey) => {
   const previous = sanitizeEmployeeWorkSchedule(previousInput);
@@ -171,7 +203,7 @@ const buildPointScheduleUpdate = (previousInput, nextInput, dayKey) => {
 
 const hasIncompletePointLunch = (period = {}) => Boolean(period.horaAlmocoSaida) !== Boolean(period.horaAlmocoRetorno);
 const hasIncompletePointPeriodLunch = (record = {}) => (Array.isArray(record.periodosTrabalho) ? record.periodosTrabalho : [])
-  .some((period) => period && period.ativo !== false && hasIncompletePointLunch(period));
+  .some((period) => period && period.ativo !== false && (period.horaFim || period.fim) && hasIncompletePointLunch(period));
 const isPointJourneyPending = (events = []) => ['entrada', 'almoco_inicio', 'almoco_fim'].includes(events[events.length - 1]?.tipo);
 
 const getHourlyPointSummary = (workedMinutes, invalid = false) => ({
@@ -179,14 +211,14 @@ const getHourlyPointSummary = (workedMinutes, invalid = false) => ({
   workedLabel: invalid ? '-' : formatPointDurationInput(workedMinutes),
   expectedMinutes: 0,
   irregularityMinutes: null,
-  irregularidade: '—',
+  irregularidade: '-',
   justifiedAppliedMinutes: 0,
   consideredMinutes: invalid ? 0 : workedMinutes,
   calculable: !invalid
 });
 const getHourlyPointBalance = () => ({
   bancoHorasMinutes: 0, horaExtraMinutes: 0,
-  bancoHoras: '—', horaExtra: '—',
+  bancoHoras: '-', horaExtra: '-',
   almocoNaoRegistradoBancoHoras: 0, faltaSemAbonoBancoHoras: 0,
   calculable: false, bancoHorasAplicavel: false
 });
@@ -199,10 +231,11 @@ const sumPointWorkedMinutes = (calculations = []) => calculations.reduce((total,
 ), 0);
 
 export {
+  POINT_HOURLY_HISTORY_CORRECTIONS,
   POINT_WORK_SCHEDULE_TYPES, POINT_WEEK_DAYS, DEFAULT_POINT_DAILY_LOADS,
   sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
   parsePointDurationToMinutes, formatPointDurationInput,
-  isHourlyWorkSchedule, resolvePointWorkSchedule, buildPointScheduleUpdate,
+  isHourlyWorkSchedule, resolvePointWorkSchedule, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, buildPointScheduleUpdate,
   getHourlyPointSummary, getHourlyPointBalance, formatPointWorkedMonth, sumPointWorkedMinutes,
   hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending
 };

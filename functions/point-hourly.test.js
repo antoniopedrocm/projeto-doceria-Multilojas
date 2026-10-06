@@ -102,7 +102,7 @@ test('5h real work has no 8h expected load, deficit or automatic lunch credit', 
   assert.equal(summary.expectedMinutes, 0);
   assert.equal(summary.irregularityMinutes, null);
   assert.equal(balance.bancoHorasMinutes, 0);
-  assert.equal(balance.bancoHoras, '—');
+  assert.equal(balance.bancoHoras, '-');
   assert.equal(balance.horaExtraMinutes, 0);
 });
 
@@ -197,9 +197,14 @@ test('midmonth transition preserves missing old days and supports switching back
   assert.equal(policy.resolvePointWorkSchedule(back, '2026-11-02').tipoEscala, 'seg-sex');
 });
 
-test('real registerEmployeePoint transaction persists hourly punches, actual hours and no bank debt', async () => {
+for (const legacyFixedSnapshot of [false, true]) test(`real registerEmployeePoint persists hourly punches without bank debt (legacy fixed snapshot: ${legacyFixedSnapshot})`, async () => {
   const backend = loadBackend();
   const stored = new Map();
+  if (legacyFixedSnapshot) stored.set('lojas/dev/pontos/employee_2026-10-06', {
+    funcionarioId: 'employee', dia: '2026-10-06', competencia: '2026-10',
+    jornadaTrabalho: policy.sanitizeEmployeeWorkSchedule({tipoEscala: 'seg-sex'}),
+    historicoAlteracoes: [{tipo: 'existing-audit', observacoes: 'must remain intact'}],
+  });
   const context = backend.context;
   let time = '08:00';
   let auditId = 0;
@@ -223,7 +228,8 @@ test('real registerEmployeePoint transaction persists hourly punches, actual hou
       set: (ref, data, options) => stored.set(ref.path, clone(options?.merge ? {...stored.get(ref.path), ...data} : data)),
     }),
   };
-  context.verifyPointStoreAccess = async () => ({profile: {nome: 'Horista', jornadaTrabalho: hourly}});
+  context.verifyPointStoreAccess = async () => ({profile: {nome: 'Horista', jornadaTrabalho: legacyFixedSnapshot
+    ? policy.buildPointScheduleUpdate({tipoEscala: 'seg-sex'}, hourly, '2026-10-06') : hourly}});
   context.getSaoPauloPointNow = () => ({now: new Date(`2026-10-06T${time}:00-03:00`), dayKey: '2026-10-06', competenciaKey: '2026-10', timeLabel: time});
   context.admin.firestore.Timestamp = {fromDate: (date) => date.toISOString()};
   context.admin.firestore.FieldValue.arrayUnion = (value) => [value];
@@ -236,9 +242,38 @@ test('real registerEmployeePoint transaction persists hourly punches, actual hou
     response = await context.exports.registerEmployeePoint({auth: {uid: 'employee'}, data: {lojaId: 'dev', type}});
   }
   assert.equal(response.record.qtde, '05:00');
-  assert.equal(response.record.bancoHoras, '—');
+  assert.equal(response.record.bancoHoras, '-');
   assert.equal(response.record.bancoHorasMinutes, 0);
   assert.equal(response.record.jornadaTrabalho.tipoEscala, 'horista');
   assert.equal(response.record.statusPonto, 'Completo');
   assert.equal(stored.get('lojas/dev/pontos/employee_2026-10-06').batidas.length, 4);
+  if (legacyFixedSnapshot) assert.equal(stored.get('lojas/dev/pontos/employee_2026-10-06').historicoAlteracoes[0].tipo, 'existing-audit');
+});
+
+test('read-time September correction recalculates legacy snapshots without mutating records or schedule history', () => {
+  const employeeId = Object.keys(policy.POINT_HOURLY_HISTORY_CORRECTIONS)[0];
+  const profile = policy.buildPointScheduleUpdate({tipoEscala: 'seg-sex'}, hourly, '2026-10-06');
+  const records = [{dia: '2026-09-15', jornadaTrabalho: {tipoEscala: 'seg-sex'}, bancoHorasMinutes: -2464, horaExtraMinutes: 207, ...fiveHours}];
+  const before = JSON.stringify({records, profile});
+  const schedule = policy.applyPointHourlyHistoryCorrection(profile, employeeId);
+  const calculate = loadBackend().handlers.calculate;
+  const results = records.map((record) => calculate({...record, jornadaTrabalho: policy.resolvePointRecordWorkSchedule(schedule, record.jornadaTrabalho, record.dia)}));
+  assert.equal(policy.sumPointWorkedMinutes(results), 300);
+  assert.equal(results[0].balance.bancoHoras, '-');
+  assert.equal(results[0].balance.horaExtra, '-');
+  assert.equal(results[0].balance.bancoHorasMinutes, 0);
+  assert.equal(results[0].balance.horaExtraMinutes, 0);
+  assert.equal(results[0].summary.expectedMinutes, 0);
+  assert.equal(policy.resolvePointWorkSchedule(schedule, '2026-08-31').tipoEscala, 'seg-sex');
+  assert.equal(policy.resolvePointWorkSchedule(policy.applyPointHourlyHistoryCorrection(profile, 'another-employee'), '2026-09-15').tipoEscala, 'seg-sex');
+  assert.equal(JSON.stringify({records, profile}), before);
+});
+
+test('backend stored open lunch counts closed hours, stays pending, and creates no bank debt', () => {
+  const result = loadBackend().handlers.calculate(point({horaEntrada: '08:00', horaAlmocoSaida: '12:00',
+    periodosTrabalho: [{horaInicio: '08:00', horaAlmocoSaida: '12:00', horaAlmocoRetorno: '', horaFim: ''}]}));
+  assert.equal(result.status.statusPonto, 'Em andamento');
+  assert.equal(result.summary.workedMinutes, 240);
+  assert.equal(result.balance.bancoHorasMinutes, 0);
+  assert.equal(result.balance.horaExtraMinutes, 0);
 });

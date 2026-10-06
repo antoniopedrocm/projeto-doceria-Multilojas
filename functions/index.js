@@ -1,5 +1,5 @@
 const { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo, isHourlyWorkSchedule,
-  buildPointScheduleUpdate, getHourlyPointSummary, getHourlyPointBalance, hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending } = require('./point-schedule-core');
+  buildPointScheduleUpdate, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, getHourlyPointSummary, getHourlyPointBalance, hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending } = require('./point-schedule-core');
 /**
  * Import function triggers from their respective sub-packages:
  *
@@ -2366,7 +2366,7 @@ exports.registerEmployeePoint = onCall({timeoutSeconds: 60}, async (request) => 
   const lojaId = String(request.data?.lojaId || '').trim();
   const type = String(request.data?.type || '').trim();
   const {profile} = await verifyPointStoreAccess(uid, lojaId);
-  const employeeSchedule = sanitizeEmployeeWorkSchedule(profile.jornadaTrabalho || profile.escalaTrabalho || profile.workSchedule);
+  const employeeSchedule = applyPointHourlyHistoryCorrection(profile.jornadaTrabalho || profile.escalaTrabalho || profile.workSchedule, uid);
   const {now, dayKey, competenciaKey, timeLabel} = getSaoPauloPointNow();
   const pontosRef = db.collection('lojas').doc(lojaId).collection('pontos');
   const punchAuditRef = db.collection('lojas').doc(lojaId).collection('pontosAuditoria').doc();
@@ -2453,7 +2453,7 @@ exports.registerEmployeePoint = onCall({timeoutSeconds: 60}, async (request) => 
     const mergedRecord = {
       ...(recordSnap.exists ? {} : baseData),
       ...existingData,
-      jornadaTrabalho: existingData.jornadaTrabalho || employeeSchedule,
+      jornadaTrabalho: resolvePointRecordWorkSchedule(employeeSchedule, existingData.jornadaTrabalho, dayKey),
       ...legacyPayload,
       batidas: nextEvents,
       periodosTrabalho: nextWorkPeriods,

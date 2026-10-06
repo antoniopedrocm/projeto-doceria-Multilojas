@@ -1,6 +1,6 @@
 import PointWorkScheduleFields from './meuEspaco/PointWorkScheduleFields';
 import { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
-  isHourlyWorkSchedule, resolvePointWorkSchedule, getHourlyPointSummary, getHourlyPointBalance,
+  isHourlyWorkSchedule, resolvePointWorkSchedule, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, getHourlyPointSummary, getHourlyPointBalance,
   formatPointWorkedMonth } from './meuEspaco/pointScheduleCore';
 import { summarizePointMonth } from './meuEspaco/pointMonthSummary';
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
@@ -7528,8 +7528,9 @@ function App() {
       employee.nome || employee.displayName || employee.name || employee.email || employee.id || 'Colaboradora'
     );
 
-    const getEmployeeWorkSchedule = (employee = {}) => sanitizeEmployeeWorkSchedule(
-      employee.jornadaTrabalho || employee.escalaTrabalho || employee.workSchedule || null
+    const getEmployeeWorkSchedule = (employee = {}) => applyPointHourlyHistoryCorrection(
+      employee.jornadaTrabalho || employee.escalaTrabalho || employee.workSchedule || null,
+      employee.id || employee.auth?.uid || ''
     );
 
     const getEmployeeById = (employeeId) => employees.find((item) => item.id === employeeId)
@@ -7564,10 +7565,11 @@ function App() {
     };
 
     const getRecordWorkSchedule = (record = {}) => {
-      if (record.jornadaTrabalho || record.escalaTrabalho || record.workSchedule) {
-        return sanitizeEmployeeWorkSchedule(record.jornadaTrabalho || record.escalaTrabalho || record.workSchedule);
-      }
-      return resolvePointWorkSchedule(getScheduleForEmployeeId(record.funcionarioId), getRecordDayKey(record));
+      return resolvePointRecordWorkSchedule(
+        getScheduleForEmployeeId(record.funcionarioId),
+        record.jornadaTrabalho || record.escalaTrabalho || record.workSchedule,
+        getRecordDayKey(record)
+      );
     };
 
     const isVacationRecord = (record = {}) => (
@@ -8501,8 +8503,8 @@ function App() {
         y += 3.5;
         const summaryBoxes = hourlyMonth ? [
           ['Horas trabalhadas no mês', formatPointWorkedMonth(monthSummary.workedMinutes)],
-          ['Banco de horas', '—'],
-          ['Horas extras', '—']
+          ['Banco de horas', '-'],
+          ['Horas extras', '-']
         ] : [
           ['Créditos Mês', formatMinutesForPointSheet(creditMinutes)],
           ['Débitos Mês', formatMinutesForPointSheet(debitMinutes)],
@@ -9726,11 +9728,11 @@ function App() {
                 </div>
                 <div>
                   <p className="text-sm text-sky-800">Banco de horas</p>
-                  <p className="text-2xl font-semibold text-sky-900">—</p>
+                  <p className="text-2xl font-semibold text-sky-900">-</p>
                 </div>
                 <div>
                   <p className="text-sm text-sky-800">Horas extras</p>
-                  <p className="text-2xl font-semibold text-sky-900">—</p>
+                  <p className="text-2xl font-semibold text-sky-900">-</p>
                 </div>
               </div>
               <p className="text-xs text-sky-700">{competenciaLabel} · Somente períodos registrados; períodos abertos permanecem pendentes.</p>

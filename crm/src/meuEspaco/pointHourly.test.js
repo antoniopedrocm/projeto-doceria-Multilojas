@@ -12,7 +12,8 @@ import fs from 'fs';
 import path from 'path';
 import {
   buildPointScheduleUpdate, sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
-  sumPointWorkedMinutes, formatPointWorkedMonth, resolvePointWorkSchedule, isHourlyWorkSchedule
+  sumPointWorkedMinutes, formatPointWorkedMonth, resolvePointWorkSchedule, isHourlyWorkSchedule,
+  POINT_HOURLY_HISTORY_CORRECTIONS, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule
 } from './pointScheduleCore';
 
 const act = React.act || legacyAct;
@@ -22,6 +23,53 @@ const calculate = (record = {}, schedule = hourly, date = new Date(2026, 9, 6)) 
   date, scheduleDay: getPointScheduleDayInfo(schedule, date)
 });
 const fiveHours = { horaEntrada: '08:00', horaAlmocoSaida: '11:00', horaAlmocoRetorno: '12:00', horaSaida: '14:00' };
+
+test('confirmed September correction is read-only, scoped to the audited employee and preserves August and later fixed dates', () => {
+  const employeeId = Object.keys(POINT_HOURLY_HISTORY_CORRECTIONS)[0];
+  const fixed = sanitizeEmployeeWorkSchedule({tipoEscala: 'seg-sex'});
+  const original = buildPointScheduleUpdate(fixed, hourly, '2026-10-06');
+  const before = JSON.stringify(original);
+  const corrected = applyPointHourlyHistoryCorrection(original, employeeId);
+  expect(resolvePointWorkSchedule(corrected, '2026-08-31').tipoEscala).toBe('seg-sex');
+  expect(resolvePointRecordWorkSchedule(corrected, fixed, '2026-09-01').tipoEscala).toBe('horista');
+  expect(resolvePointWorkSchedule(applyPointHourlyHistoryCorrection(original, 'another-employee'), '2026-09-30').tipoEscala).toBe('seg-sex');
+  expect(applyPointHourlyHistoryCorrection(fixed, employeeId)).toEqual(fixed);
+  const backToFixed = buildPointScheduleUpdate(corrected, fixed, '2026-11-02');
+  expect(resolvePointRecordWorkSchedule(backToFixed, null, '2026-11-02').tipoEscala).toBe('seg-sex');
+  expect(JSON.stringify(original)).toBe(before);
+});
+
+test('actual employee and record selectors recalculate fixed September snapshots without using their stored bank or extras', () => {
+  const employeeId = Object.keys(POINT_HOURLY_HISTORY_CORRECTIONS)[0];
+  const fixed = sanitizeEmployeeWorkSchedule({tipoEscala: 'seg-sex'});
+  const profile = {id: employeeId, jornadaTrabalho: buildPointScheduleUpdate(fixed, hourly, '2026-10-06')};
+  const record = {funcionarioId: employeeId, dia: '2026-09-15', jornadaTrabalho: fixed,
+    bancoHorasMinutes: -2464, horaExtraMinutes: 207, ...fiveHours};
+  const original = JSON.stringify({profile, record});
+  const source = fs.readFileSync(path.join(__dirname, '../App.js'), 'utf8');
+  const employeeSelector = source.slice(source.indexOf('    const getEmployeeWorkSchedule ='), source.indexOf('    const getEmployeePointBankStartDate ='));
+  const recordSelector = source.slice(source.indexOf('    const getRecordWorkSchedule ='), source.indexOf('    const isVacationRecord ='));
+  const dependencies = {applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, employees: [profile], userId: employeeId,
+    user: {auth: {uid: employeeId}, jornadaTrabalho: profile.jornadaTrabalho}, getRecordDayKey: (row) => row.dia};
+  // eslint-disable-next-line no-new-func
+  const select = new Function(...Object.keys(dependencies), `${employeeSelector}\n${recordSelector}\nreturn getRecordWorkSchedule;`)(...Object.values(dependencies));
+  const result = calculate(record, select(record), new Date(2026, 8, 15));
+  expect(result.summary.workedMinutes).toBe(300);
+  expect(result.summary.expectedMinutes).toBe(0);
+  expect(result.summary.irregularidade).toBe('-');
+  expect(result.balance).toMatchObject({bancoHoras: '-', horaExtra: '-', bancoHorasMinutes: 0, horaExtraMinutes: 0});
+  expect(JSON.stringify({profile, record})).toBe(original);
+});
+
+test('stored lunch-open journey keeps its closed 4h interval and remains pending without a debit', () => {
+  const record = {horaEntrada: '08:00', horaAlmocoSaida: '12:00',
+    periodosTrabalho: [{horaInicio: '08:00', horaAlmocoSaida: '12:00', horaAlmocoRetorno: '', horaFim: ''}]};
+  const result = calculate(record);
+  expect(result.status.statusPonto).toBe('Em andamento');
+  expect(result.summary.workedMinutes).toBe(240);
+  expect(sumPointWorkedMinutes([result])).toBe(240);
+  expect(result.balance).toMatchObject({bancoHoras: '-', horaExtra: '-', bancoHorasMinutes: 0, horaExtraMinutes: 0});
+});
 
 test('production login and actual profile cache retain Horista and its effective history after reload', () => {
   const source = fs.readFileSync(path.join(__dirname, '../App.js'), 'utf8');
@@ -148,7 +196,7 @@ test('5h worked and 8h old settings produce exactly 5h, with no bank deficit', (
   expect(result.summary.expectedMinutes).toBe(0);
   expect(result.summary.irregularityMinutes).toBeNull();
   expect(result.balance.bancoHorasMinutes).toBe(0);
-  expect(result.balance.bancoHoras).toBe('—');
+  expect(result.balance.bancoHoras).toBe('-');
   expect(formatPointWorkedMonth(sumPointWorkedMinutes([result]))).toBe('5h00');
 });
 
@@ -170,7 +218,7 @@ test('87h35 monthly presentation does not turn worked hours into credits', () =>
   const days = Array.from({ length: 17 }, () => calculate(fiveHours));
   days.push(calculate({ horaEntrada: '08:00', horaSaida: '10:35' }));
   expect(formatPointWorkedMonth(sumPointWorkedMinutes(days))).toBe('87h35');
-  expect(days.every((day) => day.balance.bancoHoras === '—')).toBe(true);
+  expect(days.every((day) => day.balance.bancoHoras === '-')).toBe(true);
   expect(days.every((day) => day.balance.horaExtraMinutes === 0)).toBe(true);
 });
 
@@ -235,8 +283,9 @@ test.each([
   ['4h00 with historical -213h bank', 240, true, false],
   ['0h00 with historical -213h bank', 0, true, false],
   ['10h00 with historical bank', 600, true, false],
-  ['9h00 including a preserved 5h fixed day', 540, true, true]
-])('actual PDF exporter: %s, bank and overtime do not apply', async (_, workedMinutes, transition, historicalDay) => {
+  ['9h00 including a preserved 5h fixed day', 540, true, true],
+  ['September recalculated from fixed snapshots: 87h35 normal hours', 5255, true, false, true]
+])('actual PDF exporter: %s, bank and overtime do not apply', async (_, workedMinutes, transition, historicalDay, historicalCorrection = false) => {
   const source = fs.readFileSync(path.join(__dirname, '../App.js'), 'utf8');
   const start = source.indexOf('    const handleExportPointSheet = async () => {');
   const end = source.indexOf('    const filteredRecords = useMemo', start);
@@ -254,26 +303,37 @@ test.each([
     setDrawColor() {} setFillColor() {} line() {} rect() {} addPage() {} setPage() {}
   }
   const fixed = sanitizeEmployeeWorkSchedule({tipoEscala: 'seg-sex'});
-  const employeeSchedule = transition ? buildPointScheduleUpdate(fixed, hourly, '2026-10-06') : hourly;
+  const employeeSchedule = historicalCorrection
+    ? applyPointHourlyHistoryCorrection(buildPointScheduleUpdate(fixed, hourly, '2026-10-06'), Object.keys(POINT_HOURLY_HISTORY_CORRECTIONS)[0])
+    : transition ? buildPointScheduleUpdate(fixed, hourly, '2026-10-06') : hourly;
   const records = workedMinutes === 5255
     ? [...Array.from({length: 17}, (_, index) => ({id: `day-${index}`, funcionarioId: 'employee', dia: `2026-10-${String(index + 1).padStart(2, '0')}`, competencia: '2026-10', jornadaTrabalho: hourly, ...fiveHours})),
       {id: 'last', funcionarioId: 'employee', dia: '2026-10-18', jornadaTrabalho: hourly, horaEntrada: '08:00', horaSaida: '10:35'}]
     : workedMinutes ? [{id: 'day', funcionarioId: 'employee', dia: '2026-10-06', jornadaTrabalho: hourly, horaEntrada: '08:00', horaSaida: workedMinutes === 600 ? '18:00' : '12:00'}] : [];
   if (historicalDay) records.push({id: 'old', funcionarioId: 'employee', dia: '2026-10-05', jornadaTrabalho: fixed, ...fiveHours});
+  if (historicalCorrection) records.forEach((record) => {
+    record.dia = record.dia.replace('2026-10', '2026-09');
+    record.competencia = '2026-09';
+    record.jornadaTrabalho = fixed;
+    record.bancoHorasMinutes = -480;
+    record.horaExtraMinutes = 207;
+  });
   const originalRecords = JSON.stringify(records);
   const messages = [];
   const dateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const previousBank = jest.fn(async () => -213 * 60);
   const monthlySummary = jest.fn(summarizePointMonth);
   const dependencies = {
-    window: {jspdf: {jsPDF: PDF}}, records, recordsQueryMonth: '2026-10',
+    window: {jspdf: {jsPDF: PDF}}, records, recordsQueryMonth: historicalCorrection ? '2026-09' : '2026-10',
     getSelectedEmployeeIdForExport: () => 'employee', setRegisterMessage: (message) => messages.push(message),
     groupPointRecordsByDay, currentStoreIdForDisplay: 'dev',
     getRecordDateTime: (record) => new Date(`${record.dia}T12:00:00`), getRecordDayKey: (record) => record.dia,
     getPointSheetEmployee: () => ({name: 'Horista', category: 'Funcionária'}),
     getScheduleForEmployeeId: () => employeeSchedule, getPointBankStartDateForEmployeeId: () => historicalDay ? '' : '2026-11-01',
     getBrazilNationalHolidays: () => new Set(), toDateInputValue: dateKey,
-    getRecordWorkSchedule: (record) => record.jornadaTrabalho,
+    getRecordWorkSchedule: (record) => historicalCorrection
+      ? resolvePointRecordWorkSchedule(employeeSchedule, record.jornadaTrabalho, record.dia)
+      : record.jornadaTrabalho,
     isPointBankDateBeforeStart: (day, firstDay) => day < firstDay,
     calculatePointDay: (record, options) => calculatePointDayCore({record, date: options.date, scheduleDay: getPointScheduleDayInfo(options.schedule, options.date), bankCalculationEnabled: options.bankCalculationEnabled}),
     buildPointPresentationRows, formatTime: (time) => time || '--:--',
@@ -294,13 +354,14 @@ test.each([
   const summaryStart = printed.indexOf('Resumo do mês');
   const summaryEnd = printed.indexOf('CONFIRMO A FREQUÊNCIA ACIMA');
   const summary = printed.slice(summaryStart, summaryEnd);
-  expect(summary).toContain('—');
+  expect(summary.filter((value) => value === '-')).toHaveLength(2);
   expect(summary).toContain('HORAS EXTRAS');
   expect(summary.some((value) => /^-\d/.test(value))).toBe(false);
   expect(summary.some((value) => /DÉBITOS MÊS|^-\d+h/.test(value))).toBe(false);
   expect(printed.includes('-03:00')).toBe(Boolean(historicalDay));
   expect(previousBank).not.toHaveBeenCalled();
-  expect(monthlySummary.mock.results[0].value).toMatchObject({workedMinutes, finalBankMinutes: 0, expectedMinutes: 0, overtimePayMinutes: 0});
+  expect(monthlySummary.mock.results[0].value).toMatchObject({workedMinutes, finalBankMinutes: 0, expectedMinutes: 0, overtimePayMinutes: 0,
+    creditMinutes: 0, debitMinutes: 0, balanceMinutes: 0, previousBankMinutes: 0});
   expect(JSON.stringify(records)).toBe(originalRecords);
   expect(saved).toHaveLength(1);
 });
