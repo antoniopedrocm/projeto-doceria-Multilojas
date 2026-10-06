@@ -33,4 +33,22 @@ Frontend: 18 suítes/219 testes aprovados na execução global; 39 testes Horist
 
 Frontend/backend reais são executados nos testes, substituindo apenas I/O e helpers não relacionados. Não há teste manual autenticado com uma funcionária real. Nenhum documento real foi alterado para testar.
 
-Build/lint, commit, deploy seletivo e verificação dos artefatos serão registrados após concluir. Componentes necessários: **hosting:prod e functions:updateUser**. registerEmployeePoint e listAllUsers já resolvem/preservam as vigências; createUser não mudou e não precisa publicação. Nunca deploy genérico. Projeto exclusivo ana-guimaraes; Hubs iFood/99Food continuam ausentes; nenhum outro módulo promovido.
+Lint frontend aprovado com 0 erros e 61 avisos preexistentes; lint backend aprovado sem erros. Build de produção aprovado neste worktree, com avisos preexistentes de source maps de native-audio e bases Browserslist/Baseline desatualizadas. Verificações de sintaxe, sincronização da política e git diff --check aprovadas.
+
+## Publicação concluída
+
+Commit efetivamente publicado: **bd4b246f24ade8b85e13c06b72349d7bfc775942**, branch **codex/ponto-horista-producao-release**, worktree **C:/wt/ponto-horista-release**. Projeto confirmado **ana-guimaraes**; target Hosting **prod -> ana-guimaraes**.
+
+Comando exato, executado nesse worktree:
+
+```powershell
+$env:NODE_USE_SYSTEM_CA='1'
+$env:FUNCTIONS_DISCOVERY_TIMEOUT='60'
+firebase deploy --project ana-guimaraes --only 'hosting:prod,functions:updateUser' --non-interactive
+```
+
+Deploy concluído com sucesso: Hosting publicado e somente **updateUser (us-central1)** atualizado. As outras **63 Functions** permaneceram inalteradas. registerEmployeePoint e listAllUsers já resolvem/preservam as vigências; createUser não mudou e não foi publicado.
+
+Versão Hosting: **sites/ana-guimaraes/versions/31ad8b062e1c38e9**. Bundle servido **/static/js/main.64df38b6.js**, idêntico ao build local, SHA256 **b240fddfd67c3a8777a58ab8ad5ce25a272f2797fec7c80971750725c2f41f3b**. App.js, formulário e política extraídos do source map publicado correspondem às fontes locais. Os 41 arquivos de runtime sem alterações nesta etapa e os 21 assets públicos foram preservados na comparação com a versão anterior. Hubs iFood/99Food e alterações pendentes de frete continuam ausentes do bundle.
+
+O pacote efetivamente publicado de updateUser foi baixado; index.js e point-schedule-core.js correspondem às fontes locais. Os **18 testes de Ponto passaram novamente com esse pacote e a política extraída do bundle servido**. Os 14 arquivos de alterações pendentes no checkout original de produção permanecem intactos, conferidos por SHA256. Nenhuma funcionalidade além da vigência da jornada Horista e suas dependências indispensáveis foi promovida. A documentação posterior ao deploy não exige nova publicação.
