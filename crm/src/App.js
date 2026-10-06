@@ -1,3 +1,8 @@
+import PointWorkScheduleFields from './meuEspaco/PointWorkScheduleFields';
+import { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
+  isHourlyWorkSchedule, resolvePointWorkSchedule, getHourlyPointSummary, getHourlyPointBalance,
+  formatPointWorkedMonth } from './meuEspaco/pointScheduleCore';
+import { summarizePointMonth } from './meuEspaco/pointMonthSummary';
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
 import { isCompleteClientDocument, normalizeClientDocumentInput } from './utils/clientDocument';
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
@@ -877,133 +882,7 @@ const debugCacheSync = (...args) => {
 
 };
 
-const POINT_WORK_SCHEDULE_TYPES = [
-  { value: 'seg-sex', label: 'Segunda a sexta' },
-  { value: 'seg-sab-folga', label: 'Segunda a sábado com uma folga semanal' },
-  { value: 'personalizada', label: 'Personalizada' },
-];
-
-const POINT_WEEK_DAYS = [
-  { value: '1', label: 'Segunda' },
-  { value: '2', label: 'Terça' },
-  { value: '3', label: 'Quarta' },
-  { value: '4', label: 'Quinta' },
-  { value: '5', label: 'Sexta' },
-  { value: '6', label: 'Sábado' },
-  { value: '0', label: 'Domingo' },
-];
-
-const DEFAULT_POINT_DAILY_LOADS = {
-  0: '00:00',
-  1: '08:00',
-  2: '08:00',
-  3: '08:00',
-  4: '08:00',
-  5: '08:00',
-  6: '05:00',
-};
-
-const DEFAULT_POINT_WORK_SCHEDULE = {
-  tipoEscala: 'seg-sex',
-  diasTrabalho: ['1', '2', '3', '4', '5'],
-  cargaHorariaPorDia: DEFAULT_POINT_DAILY_LOADS,
-  folgaSemanal: '',
-  folgaVariavel: false,
-  horarioPadrao: {
-    entrada: '09:30',
-    almocoSaida: '12:00',
-    almocoRetorno: '13:00',
-    saida: '18:30',
-    intervaloMinutos: 60,
-  },
-};
-
-const parsePointDurationToMinutes = (value, fallback = 0) => {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value));
-  if (typeof value !== 'string') return fallback;
-  const text = value.trim();
-  if (!text) return fallback;
-  const timeMatch = text.match(/^(\d{1,3}):(\d{2})$/);
-  if (timeMatch) {
-    const hours = Number(timeMatch[1]);
-    const minutes = Number(timeMatch[2]);
-    if (Number.isFinite(hours) && Number.isFinite(minutes)) return (hours * 60) + minutes;
-  }
-  const numberMatch = text.replace(',', '.').match(/^(\d+(?:\.\d+)?)$/);
-  if (numberMatch) {
-    const hours = Number(numberMatch[1]);
-    if (Number.isFinite(hours)) return Math.round(hours * 60);
-  }
-  return fallback;
-};
-
-const formatPointDurationInput = (minutes) => {
-  const normalized = Math.max(0, Number(minutes) || 0);
-  const hours = Math.floor(normalized / 60);
-  const mins = normalized % 60;
-  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-};
-
-const sanitizePointTimeInput = (value, fallback = '') => {
-  if (typeof value !== 'string') return fallback;
-  const text = value.trim();
-  return /^\d{1,2}:\d{2}$/.test(text) ? text : fallback;
-};
-
-const sanitizeEmployeeWorkSchedule = (input = null) => {
-  const source = input && typeof input === 'object' ? input : {};
-  const type = POINT_WORK_SCHEDULE_TYPES.some((item) => item.value === source.tipoEscala)
-    ? source.tipoEscala
-    : DEFAULT_POINT_WORK_SCHEDULE.tipoEscala;
-  const defaultWorkdays = type === 'seg-sab-folga'
-    ? ['1', '2', '3', '4', '5', '6']
-    : [...DEFAULT_POINT_WORK_SCHEDULE.diasTrabalho];
-  const rawWorkdays = Array.isArray(source.diasTrabalho) && source.diasTrabalho.length
-    ? source.diasTrabalho
-    : defaultWorkdays;
-  const diasTrabalho = Array.from(new Set(
-    rawWorkdays
-      .map((day) => String(day))
-      .filter((day) => POINT_WEEK_DAYS.some((option) => option.value === day))
-  ));
-  const rawLoads = source.cargaHorariaPorDia && typeof source.cargaHorariaPorDia === 'object'
-    ? source.cargaHorariaPorDia
-    : {};
-  const cargaHorariaPorDia = POINT_WEEK_DAYS.reduce((acc, day) => {
-    const fallbackMinutes = parsePointDurationToMinutes(DEFAULT_POINT_DAILY_LOADS[day.value], 0);
-    acc[day.value] = formatPointDurationInput(parsePointDurationToMinutes(rawLoads[day.value], fallbackMinutes));
-    return acc;
-  }, {});
-  const rawBreak = source.horarioPadrao?.intervaloMinutos;
-
-  return {
-    tipoEscala: type,
-    diasTrabalho,
-    cargaHorariaPorDia,
-    folgaSemanal: POINT_WEEK_DAYS.some((day) => day.value === String(source.folgaSemanal)) ? String(source.folgaSemanal) : '',
-    folgaVariavel: Boolean(source.folgaVariavel),
-    horarioPadrao: {
-      entrada: sanitizePointTimeInput(source.horarioPadrao?.entrada, DEFAULT_POINT_WORK_SCHEDULE.horarioPadrao.entrada),
-      almocoSaida: sanitizePointTimeInput(source.horarioPadrao?.almocoSaida, DEFAULT_POINT_WORK_SCHEDULE.horarioPadrao.almocoSaida),
-      almocoRetorno: sanitizePointTimeInput(source.horarioPadrao?.almocoRetorno, DEFAULT_POINT_WORK_SCHEDULE.horarioPadrao.almocoRetorno),
-      saida: sanitizePointTimeInput(source.horarioPadrao?.saida, DEFAULT_POINT_WORK_SCHEDULE.horarioPadrao.saida),
-      intervaloMinutos: Math.max(0, Math.round(Number(rawBreak) || DEFAULT_POINT_WORK_SCHEDULE.horarioPadrao.intervaloMinutos)),
-    },
-  };
-};
-
-const getPointScheduleDayInfo = (scheduleInput, date) => {
-  const schedule = sanitizeEmployeeWorkSchedule(scheduleInput);
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return { isWorkday: false, expectedMinutes: 0, isWeeklyDayOff: false, schedule };
-  }
-  const dayKey = String(date.getDay());
-  const isWeeklyDayOff = !schedule.folgaVariavel && schedule.folgaSemanal === dayKey;
-  const isWorkday = schedule.diasTrabalho.includes(dayKey) && !isWeeklyDayOff;
-  const expectedMinutes = isWorkday ? parsePointDurationToMinutes(schedule.cargaHorariaPorDia[dayKey], 0) : 0;
-  return { isWorkday, expectedMinutes, isWeeklyDayOff, schedule };
-};
-
+// Shared schedule model and Horista policy, also used by Firebase Functions.
 const parseTimeToMinutes = (value) => {
   if (typeof value !== 'string') return null;
   const match = value.match(/^(\d{2}):(\d{2})$/);
@@ -1427,6 +1306,8 @@ const buildUserDataFromProfile = (authUser, profile = {}, customProfileData = nu
     permissionDetails,
     customPermissionDetails,
     hasCustomProfile: Boolean(customProfileData),
+    jornadaTrabalho: sanitizeEmployeeWorkSchedule(profile.jornadaTrabalho || profile.escalaTrabalho || profile.workSchedule),
+    dataInicioBancoHoras: profile.dataInicioBancoHoras || "",
     ativo: isUserAccountActive(profile),
     status: isUserAccountActive(profile) ? USER_STATUS_ACTIVE : USER_STATUS_INACTIVE,
     authDisabled: profile.authDisabled === true || profile.firebaseAuthDisabled === true,
@@ -1448,6 +1329,8 @@ const cacheAuthenticatedProfile = (authUser, userData) => {
     permissionDetails: userData.permissionDetails || null,
     customPermissionDetails: userData.customPermissionDetails || null,
     hasCustomProfile: Boolean(userData.hasCustomProfile),
+    jornadaTrabalho: userData.jornadaTrabalho,
+    dataInicioBancoHoras: userData.dataInicioBancoHoras || "",
     canAccessAllStores: Boolean(userData.canAccessAllStores),
     ativo: userData.ativo !== false,
     status: userData.status || USER_STATUS_ACTIVE,
@@ -6875,9 +6758,13 @@ function App() {
         const uid = user?.auth?.uid;
         if (!uid) return undefined;
 
-        const applyTransferProfile = (profile = {}) => setUser((previous) => (
+        const applyTransferProfile = (profile = {}, includeSchedule = true) => setUser((previous) => (
             previous?.auth?.uid !== uid ? previous : {
                 ...previous,
+                ...(includeSchedule ? {
+                    jornadaTrabalho: sanitizeEmployeeWorkSchedule(profile.jornadaTrabalho || profile.escalaTrabalho || profile.workSchedule),
+                    dataInicioBancoHoras: profile.dataInicioBancoHoras || ""
+                } : {}),
                 permissions: {
                     ...previous.permissions,
                     'entre-lojas': profile.permissions?.['entre-lojas'] !== false
@@ -6902,7 +6789,7 @@ function App() {
             });
         }, (error) => {
             console.error('Erro ao acompanhar status da conta:', error);
-            applyTransferProfile({permissions: {'entre-lojas': false}});
+            applyTransferProfile({permissions: {'entre-lojas': false}}, false);
             if (error?.code === 'permission-denied') {
                 setLoginError('Sua conta está inativa. Entre em contato com o responsável pela empresa.');
                 setShowLogin(true);
@@ -7645,7 +7532,8 @@ function App() {
       employee.jornadaTrabalho || employee.escalaTrabalho || employee.workSchedule || null
     );
 
-    const getEmployeeById = (employeeId) => employees.find((item) => item.id === employeeId) || {};
+    const getEmployeeById = (employeeId) => employees.find((item) => item.id === employeeId)
+      || (employeeId === userId ? user : {}) || {};
 
     const getScheduleForEmployeeId = (employeeId) => getEmployeeWorkSchedule(getEmployeeById(employeeId));
 
@@ -7679,7 +7567,7 @@ function App() {
       if (record.jornadaTrabalho || record.escalaTrabalho || record.workSchedule) {
         return sanitizeEmployeeWorkSchedule(record.jornadaTrabalho || record.escalaTrabalho || record.workSchedule);
       }
-      return getScheduleForEmployeeId(record.funcionarioId);
+      return resolvePointWorkSchedule(getScheduleForEmployeeId(record.funcionarioId), getRecordDayKey(record));
     };
 
     const isVacationRecord = (record = {}) => (
@@ -7803,6 +7691,7 @@ function App() {
       const date = getDayInfo(registro);
       const dayOfWeek = date ? date.getDay() : null;
       const scheduleDay = getPointScheduleDayInfo(scheduleInput || registro.jornadaTrabalho, date);
+      if (isHourlyWorkSchedule(scheduleDay.schedule)) return { expectedMinutes: 0, hasDate: Boolean(date), isWorkday: false, isWeeklyDayOff: false };
       const fallbackExpectedMinutes = parseExpectedPointMinutes(
         registro.jornadaEsperadaMinutos,
         registro.jornadaDiariaMinutos,
@@ -7866,6 +7755,7 @@ function App() {
         };
       }
 
+      if (isHourlyWorkSchedule(getPointScheduleDayInfo(scheduleInput || registro.jornadaTrabalho, getDayInfo(registro)).schedule)) return getHourlyPointSummary(workedMinutes);
       const diff = workedMinutes - expectedMinutes;
       return {
         workedLabel: formatMinutesToLabel(workedMinutes),
@@ -8042,6 +7932,7 @@ function App() {
     );
 
     const calculatePointBalanceDistribution = (record = {}, summaryInput = null, options = {}) => {
+      if (isHourlyWorkSchedule(getPointScheduleDayInfo(options.schedule || getRecordWorkSchedule(record), getDayInfo(record)).schedule)) return getHourlyPointBalance();
       const summary = summaryInput || calculateWorkSummary(record, options.schedule || getRecordWorkSchedule(record));
       const irregularityMinutes = summary?.calculable && Number.isFinite(summary?.irregularityMinutes)
         ? summary.irregularityMinutes
@@ -8419,12 +8310,12 @@ function App() {
         const employee = getPointSheetEmployee(employeeId, employeeMonthlyRecords);
         const employeeSchedule = getScheduleForEmployeeId(employeeId);
         const bankStartDate = getPointBankStartDateForEmployeeId(employeeId);
+        const monthSchedule = resolvePointWorkSchedule(employeeSchedule, recordsQueryMonth + '-' + String(new Date(year, month, 0).getDate()).padStart(2, '0'));
+        const hourlyMonth = isHourlyWorkSchedule(monthSchedule);
+        const monthlyCalculations = [];
+        let hasFixedDays = false;
         const daysInMonth = new Date(year, month, 0).getDate();
         const rows = [];
-        let creditMinutes = 0;
-        let debitMinutes = 0;
-        let bankMovementMinutes = 0;
-        let overtimePayMinutes = 0;
         const nationalHolidays = getBrazilNationalHolidays(year);
 
         for (let day = 1; day <= daysInMonth; day += 1) {
@@ -8441,14 +8332,9 @@ function App() {
             schedule: recordSchedule,
             bankCalculationEnabled
           });
+          monthlyCalculations.push(dayCalculation);
+          if (!isHourlyWorkSchedule(getPointScheduleDayInfo(recordSchedule, date).schedule)) hasFixedDays = true;
           const { summary, balance: balanceDistribution, baseJustification } = dayCalculation;
-          const irregularityMinutes = summary.calculable && Number.isFinite(summary.irregularityMinutes)
-            ? summary.irregularityMinutes
-            : 0;
-          if (irregularityMinutes > 0) creditMinutes += irregularityMinutes;
-          if (irregularityMinutes < 0) debitMinutes += Math.abs(irregularityMinutes);
-          bankMovementMinutes += balanceDistribution.bancoHorasMinutes;
-          overtimePayMinutes += balanceDistribution.horaExtraMinutes;
           const dayOfWeek = date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
           const presentationRows = buildPointPresentationRows(dayRecord, { baseJustification });
           presentationRows.forEach((presentationRow) => {
@@ -8473,9 +8359,11 @@ function App() {
           });
         }
 
-        const balanceMinutes = creditMinutes - debitMinutes;
-        const previousBankMinutes = await getPreviousBankHoursBalance(employeeId, recordsQueryMonth, employeeSchedule, bankStartDate);
-        const finalBankMinutes = previousBankMinutes + bankMovementMinutes;
+        // Historical bank reconstruction is only applicable to a fixed-scale
+        // monthly summary, even when an hourly month contains earlier fixed days.
+        const previousBalance = hourlyMonth ? 0 : await getPreviousBankHoursBalance(employeeId, recordsQueryMonth, employeeSchedule, bankStartDate);
+        const monthSummary = summarizePointMonth({schedule: monthSchedule, calculations: monthlyCalculations, previousBankMinutes: previousBalance});
+        const { creditMinutes, debitMinutes, balanceMinutes, previousBankMinutes, finalBankMinutes, overtimePayMinutes } = monthSummary;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = doc.internal.pageSize.getWidth();
@@ -8611,7 +8499,11 @@ function App() {
         setFont(7, 'bold');
         doc.text('Resumo do mês', margin, y);
         y += 3.5;
-        const summaryBoxes = [
+        const summaryBoxes = hourlyMonth ? [
+          ['Horas trabalhadas no mês', formatPointWorkedMonth(monthSummary.workedMinutes)],
+          ['Banco de horas', '—'],
+          ['Horas extras', '—']
+        ] : [
           ['Créditos Mês', formatMinutesForPointSheet(creditMinutes)],
           ['Débitos Mês', formatMinutesForPointSheet(debitMinutes)],
           ['Saldo do Mês', formatMinutesForPointSheet(balanceMinutes, { signed: balanceMinutes !== 0 })],
@@ -8631,11 +8523,15 @@ function App() {
         y += 15;
 
         const bankStartLabel = formatPointBankStartDateLabel(bankStartDate);
-        if (bankStartLabel) {
+        if (bankStartLabel && !hourlyMonth) {
           setFont(5.8);
           doc.text(`Banco de horas calculado a partir de ${bankStartLabel}.`, margin, y - 2.5);
         }
 
+        if (hourlyMonth && hasFixedDays) {
+          setFont(5.8);
+          doc.text('Mês de transição: dias anteriores preservam sua escala; banco e extras não se aplicam ao resumo Horista.', margin, y - 2.5);
+        }
         setFont(7);
         doc.text('CONFIRMO A FREQUÊNCIA ACIMA', margin, y);
         y += 15;
@@ -8699,7 +8595,7 @@ function App() {
         if (!employeeId) return baseRecords;
         const [year, month] = recordsQueryMonth.split('-').map(Number);
         if (!year || !month) return baseRecords;
-        const employee = employees.find((item) => item.id === employeeId) || {};
+        const employee = getEmployeeById(employeeId);
         const employeeSchedule = getEmployeeWorkSchedule(employee);
         const nationalHolidays = getBrazilNationalHolidays(year);
         const existingDays = new Set(baseRecords.map((item) => getRecordDayKey(item)).filter(Boolean));
@@ -8743,6 +8639,15 @@ function App() {
       }
       return appendVirtualAbsences(dateFiltered.filter(item => item.funcionarioId === userId), userId);
     }, [records, activeDayFilter, isManager, selectedEmployee, userId, recordsQueryMonth, employees, user?.auth?.displayName, user?.auth?.email, currentStoreIdForDisplay]);
+
+    const summaryEmployeeId = isManager ? (selectedEmployee !== 'all' ? selectedEmployee : '') : userId;
+    const summarySchedule = resolvePointWorkSchedule(getScheduleForEmployeeId(summaryEmployeeId), recordsQueryMonth + '-31');
+    const showHourlyMonthTotal = Boolean(summaryEmployeeId && isHourlyWorkSchedule(summarySchedule));
+    const hourlyMonthSummary = showHourlyMonthTotal ? summarizePointMonth({
+      schedule: summarySchedule,
+      calculations: groupPointRecordsByDay(records.filter((record) => record.funcionarioId === summaryEmployeeId), { storeId: currentStoreIdForDisplay })
+        .map((record) => calculatePointDay(record))
+    }) : null;
 
     const todayRecord = todayRecordData;
     const todayPointStatus = todayRecord
@@ -9812,6 +9717,25 @@ function App() {
         </div>
 
         <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+          {showHourlyMonthTotal && (
+            <div className="rounded-xl bg-sky-50 border border-sky-100 p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <p className="text-sm text-sky-800">Horas trabalhadas no mês</p>
+                  <p className="text-2xl font-semibold text-sky-900">{formatPointWorkedMonth(hourlyMonthSummary.workedMinutes)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-sky-800">Banco de horas</p>
+                  <p className="text-2xl font-semibold text-sky-900">—</p>
+                </div>
+                <div>
+                  <p className="text-sm text-sky-800">Horas extras</p>
+                  <p className="text-2xl font-semibold text-sky-900">—</p>
+                </div>
+              </div>
+              <p className="text-xs text-sky-700">{competenciaLabel} · Somente períodos registrados; períodos abertos permanecem pendentes.</p>
+            </div>
+          )}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div>
@@ -10094,7 +10018,7 @@ function App() {
           <div className="space-y-4">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               {manualPointIsAbsence
-                ? 'Este registro será marcado como falta e descontará a carga prevista do dia no banco de horas.'
+                ? (isHourlyWorkSchedule(getPointScheduleDayInfo(getScheduleForEmployeeId(manualPointForm.funcionarioId), getDayInfo({ dia: manualPointForm.dia })).schedule) ? 'Horista: esta falta não gera débito automático de horas.' : 'Este registro será marcado como falta e descontará a carga prevista do dia no banco de horas.')
                 : manualPointIsAbsenceExcuse
                 ? 'Este registro será marcado como falta abonada pelo gestor e não descontará banco de horas.'
                 : manualPointIsCompensatedDayOff
@@ -12148,14 +12072,14 @@ const effectiveStoreName = useMemo(() => {
                 const permissionDetailsToPersist = applyCustomProfile
                     ? sanitizedPermissionDetails
                     : getDefaultPermissionDetailsForRole(selectedRole, permissionsToPersist);
-                const jornadaTrabalhoToPersist = sanitizeEmployeeWorkSchedule(userFormData.jornadaTrabalho);
+                let jornadaTrabalhoToPersist = sanitizeEmployeeWorkSchedule(userFormData.jornadaTrabalho);
                 const dataInicioBancoHorasToPersist = normalizePointBankStartDate(userFormData.dataInicioBancoHoras);
 
                 let updatedUserId = editingUser?.uid || editingUser?.id;
 
                 if (editingUser) {
                   const updateUserFn = httpsCallable(functions, 'updateUser');
-                  await updateUserFn({
+                  const updatedProfile = await updateUserFn({
                         uid: editingUser.uid,
                         nome: userFormData.nome,
                         role: selectedRole,
@@ -12167,6 +12091,7 @@ const effectiveStoreName = useMemo(() => {
                         jornadaTrabalho: jornadaTrabalhoToPersist,
                         dataInicioBancoHoras: dataInicioBancoHorasToPersist
                   });
+                  jornadaTrabalhoToPersist = sanitizeEmployeeWorkSchedule(updatedProfile.data.jornadaTrabalho);
                   updatedUserId = editingUser.uid;
                   alert('Usuário atualizado com sucesso!');
                 } else {
@@ -13391,165 +13316,14 @@ const effectiveStoreName = useMemo(() => {
                         </div>
                     )}
 
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
-                        <div>
-                            <p className="text-sm font-semibold text-gray-800">Jornada de trabalho</p>
-                            <p className="text-xs text-gray-500">Configure a escala usada na folha de ponto, faltas e banco de horas desta funcionária.</p>
-                        </div>
-                        <Input
-                            label="Data de início do banco de horas"
-                            type="date"
-                            value={normalizePointBankStartDate(userFormData.dataInicioBancoHoras)}
-                            onChange={(e) => setUserFormData({ ...userFormData, dataInicioBancoHoras: e.target.value })}
-                        />
-                        <p className="text-xs text-gray-500 -mt-2">
-                            Se ficar vazio, o sistema usa a data padrão configurada em Meu Espaço &gt; Informações da empresa.
-                        </p>
-                        <Select
-                            label="Tipo de escala"
-                            value={currentWorkSchedule.tipoEscala}
-                            onChange={(e) => {
-                                const nextType = e.target.value;
-                                updateUserWorkSchedule((schedule) => ({
-                                    ...schedule,
-                                    tipoEscala: nextType,
-                                    diasTrabalho: nextType === 'seg-sab-folga'
-                                        ? ['1', '2', '3', '4', '5', '6']
-                                        : nextType === 'seg-sex'
-                                            ? ['1', '2', '3', '4', '5']
-                                            : schedule.diasTrabalho,
-                                    folgaSemanal: nextType === 'seg-sab-folga' ? schedule.folgaSemanal : '',
-                                    folgaVariavel: nextType === 'seg-sab-folga' ? schedule.folgaVariavel : false,
-                                }));
-                            }}
-                        >
-                            {POINT_WORK_SCHEDULE_TYPES.map((type) => (
-                                <option key={type.value} value={type.value}>{type.label}</option>
-                            ))}
-                        </Select>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="block text-sm font-medium text-gray-700">Dias trabalhados e carga horária</label>
-                                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
-                                    {POINT_WEEK_DAYS.map((day) => {
-                                        const checked = currentWorkSchedule.diasTrabalho.includes(day.value);
-                                        return (
-                                            <div key={day.value} className="grid grid-cols-[1fr_110px] items-center gap-3">
-                                                <label className="flex items-center gap-2 text-sm text-gray-700">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={(e) => updateUserWorkSchedule((schedule) => {
-                                                            const currentDays = new Set(schedule.diasTrabalho);
-                                                            if (e.target.checked) {
-                                                                currentDays.add(day.value);
-                                                            } else {
-                                                                currentDays.delete(day.value);
-                                                            }
-                                                            return {
-                                                                ...schedule,
-                                                                diasTrabalho: Array.from(currentDays).sort((a, b) => Number(a) - Number(b))
-                                                            };
-                                                        })}
-                                                    />
-                                                    {day.label}
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={currentWorkSchedule.cargaHorariaPorDia[day.value] || DEFAULT_POINT_DAILY_LOADS[day.value] || '00:00'}
-                                                    onChange={(e) => updateUserWorkSchedule((schedule) => ({
-                                                        ...schedule,
-                                                        cargaHorariaPorDia: {
-                                                            ...schedule.cargaHorariaPorDia,
-                                                            [day.value]: e.target.value
-                                                        }
-                                                    }))}
-                                                    onBlur={(e) => updateUserWorkSchedule((schedule) => ({
-                                                        ...schedule,
-                                                        cargaHorariaPorDia: {
-                                                            ...schedule.cargaHorariaPorDia,
-                                                            [day.value]: formatPointDurationInput(parsePointDurationToMinutes(e.target.value, parsePointDurationToMinutes(DEFAULT_POINT_DAILY_LOADS[day.value], 0)))
-                                                        }
-                                                    }))}
-                                                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-pink-500 focus:ring-2 focus:ring-pink-500"
-                                                    placeholder="08:00"
-                                                    disabled={!checked}
-                                                />
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                {currentWorkSchedule.tipoEscala === 'seg-sab-folga' && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <Select
-                                            label="Folga semanal"
-                                            value={currentWorkSchedule.folgaSemanal}
-                                            onChange={(e) => updateUserWorkSchedule({ folgaSemanal: e.target.value, folgaVariavel: false })}
-                                        >
-                                            <option value="">Sem folga fixa</option>
-                                            {POINT_WEEK_DAYS.filter((day) => day.value !== '0').map((day) => (
-                                                <option key={day.value} value={day.value}>{day.label}</option>
-                                            ))}
-                                        </Select>
-                                        <label className="flex items-end gap-2 pb-3 text-sm text-gray-700">
-                                            <input
-                                                type="checkbox"
-                                                checked={Boolean(currentWorkSchedule.folgaVariavel)}
-                                                onChange={(e) => updateUserWorkSchedule({
-                                                    folgaVariavel: e.target.checked,
-                                                    folgaSemanal: e.target.checked ? '' : currentWorkSchedule.folgaSemanal
-                                                })}
-                                            />
-                                            Folga variável
-                                        </label>
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <Input
-                                        label="Entrada padrão"
-                                        type="time"
-                                        value={currentWorkSchedule.horarioPadrao.entrada}
-                                        onChange={(e) => updateUserWorkSchedule((schedule) => ({
-                                            ...schedule,
-                                            horarioPadrao: { ...schedule.horarioPadrao, entrada: e.target.value }
-                                        }))}
-                                    />
-                                    <Input
-                                        label="Saída almoço padrão"
-                                        type="time"
-                                        value={currentWorkSchedule.horarioPadrao.almocoSaida}
-                                        onChange={(e) => updateUserWorkSchedule((schedule) => ({
-                                            ...schedule,
-                                            horarioPadrao: { ...schedule.horarioPadrao, almocoSaida: e.target.value }
-                                        }))}
-                                    />
-                                    <Input
-                                        label="Retorno almoço padrão"
-                                        type="time"
-                                        value={currentWorkSchedule.horarioPadrao.almocoRetorno}
-                                        onChange={(e) => updateUserWorkSchedule((schedule) => ({
-                                            ...schedule,
-                                            horarioPadrao: { ...schedule.horarioPadrao, almocoRetorno: e.target.value }
-                                        }))}
-                                    />
-                                    <Input
-                                        label="Saída final padrão"
-                                        type="time"
-                                        value={currentWorkSchedule.horarioPadrao.saida}
-                                        onChange={(e) => updateUserWorkSchedule((schedule) => ({
-                                            ...schedule,
-                                            horarioPadrao: { ...schedule.horarioPadrao, saida: e.target.value }
-                                        }))}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <PointWorkScheduleFields
+                      schedule={currentWorkSchedule}
+                      bankStartDate={normalizePointBankStartDate(userFormData.dataInicioBancoHoras)}
+                      onBankStartDateChange={(value) => setUserFormData({ ...userFormData, dataInicioBancoHoras: value })}
+                      onScheduleChange={updateUserWorkSchedule}
+                      Input={Input}
+                      Select={Select}
+                    />
 
                     <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                         <div className="flex items-center justify-between">
