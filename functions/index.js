@@ -1,5 +1,5 @@
 const { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo, isHourlyWorkSchedule,
-  buildPointScheduleUpdate, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, getHourlyPointSummary, getHourlyPointBalance, hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending } = require('./point-schedule-core');
+  buildPointScheduleUpdate, isValidPointScheduleDate, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, getHourlyPointSummary, getHourlyPointBalance, hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending } = require('./point-schedule-core');
 /**
  * Import function triggers from their respective sub-packages:
  *
@@ -3196,10 +3196,17 @@ exports.updateUser = onCall(async (request) => {
             existingProfile,
             requestedPermissionDetails,
           });
+        const hasWorkScheduleDate = Object.prototype.hasOwnProperty.call(request.data, 'dataInicioJornada');
+        const scheduleEffectiveDate = hasWorkScheduleDate
+          ? request.data.dataInicioJornada
+          : new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
+        if (hasWorkScheduleDate && !isValidPointScheduleDate(scheduleEffectiveDate)) {
+          throw new HttpsError('invalid-argument', 'Informe uma data válida para o início da nova jornada.');
+        }
         const sanitizedWorkSchedule = buildPointScheduleUpdate(
           existingProfile.jornadaTrabalho || existingProfile.escalaTrabalho || existingProfile.workSchedule,
           jornadaTrabalho || existingProfile.jornadaTrabalho,
-          new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date()),
+          scheduleEffectiveDate,
         );
         const hasBankStartDatePayload = Object.prototype.hasOwnProperty.call(request.data || {}, "dataInicioBancoHoras");
         const sanitizedBankStartDate = hasBankStartDatePayload

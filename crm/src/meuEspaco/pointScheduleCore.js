@@ -184,14 +184,31 @@ const resolvePointRecordWorkSchedule = (employeeInput, recordInput, dayKey = '')
 };
 
 // History is owned by the server. Client-supplied history must not replace it.
+const isValidPointScheduleDate = (value) => typeof value === 'string'
+  && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  && !Number.isNaN(new Date(`${value}T12:00:00Z`).getTime())
+  && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
+
+const arePointWorkSchedulesEqual = (left, right) => {
+  const withoutHistory = (input) => sanitizeEmployeeWorkSchedule({ ...input, historicoEscalas: undefined });
+  return JSON.stringify(withoutHistory(left)) === JSON.stringify(withoutHistory(right));
+};
+
+const getPointScheduleEffectiveDate = (input) => {
+  const history = sanitizeEmployeeWorkSchedule(input).historicoEscalas || [];
+  return history.map((entry) => entry.inicio).filter(isValidPointScheduleDate).sort().pop() || '';
+};
+
 const buildPointScheduleUpdate = (previousInput, nextInput, dayKey) => {
   const previous = sanitizeEmployeeWorkSchedule(previousInput);
   const next = sanitizeEmployeeWorkSchedule({ ...nextInput, historicoEscalas: undefined });
   const involvesHourly = isHourlyWorkSchedule(previous) || isHourlyWorkSchedule(next);
   const history = previous.historicoEscalas || [];
+  // Editing name/permissions must not bring a scheduled future change forward.
+  if (arePointWorkSchedulesEqual(previous, next)) return previous;
   if (previous.tipoEscala === next.tipoEscala && !history.length) return next;
   if (!involvesHourly && !history.length) return next;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) throw new Error('Data de vigência inválida.');
+  if (!isValidPointScheduleDate(dayKey)) throw new Error('Data de vigência inválida.');
   const previousSnapshot = { ...previous };
   delete previousSnapshot.historicoEscalas;
   const baseline = history.length ? history : [{ inicio: '', jornadaTrabalho: previousSnapshot }];
@@ -236,6 +253,7 @@ export {
   sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
   parsePointDurationToMinutes, formatPointDurationInput,
   isHourlyWorkSchedule, resolvePointWorkSchedule, applyPointHourlyHistoryCorrection, resolvePointRecordWorkSchedule, buildPointScheduleUpdate,
+  isValidPointScheduleDate, arePointWorkSchedulesEqual, getPointScheduleEffectiveDate,
   getHourlyPointSummary, getHourlyPointBalance, formatPointWorkedMonth, sumPointWorkedMinutes,
   hasIncompletePointLunch, hasIncompletePointPeriodLunch, isPointJourneyPending
 };
