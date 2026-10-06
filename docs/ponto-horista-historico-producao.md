@@ -51,8 +51,24 @@ Arquivos alterados nesta etapa:
 
 Componentes necessários: hosting:prod e functions:registerEmployeePoint. createUser, updateUser e listAllUsers não precisam republicação: suas regras de cadastro/listagem permanecem iguais. Nenhuma Function adicional necessária para recálculo, executado sob demanda na consulta e PDF com política compartilhada.
 
-Comando planejado, depois de concluir build/revisão:
+Comando efetivamente executado após testes, lint, build e revisão:
 
 firebase deploy --project ana-guimaraes --only 'hosting:prod,functions:registerEmployeePoint' --non-interactive
 
-Resultado do build, commit, publicação e verificações dos artefatos serão registrados ao concluir.
+Executado com NODE_USE_SYSTEM_CA=1 e FUNCTIONS_DISCOVERY_TIMEOUT=60, saída 0 e Deploy complete. Sem deploy genérico.
+
+Commit de runtime efetivamente publicado: **2b9d49098b15e9cfb619895507d2d26385b51d90**, nesta branch/worktree de Ponto. O commit posterior deste relatório apenas registra o resultado.
+
+Build aprovado, gerado no worktree de produção com Project ID/auth domain/storage bucket ana-guimaraes explicitamente definidos. Apenas avisos preexistentes de source maps ausentes de native-audio, Browserslist/Baseline e lint. Main JS: /static/js/main.8047860d.js; SHA-256 **b48f8178f0dd1a40dfa1f90d8e3f858d580a4f35eaaebad539c95b31c20797da**. CSS/chunk secundário não mudaram. A análise do source map antes de publicar confirmou os 42 fontes de runtime não alterados nesta etapa e os 21 assets públicos iguais à release anterior.
+
+Hosting ana-guimaraes liberado com sucesso: **sites/ana-guimaraes/versions/150e6ea5d34851d6**. Após publicar, manifest/bundle foram baixados via HTTPS; o JS servido é idêntico byte a byte ao build local. App.js, política de escala e totalizador mensal do source map servido correspondem aos fontes locais. Correção desde setembro presente; iFood Hub, 99Food Hub, destino DEV e frete pendente ausentes. Assets públicos preservados.
+
+Function registerEmployeePoint atualizada com sucesso, us-central1/Node.js 22/2ª geração. Fonte do pacote efetivamente publicado baixada via API: index.js e point-schedule-core.js correspondem à release. Configuração, runtime, conta de serviço e variáveis existentes preservados. As outras **63 Functions** mantiveram fonte/configuração; createUser, updateUser e listAllUsers não foram republicadas.
+
+Pós-deploy: **15/15 testes backend Horista aprovados novamente utilizando o index.js/política baixados do pacote publicado e política browser extraída do source map servido**, com Firebase I/O simulado. Endpoint real registerEmployeePoint respondeu 401/UNAUTHENTICATED à chamada sem autenticação, sem escrita de dados.
+
+As consultas Firestore somente de leitura foram repetidas depois da publicação. Os **25 documentos de ponto** e o cadastro/vigências armazenados são iguais aos lidos antes do deploy, incluindo os ajustes/auditorias embutidos disponíveis. Nenhuma regravação, migração ou zeragem foi executada. Os 14 arquivos pendentes do checkout original também permaneceram intactos.
+
+Limitação: não foi feita uma nova batida nem um teste manual autenticado com funcionária real; a credencial CLI usada para leitura não é uma sessão Firebase Auth da aplicação. Persistência e PDF foram exercitados com handlers/exportador reais e I/O simulado. A investigação e o recálculo usaram dados brutos reais de produção. Os quatro dias incompletos de setembro continuam pendentes, e não há pontos anteriores a setembro para esse cadastro nas lojas inspecionadas.
+
+Nenhuma funcionalidade fora de Ponto/Horista promovida. Ausência dos dois Hubs preservada.
