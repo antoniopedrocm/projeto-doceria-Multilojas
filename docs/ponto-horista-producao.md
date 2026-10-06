@@ -6,7 +6,7 @@ Repositório: https://github.com/antoniopedrocm/projeto-doceria-Multilojas.git.
 
 ## Base efetivamente publicada
 
-O commit 83f8f0e0de314824644fa0e425a54add53600245 foi revisado: seu diff contém somente Ponto e dependências. Entretanto, a base daquele worktree contém arquivos de frete em andamento no checkout original. A comparação com Hosting confirmou que esse frete não está no bundle servido. Aquele build não será publicado.
+O commit 83f8f0e0de314824644fa0e425a54add53600245 foi revisado: seu diff contém somente Ponto e dependências. Entretanto, a base daquele worktree contém arquivos de frete em andamento no checkout original. A comparação com Hosting confirmou que esse frete não está no bundle servido. Aquele build não foi publicado.
 
 Esta release parte diretamente de d8635a6a6927ed96fe90be291ddbc2f6b6cefee6, base de produção verificada: os 40 arquivos de código da aplicação encontrados no source map servido correspondem a essa base. Foi aplicado somente o diff de Ponto de 83f8f0e0, sem merge amplo, sem promover a branch DEV ou o frete pendente, sem copiar um projeto DEV. O cadastro CPF/CNPJ já publicado permanece. Checkout original e primeiro worktree de Ponto intactos.
 
@@ -70,4 +70,20 @@ Não são promovidos checkout/frete, InfinitePay, WhatsApp, Caixa, Entre Lojas, 
 - functions/package.json
 - docs/ponto-horista-producao.md
 
-Resultado e evidências pós-publicação serão acrescentados após a execução.
+## Resultado efetivamente publicado
+
+Commit de runtime publicado: bed6cc89e635b318945c3689016ada7821336186. O diff de Ponto de 83f8f0e0 foi reaplicado sobre a base efetivamente servida de produção, sem os arquivos de frete pendentes. O commit posterior deste relatório apenas registra evidências; não altera runtime nem exige outro deploy.
+
+Comando acima executado uma vez neste worktree de release, com saída 0 e mensagem Deploy complete. Hosting target prod/site ana-guimaraes liberado com sucesso. Functions createUser, updateUser, listAllUsers e registerEmployeePoint atualizadas com sucesso, Node.js 22/2ª geração/us-central1. Nenhuma outra Function publicada.
+
+Hosting: sites/ana-guimaraes/versions/ff96cb49eedd198b. Bundle servido /static/js/main.f078c822.js, SHA-256 b6f85013fac530bb5744e9f8e897bb76f958c3f6d41501036f4b1e7030ace495. Os bytes baixados via HTTPS são idênticos ao build local. Source maps servidos de App.js, pointScheduleCore.js e pointMonthSummary.js correspondem aos fontes da release. Política Horista presente; nenhum iFood Hub/99Food Hub, destino DEV ou frete pendente no bundle. Os 39 fontes da aplicação fora dos caminhos alterados de Ponto e os 21 assets públicos comparados continuam idênticos à publicação anterior. Página raiz respondeu HTTP 200.
+
+As quatro Functions foram auditadas após publicar: index.js e point-schedule-core.js dos arquivos de fonte efetivamente publicados correspondem aos locais. As outras 60 Functions preservam fonte e configuração. Configurações e variáveis existentes das quatro selecionadas preservadas; Firebase acrescentou somente FUNCTION_REGION=us-central1. Não foram alteradas permissões IAM.
+
+Pós-deploy: 12/12 testes backend Horista aprovados usando index.js/política baixados do pacote publicado, com I/O Firebase simulado, e política browser extraída do source map servido. 31/31 testes frontend Horista aprovados novamente após confirmar igualdade com os fontes servidos; incluem formulário, salvar/reabrir/sessão/cache, PDF com -213h, 4h/0h/87h35/10h, almoço, pendências, transição e regressão fixa. Os endpoints reais listAllUsers e registerEmployeePoint responderam HTTP 401/UNAUTHENTICATED à chamada sem autenticação, como esperado, sem escrita de dados.
+
+Os 14 arquivos de alterações pendentes do checkout original foram reconferidos por SHA-256 e permanecem intactos; sua branch não foi trocada. Não houve migração nem escrita em usuários reais, marcações, pointBankBalances, snapshots ou saldos históricos durante validação/publicação.
+
+Limitação pós-deploy: cadastro/edição/persistência/login/PDF foram verificados com os fontes efetivamente publicados e I/O simulado, sem sessão autenticada real de produção. A credencial CLI não tem iam.serviceAccounts.signJwt (403), e a automação de navegador não conseguiu abrir a página (erro de certificado no endereço www apresentado pelo navegador); esse bloqueio não foi contornado. Portanto, o teste manual autenticado com usuário real continua pendente; não se declara esse fluxo como validado ponta a ponta no serviço real. Essa limitação não afetou o deploy nem a conferência HTTP/API dos artefatos.
+
+Não foi promovida funcionalidade além de Horista e suas dependências indispensáveis. Ausência de iFood Hub e 99Food Hub preservada.
