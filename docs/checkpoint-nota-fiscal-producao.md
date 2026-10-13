@@ -43,8 +43,9 @@ configuração/credencial DEV foi copiada e nenhum documento real foi alterado.
 
 ## Validação e progresso
 
-Promoção inicial concluída e publicação comprovada abaixo. Complemento até 17:53:
-implementação e revisão concluídas; build, publicação e restauração em andamento.
+Promoção inicial e complemento até 17:53 concluídos: implementação, revisão,
+testes, build, push, publicação seletiva e restauração local comprovados.
+Conclusão técnica da promoção fiscal solicitada: 100%.
 
 - Frontend: 225 testes existentes/clone e 7 testes dos handlers reais aprovados.
 - Functions: 82 testes de regressão e 33 testes fiscais aprovados.
@@ -163,3 +164,25 @@ das Functions, Rules ou do serviço PHP neste complemento.
   `ee131b44a3e1c93e1cd45829bbbda1e42398103d`, sem incluí-las no build fiscal.
 - Publicação deste complemento: somente `hosting:prod` em `ana-guimaraes`.
 - Não transmitir documentos fiscais reais durante as verificações.
+
+Commit exclusivo do complemento: `24fce59df195fd0e0d93e8989d7d015b2ec76d6d`.
+Push concluído para `origin/codex/nota-fiscal-producao`.
+
+Comando executado no workspace de produção confirmado:
+
+```powershell
+firebase deploy --project ana-guimaraes --only hosting:prod --non-interactive
+```
+
+Firebase confirmou `Deploy complete`, saída 0. URL publicada:
+https://ana-guimaraes.web.app. Bundle atual `main.c3870a4c.js`: HTTP 200 e
+SHA-256 igual ao build local. Os três cardápios também foram verificados por hash
+e permaneceram na versão publicada anterior, sem o frete local pendente.
+Nenhuma Function, Rule, dado ou serviço Cloud Run republicado neste complemento.
+
+As 14 alterações locais de frete/Festa foram restauradas e verificadas contra o
+snapshot: 12 arquivos iguais desconsiderando CRLF/LF e trechos de App.js/index.js
+iguais ao diff original. Sintaxe de App.js/index.js e `git diff --check` aprovados.
+Após a restauração, as quatro suítes fiscais frontend foram repetidas: 32 testes
+aprovados, confirmando coexistência sem modificar o build já publicado.
+O snapshot `ee131b44a3e1c93e1cd45829bbbda1e42398103d` foi mantido para recuperação.
