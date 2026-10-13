@@ -34,6 +34,9 @@ COPY --from=vendor /app/vendor /var/www/html/vendor
 COPY public /var/www/html/public
 COPY src /var/www/html/src
 COPY config /var/www/html/config
+COPY tests /var/www/html/tests
+RUN find public src tests -name '*.php' -exec php -l {} \; \
+  && php tests/PayloadValidatorTest.php
 
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 ENV OPENSSL_CONF=/etc/ssl/openssl-legacy.cnf
