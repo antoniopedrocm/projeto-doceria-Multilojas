@@ -31,7 +31,7 @@ release de produção, preservando CPF/CNPJ e Horista já publicados.
 As Rules publicadas também correspondem à base local antes do ajuste fiscal.
 
 As 14 alterações preexistentes de frete/Festa foram preservadas no snapshot
-Git `1b36f7373a8df3cf1915e6601a9c9551d0b37d1d`. Serão restauradas após a publicação.
+Git `1b36f7373a8df3cf1915e6601a9c9551d0b37d1d` e restauradas após a publicação.
 Não fazem parte do build nem do commit fiscal. A cópia recuperável não será removida.
 
 O fallback local de URL fiscal em `functions/.env` foi alinhado à URL de produção
@@ -40,9 +40,8 @@ configuração/credencial DEV foi copiada e nenhum documento real foi alterado.
 
 ## Validação e progresso
 
-Implementação, revisão, testes, build e publicações: concluídos.
-Conferência HTTP/API concluída; falta restaurar o estado local preservado.
-Conclusão estimada da promoção fiscal: 95%.
+Implementação, revisão, testes, build, publicações e restauração local: concluídos.
+Conferência HTTP/API concluída. Conclusão técnica da promoção fiscal: 100%.
 
 - Frontend: 225 testes existentes/clone e 7 testes dos handlers reais aprovados.
 - Functions: 82 testes de regressão e 33 testes fiscais aprovados.
@@ -121,3 +120,20 @@ gcloud run deploy ana-guimaraes-fiscal-service --source fiscal-service --project
 - `fiscal-service/Dockerfile`, `fiscal-service/tests/PayloadValidatorTest.php`
 - Este checkpoint.
 - `functions/.env` (ignorado pelo Git, somente fallback de URL alinhado a produção).
+
+## Git e estado final
+
+Commit exclusivo de implementação: `c99a0a5e5ae06ae38e94dacbc2e08d434b7f11d2`.
+Push concluído para `origin/codex/nota-fiscal-producao` no repositório
+`antoniopedrocm/projeto-doceria-Multilojas`. Este registro final apenas documenta
+o deploy já realizado e não exige nova publicação de runtime.
+
+As 12 cópias recuperadas (cardápios e arquivos novos) correspondem ao snapshot,
+desconsiderando somente CRLF/LF. Os trechos alterados anteriormente em App.js e
+index.js também correspondem ao diff original. CPF/CNPJ, Horista e código fiscal
+novo permanecem presentes no workspace. O snapshot de recuperação foi mantido.
+
+O working tree contém novamente as mesmas 14 alterações preexistentes de frete/Festa,
+não commitadas, excluídas do build publicado. Nenhuma alteração fiscal ficou pendente.
+Não executar um deploy amplo a partir desse working tree sem separar esse estado
+preexistente: o commit fiscal identifica exatamente o código publicado nesta tarefa.
