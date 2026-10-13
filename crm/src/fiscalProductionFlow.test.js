@@ -1,4 +1,5 @@
 /* eslint-disable no-new-func */
+import { findOrderDraft, validateFiscalOrder } from './fiscalOrderActions';
 const fs = require('fs');
 const path = require('path');
 const parser = require('@babel/parser');
@@ -17,6 +18,7 @@ const setup = (name, overrides = {}) => {
   const code = functionsByName.get(name);
   const calls = [];
   const context = {isReadOnly: false, busyOrderId: '', effectiveStoreId: 'loja-a', functions: {}, modelOverride: '55', operationCfop: '5101',
+    findOrderDraft, validateFiscalOrder, invoices: [], getPreInvoiceLockedReason: () => '',
     invoicesByOrderId: new Map(), callablePayload: (payload) => ({lojaId: 'loja-a', ...payload}),
     httpsCallable: (_, callable) => async (payload) => {
       calls.push({callable, payload});
@@ -25,6 +27,12 @@ const setup = (name, overrides = {}) => {
           : {ok: false, errors: ['CEP inválido']}};
     }, downloadInvoiceArtifact: jest.fn(), ...overrides};
   for (const setter of [...code.matchAll(/\b(set[A-Z]\w*)\(/g)].map((m) => m[1])) context[setter] ||= jest.fn();
+  if (name === 'handleCheckOrderRequirements') {
+    context.requestOrderValidation = async (order, save) => validateFiscalOrder({order,
+      draft: findOrderDraft(context.invoices, order.id), model: context.modelOverride,
+      operationCfop: context.operationCfop, save,
+      call: async (callable, payload) => (await context.httpsCallable(context.functions, callable)(context.callablePayload(payload))).data});
+  }
   const handler = new Function(...Object.keys(context), `return (${code});`)(...Object.values(context));
   return {handler, calls, context};
 };
@@ -37,7 +45,7 @@ test('Salvar e Validar salva antes da checagem e conserva rascunho com pendênci
 });
 
 test.each([null, {id: 'draft-65', status: 'draft', model: 65, operationCfop: '5102'}])('setas checam sem criar ou emitir e respeitam o rascunho existente: %p', async (invoice) => {
-  const {handler, calls} = setup('handleCheckOrderRequirements', {invoicesByOrderId: new Map(invoice ? [['pedido-1', invoice]] : [])});
+  const {handler, calls} = setup('handleCheckOrderRequirements', {modelOverride: invoice ? String(invoice.model) : '55', invoices: invoice ? [{...invoice, orderId: 'pedido-1'}] : []});
   await handler({id: 'pedido-1'});
   expect(calls).toHaveLength(1);
   expect(calls[0].callable).toBe(invoice ? 'fiscalCheckDraft' : 'fiscalValidateOrder');

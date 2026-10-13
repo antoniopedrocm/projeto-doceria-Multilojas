@@ -6,7 +6,8 @@ Firebase exclusivo: `ana-guimaraes`. Branch: `codex/nota-fiscal-producao`.
 ## Referência e escopo
 
 Chat consultado: **Nota Fiscal**, iniciado em 30/09/2026 às 12:12.
-Referência funcional encerrada no commit DEV `2e4b57fb` (07/10/2026 às 15:53).
+Referência funcional até 07/10/2026 às 17:53, conforme horário corrigido pelo usuário.
+Promoção inicial até `2e4b57fb` (15:53), complementada seletivamente por `408a0911`.
 Inclui os ajustes fiscais de `4b62eb3b`, `9d4ed46b`, `aafd0cca`, `cb06d4ff`,
 `784423d5`, `c4756a30`, `3a116fa2` e `37f67715`, reaplicados por trechos.
 Não foi feito merge de branch DEV nem usado bundle como fonte de implementação.
@@ -19,8 +20,10 @@ Não foi feito merge de branch DEV nem usado bundle como fonte de implementaçã
 - Históricos, isolamento por loja e proteções de escrita via backend.
 - Administração fiscal do Contador já existente em produção preservada.
 - URL global exclusiva do Dono, auditoria, consulta de duplicidades e DANFE A4 preservados.
-- A checagem independente das setas existente em produção foi conservada ao lado
-  de Salvar e Validar; não foi promovido o commit posterior `408a0911`.
+- Complemento `408a0911`: Editar pedido/rascunho, checagem independente pelas setas,
+  Salvar e Validar e confirmação de emissão coexistem na aba Emitir.
+- Edição reutiliza o rascunho do pedido, conserva modelo/CFOP/observações e invalida
+  a checagem anterior. Modelo diferente não cria um segundo rascunho.
 
 ## Base publicada e alterações preexistentes
 
@@ -40,8 +43,8 @@ configuração/credencial DEV foi copiada e nenhum documento real foi alterado.
 
 ## Validação e progresso
 
-Implementação, revisão, testes, build, publicações e restauração local: concluídos.
-Conferência HTTP/API concluída. Conclusão técnica da promoção fiscal: 100%.
+Promoção inicial concluída e publicação comprovada abaixo. Complemento até 17:53:
+implementação e revisão concluídas; build, publicação e restauração em andamento.
 
 - Frontend: 225 testes existentes/clone e 7 testes dos handlers reais aprovados.
 - Functions: 82 testes de regressão e 33 testes fiscais aprovados.
@@ -105,6 +108,8 @@ gcloud run deploy ana-guimaraes-fiscal-service --source fiscal-service --project
 - `crm/src/App.js`
 - `crm/src/components/FiscalCloneConfirmation.js` e seu teste
 - `crm/src/fiscalProductionFlow.test.js`
+- `crm/src/fiscalOrderActions.js` e seu teste
+- `crm/src/fiscalEmitHandlers.test.js`
 - `functions/fiscal.js`
 - `functions/fiscal-core.js` e seu teste
 - `functions/fiscal-clone.js` e seu teste
@@ -137,3 +142,24 @@ O working tree contém novamente as mesmas 14 alterações preexistentes de fret
 não commitadas, excluídas do build publicado. Nenhuma alteração fiscal ficou pendente.
 Não executar um deploy amplo a partir desse working tree sem separar esse estado
 preexistente: o commit fiscal identifica exatamente o código publicado nesta tarefa.
+
+## Complemento do horário corrigido — 07/10 às 17:53
+
+Fonte funcional: commit DEV `408a091137b31627d9f1fc8d6ef30b749e25b6a2`.
+Somente os trechos da aba Emitir e seus testes foram adaptados; nenhuma alteração
+das Functions, Rules ou do serviço PHP neste complemento.
+
+- Frontend completo: 22 suítes, 253 testes aprovados.
+- Functions fiscais: 33 testes aprovados; backend não modificado.
+- Lint dos arquivos frontend do complemento: zero erros.
+- Build aprovado: `main.c3870a4c.js`, com os avisos preexistentes de sourcemaps
+  native-audio e bases de navegadores. Verificação do source map contra a versão
+  publicada confirmou somente App.js alterado e fiscalOrderActions.js acrescentado;
+  nenhuma fonte publicada foi usada como implementação.
+- `git diff --check` aprovado; diff revisado arquivo por arquivo, somente fiscal.
+- Comparação AST: 12 fluxos de Notas emitidas/clone/cancelamento/inutilização
+  permaneceram idênticos ao commit anterior de produção.
+- Alterações de frete/Festa temporariamente separadas no snapshot recuperável
+  `ee131b44a3e1c93e1cd45829bbbda1e42398103d`, sem incluí-las no build fiscal.
+- Publicação deste complemento: somente `hosting:prod` em `ana-guimaraes`.
+- Não transmitir documentos fiscais reais durante as verificações.
