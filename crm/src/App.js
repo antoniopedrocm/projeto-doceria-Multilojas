@@ -4,6 +4,7 @@ import { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
   formatPointWorkedMonth, isValidPointScheduleDate, arePointWorkSchedulesEqual, getPointScheduleEffectiveDate } from './meuEspaco/pointScheduleCore';
 import { summarizePointMonth } from './meuEspaco/pointMonthSummary';
 import FiscalCloneConfirmation from './components/FiscalCloneConfirmation';
+import FiscalInvoiceHistory from './components/FiscalInvoiceHistory';
 import { findOrderDraft, validateFiscalOrder, createFiscalOrderActions } from './fiscalOrderActions';
 import { draftTotals as fiscalDraftTotals } from './utils/fiscalMoney';
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
@@ -22257,7 +22258,7 @@ const handleSubmit = async (e) => {
                   </div>
                 </DetailSection>
                 <DetailSection title="Histórico fiscal">
-                  <div className="space-y-2 text-sm">{(invoice.history || []).map((entry, index) => <div key={index} className="rounded-lg border border-gray-100 bg-white p-2"><strong>{statusLabel[entry.status] || entry.action || entry.status}</strong> · {formatDateTime(entry.at)} · {entry.by || '-'}{entry.message ? ` · ${entry.message}` : ''}{entry.protocol ? ` · protocolo ${entry.protocol}` : ''}</div>)}</div>
+                  <FiscalInvoiceHistory history={invoice.history} statusLabel={statusLabel} formatDateTime={formatDateTime} />
                 </DetailSection>
               </div>
             );

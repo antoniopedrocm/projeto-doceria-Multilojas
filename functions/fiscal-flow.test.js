@@ -261,7 +261,10 @@ const seedOriginal = (id, model = 55, status = 'authorized') => {
     operationCfop: '5101', additionalInfo: 'Observação histórica', paymentMethodCode: '01',
     key: 'old-key', protocol: 'old-protocol', receipt: 'old-receipt', authorizedXml: 'old-xml', signedXml: 'old-signed', danfe: 'old-pdf', qrCode: 'old-qr', signature: 'old-signature', digestValue: 'old-digest',
     idempotencyKey: 'old-idempotency', requestId: 'old-request', jobId: 'old-job', cancelProtocol: 'old-cancel', issuedAt: 'old-date', authorizedAt: 'old-date',
-    history: [{status, message: 'Original intacta'}]};
+    history: [{status: 'draft', action: 'created', message: 'Rascunho da nota original'},
+      {status: 'draft', action: 'edited', message: 'Edição da nota original'},
+      {status: 'draft', action: 'validated', message: 'Validação da nota original'},
+      {status, message: 'Original intacta'}]};
   write(ref(`lojas/${storeId}/invoices/${id}`), original);
   return JSON.stringify(original);
 };
@@ -287,6 +290,8 @@ test('authorized NF-e and NFC-e clone into independent drafts with no fiscal ide
     assert.equal(draft.totals.products, 20);
     assert.equal(draft.total, 26);
     assert.equal(draft.clonedFromFiscalDocumentId, id);
+    assert.equal(draft.history.length, 1);
+    assert.doesNotMatch(JSON.stringify(draft.history), /da nota original|Original intacta/);
     assert.equal(draft.history[0].action, 'cloned');
     assert.equal(draft.history[0].by, 'owner');
     assert.equal(draft.history[0].model, model);
