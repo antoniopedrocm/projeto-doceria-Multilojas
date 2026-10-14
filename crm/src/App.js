@@ -5,6 +5,7 @@ import { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
 import { summarizePointMonth } from './meuEspaco/pointMonthSummary';
 import FiscalCloneConfirmation from './components/FiscalCloneConfirmation';
 import FiscalInvoiceHistory from './components/FiscalInvoiceHistory';
+import FiscalNumberingControls from './components/FiscalNumberingControls';
 import { findOrderDraft, validateFiscalOrder, createFiscalOrderActions } from './fiscalOrderActions';
 import { draftTotals as fiscalDraftTotals } from './utils/fiscalMoney';
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
@@ -18358,6 +18359,8 @@ const handleSubmit = async (e) => {
     });
     const [configLoading, setConfigLoading] = useState(false);
     const [configSaving, setConfigSaving] = useState(false);
+    const [numberingReloadKey, setNumberingReloadKey] = useState(0);
+    const callNumbering = useCallback(async (name, payload) => (await httpsCallable(functions, name)({lojaId: effectiveStoreId, ...payload})).data, [effectiveStoreId]);
     const [certificateInfo, setCertificateInfo] = useState(null);
     const [certificateUploading, setCertificateUploading] = useState(false);
     const [platformService, setPlatformService] = useState(null);
@@ -20574,8 +20577,8 @@ const handleSubmit = async (e) => {
           },
           settings: {
             environment: settingsForm.environment,
-            nfeSeries: Number(settingsForm.nfeSeries || 1),
-            nfceSeries: Number(settingsForm.nfceSeries || 1),
+            nfeSeries: Number(settingsForm.nfeSeries ?? 1),
+            nfceSeries: Number(settingsForm.nfceSeries ?? 1),
             operationNature: settingsForm.operationNature,
             defaultPaymentMethodCode: settingsForm.defaultPaymentMethodCode,
             defaultPresence: Number(settingsForm.defaultPresence || 2),
@@ -20592,6 +20595,7 @@ const handleSubmit = async (e) => {
           }));
         }
         setMessage({ type: 'success', text: 'Configuração fiscal salva.' });
+        setNumberingReloadKey((value) => value + 1);
       } catch (error) {
         console.error('[NotaFiscal] Erro ao salvar configuração:', error);
         setMessage({ type: 'error', text: error?.message || 'Não foi possível salvar a configuração fiscal.' });
@@ -21350,6 +21354,7 @@ const handleSubmit = async (e) => {
         )}
 
         {activeTab === 'configuracao' && (
+          <div className="space-y-6">
           <form onSubmit={handleSaveFiscalConfig} className="space-y-6">
             {isAccountant && (
               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 text-sm text-blue-800">
@@ -21423,8 +21428,8 @@ const handleSubmit = async (e) => {
                   <option value="homologation">Homologação</option>
                   <option value="production">Produção</option>
                 </Select>
-                <Input disabled={isReadOnly} label="Série NF-e 55" type="number" value={settingsForm.nfeSeries || 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfeSeries: e.target.value })} />
-                <Input disabled={isReadOnly} label="Série NFC-e 65" type="number" value={settingsForm.nfceSeries || 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfceSeries: e.target.value })} />
+                <Input disabled={isReadOnly} label="Série NF-e 55" type="number" min={0} max={999} step={1} required value={settingsForm.nfeSeries ?? 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfeSeries: e.target.value })} />
+                <Input disabled={isReadOnly} label="Série NFC-e 65" type="number" min={0} max={999} step={1} required value={settingsForm.nfceSeries ?? 1} onChange={(e) => setSettingsForm({ ...settingsForm, nfceSeries: e.target.value })} />
                 <Input disabled={isReadOnly} label="Natureza da operação" value={settingsForm.operationNature || ''} onChange={(e) => setSettingsForm({ ...settingsForm, operationNature: e.target.value })} />
                 <Input disabled={isReadOnly} label="Pagamento padrão" value={settingsForm.defaultPaymentMethodCode || '99'} onChange={(e) => setSettingsForm({ ...settingsForm, defaultPaymentMethodCode: e.target.value })} />
                 <Input disabled={isReadOnly} label="Indicador de presença" type="number" value={settingsForm.defaultPresence || 2} onChange={(e) => setSettingsForm({ ...settingsForm, defaultPresence: e.target.value })} />
@@ -21450,6 +21455,8 @@ const handleSubmit = async (e) => {
               </div>}
             </div>
           </form>
+          <FiscalNumberingControls key={effectiveStoreId} call={callNumbering} reloadKey={numberingReloadKey} canManage={canViewFullFiscalDocument} Modal={Modal} Button={Button} />
+          </div>
         )}
 
         <Modal isOpen={showProductModal} onClose={() => { setShowProductModal(false); setProductCorrectionOrderId(''); resetProductForm(); }} title={editingFiscalProduct ? 'Editar produto fiscal' : 'Novo produto fiscal'} size="lg">

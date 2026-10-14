@@ -158,3 +158,49 @@ test('real Firestore transaction deduplicates clone, preserves original and leav
   await invoke('fiscalSaveDraft', {draftId: a.draftId, model: 55, manualInvoice: edit});
   assert.equal((await sourceRef.parent.doc(a.draftId).get()).data().total, 30);
 });
+
+test('real Firestore numbering changes atomically audit and reject stale revisions, used numbers and conflicting confirmations', async () => {
+  const row = (await invoke('fiscalGetNumbering', {})).sequences.find((entry) => entry.model === 55);
+  const base = {model: 55, series: row.series, environment: row.environment, issuerCnpj: row.issuerCnpj,
+    expectedNextNumber: row.nextNumber, expectedRevision: row.revision, confirmed: true, nextNumber: 500,
+    changeRequestId: 'integration-numbering-request-500'};
+  const previousTransmissions = transmissions.length;
+  const [a, b] = await Promise.all([invoke('fiscalSetNextNumber', base), invoke('fiscalSetNextNumber', base)]);
+  assert.equal(a.nextNumber, 500);
+  assert.equal(b.nextNumber, 500);
+  const counterRef = db.collection('lojas').doc(storeId).collection('fiscalCounters').doc('homologation_55_1');
+  assert.equal((await counterRef.get()).get('nextNumber'), 500);
+  const audits = await db.collection('auditLogs').where('action', '==', 'fiscal_numbering_manually_changed').get();
+  assert.equal(audits.size, 1);
+  assert.equal(audits.docs[0].get('after.nextNumber'), 500);
+  assert.equal(audits.docs[0].get('uid'), 'owner');
+  await assert.rejects(invoke('fiscalSetNextNumber', {...base, nextNumber: 501, changeRequestId: 'integration-numbering-stale-501'}), /numeração mudou/);
+  const current = (await invoke('fiscalGetNumbering', {})).sequences.find((entry) => entry.model === 55);
+  const fresh = {...base, expectedNextNumber: current.nextNumber, expectedRevision: current.revision};
+  const results = await Promise.allSettled([
+    invoke('fiscalSetNextNumber', {...fresh, nextNumber: 600, changeRequestId: 'integration-numbering-change-600'}),
+    invoke('fiscalSetNextNumber', {...fresh, nextNumber: 700, changeRequestId: 'integration-numbering-change-700'}),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(transmissions.length, previousTransmissions);
+  const used = (await invoke('fiscalGetNumbering', {})).sequences.find((entry) => entry.model === 55);
+  await assert.rejects(invoke('fiscalSetNextNumber', {...base, expectedNextNumber: used.nextNumber, expectedRevision: used.revision,
+    nextNumber: 1, changeRequestId: 'integration-numbering-used-number'}), /conhecido/);
+});
+
+test('real Firestore reserves unique numbers for concurrent new drafts and one reservation for same-attempt double click', async () => {
+  const counter = db.collection('lojas').doc(storeId).collection('fiscalCounters').doc('homologation_55_1');
+  const before = (await counter.get()).get('nextNumber');
+  const a = await invoke('fiscalSaveDraft', {model: 55, manualInvoice: manualInvoice()});
+  const b = await invoke('fiscalSaveDraft', {model: 55, manualInvoice: manualInvoice()});
+  await Promise.all([invoke('fiscalCheckDraft', {draftId: a.draftId}), invoke('fiscalCheckDraft', {draftId: b.draftId})]);
+  assert.equal((await counter.get()).get('nextNumber'), before);
+  const issuedBefore = transmissions.filter((item) => item.path === '/issue').length;
+  await Promise.all([invoke('fiscalIssueDraft', {draftId: a.draftId, model: 55}), invoke('fiscalIssueDraft', {draftId: a.draftId, model: 55}), invoke('fiscalIssueDraft', {draftId: b.draftId, model: 55})]);
+  const numbers = await Promise.all([a, b].map(async (draft) => (await counter.parent.parent.collection('invoices').doc(draft.draftId).get()).get('number')));
+  assert.deepEqual(numbers.sort((x, y) => x - y), [before, before + 1]);
+  assert.equal((await counter.get()).get('nextNumber'), before + 2);
+  assert.equal(transmissions.filter((item) => item.path === '/issue').length, issuedBefore + 2);
+  const blocks = await Promise.all(numbers.map((number) => counter.parent.parent.collection('fiscalNumberBlocks').doc(`homologation_55_1_${number}`).get()));
+  assert.ok(blocks.every((block) => block.exists && block.get('status') === 'reserved'));
+});

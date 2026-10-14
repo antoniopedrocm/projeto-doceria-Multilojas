@@ -6,6 +6,7 @@ const {fiscalCents, allocateFiscalCharges} = require('./fiscal-money');
 const {createHash} = require('node:crypto');
 const {cloneEditableForm, draftTotals, editableFromXml} = require('./fiscal-clone');
 const {canAdministerFiscal, canEditPlatformFiscalService, protectedPlatformFieldsIn} = require('./fiscal-permissions');
+const {MAX_FISCAL_NUMBER, counterId, counterRevision, nextNumberFrom, isFiscalNumber, sequenceContext, sameSequence, invoiceKnowsNumber, rangeBlocksNumber} = require('./fiscal-numbering');
 
 const secretManager = new SecretManagerServiceClient();
 const MAX_CERTIFICATE_BYTES = 5 * 1024 * 1024;
@@ -27,7 +28,6 @@ const BLOCKING_ORDER_INVOICE_STATUSES = new Set([
   INVOICE_STATUS.AUTHORIZED,
   INVOICE_STATUS.DENIED,
 ]);
-const MAX_DUPLICATE_NUMBER_RETRIES = Math.max(0, Number(process.env.FISCAL_DUPLICATE_NUMBER_RETRIES || 20));
 
 const onlyDigits = (value) => String(value || '').replace(/\D/g, '');
 const money = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -40,7 +40,6 @@ const normalizeLookupText = (value) => trimText(value)
 
 const inferDocumentType = (document) => (onlyDigits(document).length > 11 ? 'CNPJ' : 'CPF');
 const environmentCode = (environment) => (environment === 'production' ? 1 : 2);
-const counterId = (environment, model, series) => `${environment}_${model}_${series}`;
 
 const normalizePaymentCode = (value) => {
   const digits = onlyDigits(value);
@@ -677,6 +676,43 @@ const createFiscalFunctions = ({
     }
   };
 
+  const numberingContextInTransaction = async (transaction, storeRef, model) => {
+    const [issuer, settings] = await Promise.all([
+      transaction.get(storeRef.collection('fiscalConfig').doc('issuer')),
+      transaction.get(storeRef.collection('fiscalConfig').doc('settings')),
+    ]);
+    const context = sequenceContext(issuer.data() || {}, settings.data() || {}, model, process.env.FISCAL_ENVIRONMENT);
+    if (!['production', 'homologation'].includes(context.environment) || context.issuerCnpj.length !== 14 ||
+      !Number.isInteger(context.series) || context.series < 0 || context.series > 999) {
+      throw new HttpsError('failed-precondition', 'Confira CNPJ, ambiente fiscal e série na configuração salva.');
+    }
+    return context;
+  };
+
+  const assertCounterIssuer = (snapshot, context) => {
+    if (snapshot.get('issuerCnpj') && snapshot.get('issuerCnpj') !== context.issuerCnpj) {
+      throw new HttpsError('failed-precondition', 'O contador pertence a outro emitente. Confira a loja e o CNPJ antes de ajustar a sequência.');
+    }
+  };
+
+  const assertNumberAvailable = async (transaction, storeRef, context, number, manual = false) => {
+    if (!isFiscalNumber(number)) throw new HttpsError('failed-precondition', 'Numeração fiscal inválida ou esgotada. Configure o próximo número antes de emitir.');
+    const blockRef = storeRef.collection('fiscalNumberBlocks').doc(counterId(context.environment, context.model, context.series) + `_${number}`);
+    const [invoices, block, operations] = await Promise.all([
+      transaction.get(storeRef.collection('invoices').select('number', 'nNF', 'model', 'series', 'environment', 'status', 'key', 'history', 'xMotivo', 'issuanceRejection', 'serviceResult.duplicateIssueResult')),
+      transaction.get(blockRef),
+      transaction.get(storeRef.collection('fiscalInutilizations').select('model', 'series', 'environment', 'status', 'start', 'end')),
+    ]);
+    if (manual && invoices.docs.some((snap) => sameSequence(snap.data(), context) && ['validating', 'pending_return'].includes(snap.get('status')))) {
+      throw new HttpsError('failed-precondition', 'Há emissão em andamento nesta sequência. Aguarde ou consulte o retorno antes de alterar a numeração.');
+    }
+    if (block.exists || operations.docs.some((snap) => rangeBlocksNumber(snap.data(), context, number)) ||
+      invoices.docs.some((snap) => invoiceKnowsNumber(snap.data(), context, number))) {
+      throw new HttpsError('failed-precondition', `Número ${number} já conhecido como usado, reservado ou inutilizado nesta sequência. Revise a numeração configurada.`);
+    }
+    return blockRef;
+  };
+
   const fiscalConfigurationAuditView = (issuer = {}, settings = {}) => ({
     issuer: {
       cnpj: cleanText(issuer.cnpj),
@@ -688,8 +724,8 @@ const createFiscalFunctions = ({
     },
     settings: {
       environment: cleanText(settings.environment),
-      nfeSeries: Number(settings.nfeSeries || 1),
-      nfceSeries: Number(settings.nfceSeries || 1),
+      nfeSeries: Number(settings.nfeSeries ?? 1),
+      nfceSeries: Number(settings.nfceSeries ?? 1),
       operationNature: cleanText(settings.operationNature),
       defaultPaymentMethodCode: cleanText(settings.defaultPaymentMethodCode),
       defaultPresence: Number(settings.defaultPresence || 2),
@@ -920,8 +956,8 @@ const createFiscalFunctions = ({
     const settings = snap.exists ? snap.data() || {} : {};
     return {
       environment: process.env.FISCAL_ENVIRONMENT || settings.environment || 'homologation',
-      nfeSeries: Number(settings.nfeSeries || 1),
-      nfceSeries: Number(settings.nfceSeries || 1),
+      nfeSeries: Number(settings.nfeSeries ?? 1),
+      nfceSeries: Number(settings.nfceSeries ?? 1),
       operationNature: settings.operationNature || 'Venda de producao do estabelecimento',
       defaultPresence: Number(settings.defaultPresence || 2),
       defaultPaymentMethodCode: settings.defaultPaymentMethodCode || '99',
@@ -1424,7 +1460,7 @@ const createFiscalFunctions = ({
     });
   };
 
-  const reserveInvoice = async ({lojaId, orderId, environment, model, series, uid, justification, additionalInfo, operationCfop, paymentResolution}) => {
+  const reserveInvoice = async ({lojaId, orderId, environment, model, series, issuerCnpj, uid, justification, additionalInfo, operationCfop, paymentResolution}) => {
     const storeRef = db.collection('lojas').doc(lojaId);
     const orderRef = storeRef.collection('pedidos').doc(orderId);
     const counterRef = storeRef.collection('fiscalCounters').doc(counterId(environment, model, series));
@@ -1436,6 +1472,15 @@ const createFiscalFunctions = ({
         transaction.get(counterRef),
       ]);
       const order = orderSnap.data() || {};
+      const previousId = order.fiscal?.lastInvoiceId;
+      if (previousId) {
+        const previous = await transaction.get(storeRef.collection('invoices').doc(previousId));
+        const invoice = previous.data() || {};
+        if (previous.exists && invoice.status !== INVOICE_STATUS.CANCELLED && sameSequence(invoice, {model, series, environment})) {
+          return {invoiceId: previousId, number: invoice.number, repeated: true,
+            response: callableFiscalResult({result: invoice, invoiceId: previousId, artifacts: invoice.artifacts || {}})};
+        }
+      }
       if (order.fiscal?.authorizedInvoiceId) {
         throw new HttpsError('already-exists', 'Pedido já tem nota autorizada.');
       }
@@ -1452,8 +1497,15 @@ const createFiscalFunctions = ({
         throw new HttpsError('already-exists', 'Pedido já tem nota rejeitada por duplicidade. Consulte/atualize essa nota antes de tentar emitir outra.');
       }
 
-      const nextNumber = Number(counterSnap.get('nextNumber') || 1);
+      const context = await numberingContextInTransaction(transaction, storeRef, model);
+      if (context.environment !== environment || context.series !== series || context.issuerCnpj !== issuerCnpj) throw new HttpsError('aborted', 'Configuração fiscal alterada. Confira novamente antes de emitir.');
+      assertCounterIssuer(counterSnap, context);
+      const nextNumber = nextNumberFrom(counterSnap);
+      const blockRef = await assertNumberAvailable(transaction, storeRef, context, nextNumber);
+      transaction.set(blockRef, {environment, model, series, number: nextNumber, issuerCnpj: context.issuerCnpj,
+        status: 'reserved', invoiceId: invoiceRef.id, at: FieldValue.serverTimestamp(), by: uid});
       transaction.set(counterRef, {
+        issuerCnpj: context.issuerCnpj,
         environment,
         model,
         series,
@@ -1549,25 +1601,7 @@ const createFiscalFunctions = ({
     }
   };
 
-  const shouldRetryDuplicateNumber = (result = {}) => {
-    if (!isDuplicateNfeResult(result)) {
-      return false;
-    }
-    if (result.status && result.status !== INVOICE_STATUS.REJECTED) {
-      return false;
-    }
-    const consultFailureText = [
-      result.duplicateConsultError,
-      result.duplicateConsultMessage,
-      result.detail,
-      result.message,
-      result.error,
-    ].map((value) => cleanText(value)).filter(Boolean).join(' ');
-    return Boolean(result.duplicateConsultFailed)
-      && /(digest|diferentes objetos|documentos se referem a diferentes objetos|different objects)/i.test(consultFailureText);
-  };
-
-  const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result, orderUpdateMode = 'final', historyMessage = null}) => {
+  const updateInvoiceAfterIssue = async ({lojaId, invoiceId, orderId, uid, result, historyMessage = null}) => {
     const invoiceRef = db.collection('lojas').doc(lojaId).collection('invoices').doc(invoiceId);
     const orderRef = orderId ? db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId) : null;
     const status = result.status || INVOICE_STATUS.REJECTED;
@@ -1618,14 +1652,6 @@ const createFiscalFunctions = ({
         return;
       }
 
-      if (orderUpdateMode === 'retrying_duplicate_number') {
-        transaction.update(orderRef, {
-          'fiscal.invoiceInProgressId': FieldValue.delete(),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        return;
-      }
-
       const lastInvoicePatch = {
         'fiscal.lastInvoiceId': invoiceId,
         'fiscal.lastInvoiceStatus': status,
@@ -1663,8 +1689,21 @@ const createFiscalFunctions = ({
 
   const previewNextNumber = async (lojaId, environment, model, series) => {
     const counterSnap = await db.collection('lojas').doc(lojaId).collection('fiscalCounters').doc(counterId(environment, model, series)).get();
-    return Number(counterSnap.get('nextNumber') || 1);
+    return nextNumberFrom(counterSnap);
   };
+
+  const checkedPreviewNumber = async (lojaId, expected) => db.runTransaction(async (transaction) => {
+    const storeRef = db.collection('lojas').doc(lojaId);
+    const context = await numberingContextInTransaction(transaction, storeRef, expected.model);
+    if (context.environment !== expected.environment || context.series !== expected.series || context.issuerCnpj !== expected.issuerCnpj) {
+      throw new HttpsError('aborted', 'Configuração fiscal alterada. Confira novamente antes de emitir.');
+    }
+    const counter = await transaction.get(storeRef.collection('fiscalCounters').doc(counterId(context.environment, context.model, context.series)));
+    assertCounterIssuer(counter, context);
+    const number = nextNumberFrom(counter);
+    await assertNumberAvailable(transaction, storeRef, context, number);
+    return number;
+  });
 
   const draftRefFor = (lojaId, draftId) => {
     if (!draftId || draftId.includes('/')) throw new HttpsError('invalid-argument', 'Identificador de rascunho inválido.');
@@ -1697,7 +1736,11 @@ const createFiscalFunctions = ({
       errors.push('CSC e ID CSC da NFC-e não configurados.');
     }
     const environment = prepared.settings.environment || 'homologation';
-    const number = await previewNextNumber(lojaId, environment, prepared.model, prepared.series);
+    let number = await previewNextNumber(lojaId, environment, prepared.model, prepared.series);
+    if (!errors.length) {
+      try { number = await checkedPreviewNumber(lojaId, {environment, model: prepared.model, series: prepared.series, issuerCnpj: prepared.payload.issuer.cnpj}); }
+      catch (error) { errors.push(error.message); }
+    }
     const payload = {...prepared.payload, invoice: {...prepared.payload.invoice, number}};
     let warnings = [];
     if (!errors.length) {
@@ -1782,6 +1825,79 @@ const createFiscalFunctions = ({
   };
 
   return {
+    fiscalGetNumbering: onCall(async (request) => {
+      try {
+        const {lojaId, requester} = await requireReadContext(request);
+        const storeRef = db.collection('lojas').doc(lojaId);
+        const sequences = await db.runTransaction(async (transaction) => {
+          return Promise.all([55, 65].map(async (model) => {
+            const context = await numberingContextInTransaction(transaction, storeRef, model);
+            const counter = await transaction.get(storeRef.collection('fiscalCounters').doc(counterId(context.environment, model, context.series)));
+            assertCounterIssuer(counter, context);
+            return {...context, nextNumber: nextNumberFrom(counter), revision: counterRevision(counter), configured: counter.exists};
+          }));
+        });
+        return {lojaId, canManage: canAdministerFiscal(requester), sequences};
+      } catch (error) {
+        logger.error('fiscalGetNumbering failed', {code: error?.code || 'internal'});
+        throw normalizeHttpsError(error);
+      }
+    }),
+    fiscalSetNextNumber: onCall(async (request) => {
+      try {
+        const {uid, lojaId, requester} = await requireCallableContext(request);
+        const data = request.data || {};
+        if (data.confirmed !== true || ![55, 65].includes(data.model) || !isFiscalNumber(data.nextNumber) ||
+          !['production', 'homologation'].includes(data.environment) || !Number.isInteger(data.series) || data.series < 0 || data.series > 999 ||
+          !Number.isInteger(data.expectedNextNumber) || data.expectedNextNumber < 1 || data.expectedNextNumber > MAX_FISCAL_NUMBER + 1 ||
+          typeof data.expectedRevision !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/.test(data.changeRequestId || '')) {
+          throw new HttpsError('invalid-argument', 'Confirme a alteração e informe um próximo número inteiro entre 1 e 999999999.');
+        }
+        const fingerprint = JSON.stringify([data.model, data.series, data.environment, data.issuerCnpj, data.nextNumber, data.expectedNextNumber, data.expectedRevision]);
+        const id = createHash('sha256').update(JSON.stringify([lojaId, uid, data.environment, data.model, data.series, data.changeRequestId])).digest('hex');
+        const auditRef = db.collection('auditLogs').doc(`manual_numbering_${id}`);
+        const storeRef = db.collection('lojas').doc(lojaId);
+        // Authoritative receipt stays under the existing server-only counter path.
+        // auditLogs retains the familiar audit mirror, but is never trusted for retries.
+        const receiptRef = storeRef.collection('fiscalCounters').doc(counterId(data.environment, data.model, data.series)).collection('manualChanges').doc(id);
+        return await db.runTransaction(async (transaction) => {
+          const previous = await transaction.get(receiptRef);
+          if (previous.exists) {
+            if (previous.get('fingerprint') !== fingerprint) throw new HttpsError('invalid-argument', 'Identificador já utilizado para outra alteração.');
+            return {...previous.get('numbering'), repeated: true};
+          }
+          const context = await numberingContextInTransaction(transaction, storeRef, data.model);
+          if (data.series !== context.series || data.environment !== context.environment || data.issuerCnpj !== context.issuerCnpj) {
+            throw new HttpsError('aborted', 'Emitente, ambiente ou série mudou. Atualize a numeração e confirme novamente.');
+          }
+          const ref = storeRef.collection('fiscalCounters').doc(counterId(context.environment, context.model, context.series));
+          const counter = await transaction.get(ref);
+          assertCounterIssuer(counter, context);
+          const current = nextNumberFrom(counter);
+          if (current !== data.expectedNextNumber || counterRevision(counter) !== data.expectedRevision) {
+            throw new HttpsError('aborted', 'A numeração mudou durante a conferência. Atualize e confirme novamente.');
+          }
+          if (current === data.nextNumber) throw new HttpsError('invalid-argument', 'O próximo número já possui esse valor.');
+          await assertNumberAvailable(transaction, storeRef, context, data.nextNumber, true);
+          const numbering = {...context, previousNumber: current, nextNumber: data.nextNumber};
+          const profile = requester.profile || {};
+          transaction.set(ref, {...context, nextNumber: data.nextNumber, updatedAt: FieldValue.serverTimestamp(), updatedByUid: uid}, {merge: true});
+          const audit = {
+            uid, usuario: cleanText(profile.nome || profile.displayName || profile.email || uid), email: cleanText(profile.email),
+            perfil: requester.role, lojaId, modulo: 'nota-fiscal', action: 'fiscal_numbering_manually_changed',
+            documentId: ref.id, before: {...context, nextNumber: current}, after: {...context, nextNumber: data.nextNumber},
+            numbering, fingerprint, result: 'success', createdAt: FieldValue.serverTimestamp(),
+            details: {direction: data.nextNumber < current ? 'decrease' : 'increase', availabilityConfirmedBySefaz: false},
+          };
+          transaction.set(receiptRef, audit);
+          transaction.set(auditRef, {...audit, authoritativePath: receiptRef.path});
+          return numbering;
+        });
+      } catch (error) {
+        logger.error('fiscalSetNextNumber failed', {code: error?.code || 'internal'});
+        throw normalizeHttpsError(error);
+      }
+    }),
     fiscalCloneInvoice: onCall(async (request) => {
       try {
         const {uid, lojaId} = await requireCallableContext(request);
@@ -1948,7 +2064,8 @@ const createFiscalFunctions = ({
         const snap = await ref.get();
         if (!snap.exists) throw new HttpsError('not-found', 'Rascunho não encontrado.');
         const draft = snap.data() || {};
-        if (draft.status !== INVOICE_STATUS.DRAFT) return {invoiceId: draftId, status: draft.status, xMotivo: 'Esta nota já iniciou a emissão.'};
+        if (draft.status !== INVOICE_STATUS.DRAFT) return {...callableFiscalResult({result: draft, invoiceId: draftId, artifacts: draft.artifacts || {}}),
+          number: draft.number ?? null, model: draft.model, series: draft.series ?? null, xMotivo: draft.xMotivo || 'Esta nota já iniciou a emissão.'};
         if (Number(request.data?.model) !== Number(draft.model)) throw new HttpsError('invalid-argument', 'Modelo da confirmação difere do rascunho.');
         const checked = await checkDraft({lojaId, draftId, draft, uid});
         if (!checked.ok) throw new HttpsError('failed-precondition', checked.errors.join(' '), {errors: checked.errors});
@@ -1966,12 +2083,22 @@ const createFiscalFunctions = ({
           if (orderSnap && Number(orderSnap.get('updatedAt')?.toMillis?.() || 0) !== Number(prepared.order?.updatedAt?.toMillis?.() || 0)) {
             throw new HttpsError('aborted', 'Pedido alterado durante a validação. Cheque novamente.');
           }
-          const number = Number(counter.get('nextNumber') || 1);
-          transaction.set(counterRef, {environment, model: prepared.model, series: prepared.series, nextNumber: number + 1, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
+          const storeRef = db.collection('lojas').doc(lojaId);
+          const context = await numberingContextInTransaction(transaction, storeRef, prepared.model);
+          if (context.environment !== environment || context.series !== prepared.series || context.issuerCnpj !== prepared.payload.issuer.cnpj) {
+            throw new HttpsError('aborted', 'Configuração fiscal alterada. Confira novamente antes de emitir.');
+          }
+          assertCounterIssuer(counter, context);
+          const number = nextNumberFrom(counter);
+          const blockRef = await assertNumberAvailable(transaction, storeRef, context, number);
+          transaction.set(blockRef, {environment, model: prepared.model, series: prepared.series, number, issuerCnpj: context.issuerCnpj,
+            status: 'reserved', invoiceId: draftId, at: FieldValue.serverTimestamp(), by: uid});
+          transaction.set(counterRef, {environment, model: prepared.model, series: prepared.series, issuerCnpj: context.issuerCnpj, nextNumber: number + 1, updatedAt: FieldValue.serverTimestamp()}, {merge: true});
           transaction.set(ref, {
             status: INVOICE_STATUS.VALIDATING,
             environment,
             series: prepared.series,
+            issuerCnpj: prepared.payload.issuer.cnpj,
             number,
             customer: prepared.payload.customer,
             items: prepared.payload.items,
@@ -2198,6 +2325,12 @@ const createFiscalFunctions = ({
         const {uid, lojaId, requester} = await requireCallableContext(request);
         const issuer = request.data?.issuer || {};
         const settings = request.data?.settings || {};
+        for (const key of ['nfeSeries', 'nfceSeries']) {
+          const value = settings[key] ?? 1;
+          if (!['number', 'string'].includes(typeof value) || String(value).trim() === '' || !Number.isInteger(Number(value)) || Number(value) < 0 || Number(value) > 999) {
+            throw new HttpsError('invalid-argument', 'Informe séries fiscais inteiras entre 0 e 999.');
+          }
+        }
         const protectedPlatformFields = protectedPlatformFieldsIn(settings);
         const shouldUpdatePlatformService = protectedPlatformFields.length > 0;
         if (shouldUpdatePlatformService && !isPlatformFiscalAdmin(requester)) {
@@ -2224,8 +2357,8 @@ const createFiscalFunctions = ({
           }, {merge: true}),
           db.collection('lojas').doc(lojaId).collection('fiscalConfig').doc('settings').set({
             environment: cleanText(settings.environment || 'homologation'),
-            nfeSeries: Number(settings.nfeSeries || 1),
-            nfceSeries: Number(settings.nfceSeries || 1),
+            nfeSeries: Number(settings.nfeSeries ?? 1),
+            nfceSeries: Number(settings.nfceSeries ?? 1),
             operationNature: cleanText(settings.operationNature),
             defaultPaymentMethodCode: cleanText(settings.defaultPaymentMethodCode || '99'),
             defaultPresence: Number(settings.defaultPresence || 2),
@@ -2399,6 +2532,10 @@ const createFiscalFunctions = ({
           ...(prepared.certificate.ready ? [] : ['Certificado A1 da loja não configurado.']),
           ...(prepared.model === 65 && (!prepared.certificate.nfceCscSecretVersion || !prepared.certificate.nfceCscIdSecretVersion) ? ['CSC e ID CSC da NFC-e não configurados.'] : []),
         ];
+        if (!prepared.errors.length && !readinessErrors.length) {
+          try { await checkedPreviewNumber(lojaId, {environment, model: prepared.model, series: prepared.series, issuerCnpj: prepared.payload.issuer.cnpj}); }
+          catch (error) { readinessErrors.push(error.message); }
+        }
         const localResult = {
           ok: prepared.errors.length === 0 && readinessErrors.length === 0,
           errors: [...prepared.errors, ...readinessErrors],
@@ -2605,19 +2742,21 @@ const createFiscalFunctions = ({
           model: prepared.model,
           series: prepared.series,
         });
-        for (let attempt = 0; attempt <= MAX_DUPLICATE_NUMBER_RETRIES; attempt += 1) {
+        {
           const reservation = await reserveInvoice({
             lojaId,
             orderId,
             environment,
             model: prepared.model,
             series: prepared.series,
+            issuerCnpj: prepared.payload.issuer.cnpj,
             uid,
             justification: request.data?.justification,
             additionalInfo: prepared.payload.additionalInfo,
             operationCfop: prepared.payload.invoice.operationCfop,
             paymentResolution: prepared.paymentResolution,
           });
+          if (reservation.repeated) return reservation.response;
           const payload = {
             ...prepared.payload,
             invoiceId: reservation.invoiceId,
@@ -2627,30 +2766,6 @@ const createFiscalFunctions = ({
           try {
             const issueResult = await callFiscalService('/issue', payload, serviceConfig);
             const result = await consultDuplicateIfNeeded({payload, result: issueResult, serviceConfig});
-            if (shouldRetryDuplicateNumber(result) && attempt < MAX_DUPLICATE_NUMBER_RETRIES) {
-              const reason = fiscalResultReason(result, INVOICE_STATUS.REJECTED) || 'Rejeição por duplicidade de NF-e.';
-              logger.warn('fiscal duplicate number collision; retrying with next number', {
-                lojaId,
-                orderId,
-                model: prepared.model,
-                series: prepared.series,
-                number: reservation.number,
-                attempt: attempt + 1,
-                maxAttempts: MAX_DUPLICATE_NUMBER_RETRIES + 1,
-                cStat: result.cStat ?? null,
-                duplicateConsultError: result.duplicateConsultError || null,
-              });
-              await updateInvoiceAfterIssue({
-                lojaId,
-                invoiceId: reservation.invoiceId,
-                orderId,
-                uid,
-                result,
-                orderUpdateMode: 'retrying_duplicate_number',
-                historyMessage: `${reason} Numero fiscal ja usado por outro documento; tentando proxima numeracao automaticamente.`,
-              });
-              continue;
-            }
             const issued = await updateInvoiceAfterIssue({
               lojaId,
               invoiceId: reservation.invoiceId,
@@ -2695,7 +2810,6 @@ const createFiscalFunctions = ({
             throw error;
           }
         }
-        throw new HttpsError('aborted', 'Nao foi possivel encontrar uma numeracao fiscal livre automaticamente. Verifique o ultimo numero autorizado na SEFAZ e ajuste o contador fiscal.');
       } catch (error) {
         logger.error('fiscalIssueInvoice failed', error);
         throw normalizeHttpsError(error);
