@@ -429,3 +429,73 @@ test('missing tax origin and unsupported historical fields block a clone instead
   assert.match(result.errors.join(' '), /cest informado/);
   assert.equal(records.get(`lojas/${storeId}/invoices/${saved.draftId}`).manualInvoice.items[0].cest, '1234567');
 });
+
+test('NF-e manual persiste, reabre, altera e rateia frete sem pedido, ignorando totais manipulados', async () => {
+  const input = {...form(), freight: '300.00', freightMode: '0', total: 1};
+  input.items[0].quantity = 1; input.items[0].unitPrice = 2025; input.items[0].freight = 999;
+  const saved = await call('fiscalSaveDraft', {model: 55, manualInvoice: input});
+  const reopened = await call('fiscalGetInvoice', {invoiceId: saved.draftId});
+  assert.equal(reopened.orderId ?? null, null);
+  assert.equal(reopened.manualInvoice.freight, '300.00');
+  assert.equal(reopened.total, 2325);
+  const checked = await call('fiscalCheckDraft', {draftId: saved.draftId});
+  assert.equal(checked.ok, true);
+  assert.equal(checked.preview.totals.freight, 300);
+  const payload = sent.at(-1).body;
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.items[0].freight, 300);
+  assert.equal(payload.totals.freight, 300);
+  assert.equal(payload.totals.invoice, 2325);
+  assert.equal(payload.invoice.payment.amount, 2325);
+  assert.equal(payload.transport.freightMode, '0');
+  input.freight = 0;
+  const updated = await call('fiscalSaveDraft', {draftId: saved.draftId, model: 55, manualInvoice: input});
+  assert.equal(updated.draftId, saved.draftId);
+  assert.equal((await call('fiscalGetInvoice', {invoiceId: saved.draftId})).totals.invoice, 2025);
+  assert.equal((await call('fiscalCheckDraft', {draftId: saved.draftId})).ok, true);
+  assert.equal(sent.at(-1).body.items[0].freight, 0);
+});
+
+test('NF-e manual negativa ou modalidade inválida é salva, mas não transmitida', async () => {
+  for (const change of [{freight: -1}, {freight: 'abc'}, {freightMode: '7'}]) {
+    const saved = await call('fiscalSaveDraft', {model: 55, manualInvoice: {...form(), ...change}});
+    const before = sent.length;
+    const result = await call('fiscalCheckDraft', {draftId: saved.draftId});
+    assert.equal(result.ok, false);
+    assert.equal(sent.length, before);
+    await assert.rejects(call('fiscalIssueDraft', {draftId: saved.draftId, model: 55}));
+    assert.equal(sent.length, before);
+  }
+});
+
+test('NF-e manual distribui centavos e preserva observação de faturamento parcial', async () => {
+  const input = {...form(), freight: .02, additionalInfo: 'Faturamento parcial; frete desta NF-e informado manualmente.'};
+  input.items = Array.from({length: 3}, () => ({...input.items[0], quantity: 1, unitPrice: 1}));
+  const saved = await call('fiscalSaveDraft', {model: 55, manualInvoice: input});
+  assert.equal((await call('fiscalCheckDraft', {draftId: saved.draftId})).ok, true);
+  assert.deepEqual(sent.at(-1).body.items.map((item) => item.freight), [0, 0, .02]);
+  assert.equal(sent.at(-1).body.additionalInfo, input.additionalInfo);
+  assert.equal(sent.at(-1).body.totals.invoice, 3.02);
+});
+
+test('Consulta 217 não apaga rejeição 535, XML, identificação, data ou tentativa anterior', async () => {
+  const invoiceId = 'freight-rejected';
+  const original = {model: 55, series: 1, number: 7, environment: 'production', status: 'rejected',
+    cStat: 535, xMotivo: 'Total do Frete difere do somatório dos itens', key: 'original-key',
+    issuedAt: '2026-10-13', serviceResult: {cStat: 535}, history: [{status: 'rejected', message: 'freight original'}],
+    artifacts: {signedXml: {path: `fiscal/${storeId}/invoices/${invoiceId}/signed.xml`}}};
+  write(ref(`lojas/${storeId}/invoices/${invoiceId}`), original);
+  artifacts.set(original.artifacts.signedXml.path, '<NFe/>');
+  const previous = global.fetch;
+  global.fetch = async () => ({ok: true, status: 200, text: async () => JSON.stringify({status: 'rejected', cStat: 217, xMotivo: 'NF-e não consta na base de dados da SEFAZ'})});
+  try {
+    const result = await call('fiscalRefreshInvoice', {invoiceId});
+    assert.equal(result.cStat, 535);
+    assert.equal(result.xMotivo, original.xMotivo);
+    assert.equal(result.lastConsultation.cStat, 217);
+    const stored = records.get(`lojas/${storeId}/invoices/${invoiceId}`);
+    for (const key of ['key', 'status', 'number', 'issuedAt', 'cStat', 'xMotivo', 'artifacts', 'serviceResult']) assert.deepEqual(stored[key], original[key]);
+    assert.equal(stored.history.length, 2);
+    assert.equal(stored.history[1].action, 'consultation');
+  } finally { global.fetch = previous; }
+});

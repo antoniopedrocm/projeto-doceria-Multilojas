@@ -28,7 +28,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "prebuild": "node ../scripts/sync-point-schedule.cjs --check"
+    "prebuild": "node ../scripts/sync-point-schedule.cjs --check && node ../scripts/sync-fiscal-money.cjs --check"
   },
   "eslintConfig": {
     "extends": [

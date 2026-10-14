@@ -2,6 +2,7 @@ const {GoogleAuth} = require('google-auth-library');
 const {SecretManagerServiceClient} = require('@google-cloud/secret-manager');
 const forge = require('node-forge');
 const {isValidFiscalDocument} = require('./fiscal-core');
+const {fiscalCents, allocateFiscalCharges} = require('./fiscal-money');
 const {createHash} = require('node:crypto');
 const {cloneEditableForm, draftTotals, editableFromXml} = require('./fiscal-clone');
 const {canAdministerFiscal, canEditPlatformFiscalService, protectedPlatformFieldsIn} = require('./fiscal-permissions');
@@ -313,6 +314,13 @@ const validatePreparedPayload = (payload) => {
   }
   const expectedTotal = money(payload.totals.products - payload.totals.discount + payload.totals.freight + payload.totals.insurance + payload.totals.other);
   if (expectedTotal !== money(payload.totals.invoice)) errors.push('Totais: valor da nota diverge da soma de produtos, descontos e acréscimos.');
+  for (const field of ['freight', 'insurance', 'other']) {
+    if (!Number.isFinite(Number(payload.totals[field])) || Number(payload.totals[field]) < 0) errors.push(`Totais: ${field} inválido.`);
+    if (payload.items.some((item) => item[field] !== undefined)
+      && payload.items.reduce((sum, item) => sum + fiscalCents(item[field]), 0) !== fiscalCents(payload.totals[field])) {
+      errors.push(`Totais: ${field === 'freight' ? 'frete da NF-e' : field} não corresponde ao somatório distribuído entre os itens.`);
+    }
+  }
 
   if (payload.invoice.payment.methodCode === '90' && payload.invoice.payment.amount > 0) {
     errors.push('Forma de pagamento 90 (sem pagamento) não pode ter valor pago maior que zero.');
@@ -1211,7 +1219,9 @@ const createFiscalFunctions = ({
     for (const field of ['freight', 'insurance', 'other']) {
       if (!Number.isFinite(Number(manualInvoice[field] || 0)) || Number(manualInvoice[field] || 0) < 0) manualInputErrors.push(`Totais: ${field === 'freight' ? 'frete' : field === 'insurance' ? 'seguro' : 'outras despesas'} inválido.`);
     }
-    if (manualInvoice.freightMode !== undefined && String(manualInvoice.freightMode) !== '9') manualInputErrors.push('Transporte: o provedor atual suporta somente modalidade de frete 9. Revise com o responsável fiscal.');
+    const freightMode = String(manualInvoice.freightMode ?? '9');
+    if (!['0', '1', '2', '3', '4', '9'].includes(freightMode)) manualInputErrors.push('Transporte: modalidade de frete inválida (0, 1, 2, 3, 4 ou 9).');
+    if (model === 65 && freightMode !== '9') manualInputErrors.push('Transporte: o fluxo NFC-e atual suporta somente modalidade 9.');
 
     const rawItems = Array.isArray(manualInvoice.items) ? manualInvoice.items : [];
     if (!rawItems.length) manualInputErrors.push('Produtos: adicione ao menos um item.');
@@ -1297,6 +1307,7 @@ const createFiscalFunctions = ({
       lojaId,
       origin: 'manual',
       manualInvoice: true,
+      transport: {freightMode},
       environment: environmentCode(settings.environment),
       invoice: {
         model,
@@ -1356,6 +1367,11 @@ const createFiscalFunctions = ({
       fiscalSecrets: certificate.fiscalSecrets,
     };
 
+    try {
+      payload.items = allocateFiscalCharges(payload.items, totals);
+    } catch (error) {
+      manualInputErrors.push(error.message);
+    }
     return {
       payload,
       settings,
@@ -1568,6 +1584,10 @@ const createFiscalFunctions = ({
         receipt: result.receipt || null,
         cStat: result.cStat || null,
         xMotivo: resultReason || null,
+        ...(status === INVOICE_STATUS.REJECTED ? {issuanceRejection: {
+          cStat: result.cStat ?? null, xMotivo: resultReason || null,
+          at: admin.firestore.Timestamp.now(), by: uid, attemptId: invoiceId,
+        }} : {}),
         errors: compactFiscalErrors(result.errors),
         artifacts: Object.keys(artifacts).length ? artifacts : FieldValue.delete(),
         artifactError: artifactError || FieldValue.delete(),
@@ -1579,6 +1599,7 @@ const createFiscalFunctions = ({
           at: admin.firestore.Timestamp.now(),
           by: uid,
           message: historyMessage || resultReason || 'Retorno recebido do serviço fiscal.',
+          cStat: result.cStat ?? null,
         }),
       }, {merge: true});
 
@@ -1944,6 +1965,7 @@ const createFiscalFunctions = ({
             customer: prepared.payload.customer,
             items: prepared.payload.items,
             totals: prepared.payload.totals,
+            ...(prepared.payload.transport ? {transport: prepared.payload.transport} : {}),
             total: prepared.payload.totals.invoice,
             operationCfop: prepared.payload.invoice.operationCfop,
             additionalInfo: prepared.payload.additionalInfo,
@@ -2807,7 +2829,8 @@ const createFiscalFunctions = ({
         if (!invoiceSnap.exists) throw new HttpsError('not-found', 'Nota não encontrada.');
         const invoice = invoiceSnap.data() || {};
         const shouldConsultDuplicate = invoice.status === INVOICE_STATUS.REJECTED && isDuplicateInvoiceRecord(invoice);
-        if (invoice.status !== INVOICE_STATUS.PENDING_RETURN && !shouldConsultDuplicate) {
+        const shouldConsultRejected = invoice.status === INVOICE_STATUS.REJECTED && Boolean(invoice.key);
+        if (invoice.status !== INVOICE_STATUS.PENDING_RETURN && !shouldConsultDuplicate && !shouldConsultRejected) {
           return {id: invoiceSnap.id, ...invoice};
         }
         if (invoice.status === INVOICE_STATUS.PENDING_RETURN && !invoice.receipt) {
@@ -2840,6 +2863,18 @@ const createFiscalFunctions = ({
         const result = invoice.status === INVOICE_STATUS.PENDING_RETURN
           ? await callFiscalService('/receipt', {...consultPayload, receipt: invoice.receipt}, serviceConfig)
           : await callFiscalService('/consult', consultPayload, serviceConfig);
+        if (invoice.status === INVOICE_STATUS.REJECTED && result.status !== INVOICE_STATUS.AUTHORIZED && result.status !== INVOICE_STATUS.CANCELLED) {
+          const consultation = {cStat: result.cStat ?? null, xMotivo: fiscalResultReason(result, result.status),
+            status: result.status || null, at: admin.firestore.Timestamp.now(), by: uid};
+          await db.collection('lojas').doc(lojaId).collection('invoices').doc(invoiceId).set({
+            lastConsultation: consultation,
+            history: FieldValue.arrayUnion({...consultation, status: invoice.status, action: 'consultation'}),
+          }, {merge: true});
+          await auditFiscalAction({uid, lojaId, requester, action: 'fiscal_invoice_refreshed', documentId: invoiceId,
+            before: {status: invoice.status, cStat: invoice.cStat ?? null},
+            after: {status: invoice.status, consultationCStat: consultation.cStat}});
+          return {id: invoiceId, ...invoice, lastConsultation: consultation};
+        }
         const refreshed = await updateInvoiceAfterIssue({
           lojaId,
           invoiceId,

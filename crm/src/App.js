@@ -5,6 +5,7 @@ import { sanitizeEmployeeWorkSchedule, getPointScheduleDayInfo,
 import { summarizePointMonth } from './meuEspaco/pointMonthSummary';
 import FiscalCloneConfirmation from './components/FiscalCloneConfirmation';
 import { findOrderDraft, validateFiscalOrder, createFiscalOrderActions } from './fiscalOrderActions';
+import { draftTotals as fiscalDraftTotals } from './utils/fiscalMoney';
 import { getAppliedOrderStock, planOrderStock } from './services/orderStock';
 import { isCompleteClientDocument, normalizeClientDocumentInput } from './utils/clientDocument';
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
@@ -18507,18 +18508,7 @@ const handleSubmit = async (e) => {
     }, [storeProducts, fiscalProducts, fiscalProductsById]);
 
     const manualInvoiceTotals = useMemo(() => {
-      const products = (manualInvoiceForm.items || []).reduce((sum, item) => (
-        sum + roundCurrency(Number(item.quantity || 0) * Number(item.unitPrice || 0))
-      ), 0);
-      const discount = (manualInvoiceForm.items || []).reduce((sum, item) => sum + roundCurrency(Number(item.discount || 0)), 0);
-      return {
-        products: roundCurrency(products),
-        discount: roundCurrency(discount),
-        freight: roundCurrency(Number(manualInvoiceForm.freight || 0)),
-        insurance: roundCurrency(Number(manualInvoiceForm.insurance || 0)),
-        other: roundCurrency(Number(manualInvoiceForm.other || 0)),
-        invoice: roundCurrency(products - discount + Number(manualInvoiceForm.freight || 0) + Number(manualInvoiceForm.insurance || 0) + Number(manualInvoiceForm.other || 0))
-      };
+      return fiscalDraftTotals(manualInvoiceForm);
     }, [manualInvoiceForm.items, manualInvoiceForm.freight, manualInvoiceForm.insurance, manualInvoiceForm.other]);
 
     const ordersById = useMemo(() => {
@@ -18798,12 +18788,12 @@ const handleSubmit = async (e) => {
 
     const getInvoiceDiscount = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
-      return Number(invoice?.discount ?? invoice?.desconto ?? order?.desconto ?? order?.cupom?.valorDesconto ?? 0) || 0;
+      return Number(invoice?.totals?.discount ?? invoice?.manualInvoice?.discount ?? invoice?.discount ?? invoice?.desconto ?? order?.desconto ?? order?.cupom?.valorDesconto ?? 0) || 0;
     }, [getInvoiceOrder]);
 
     const getInvoiceFreight = useCallback((invoice) => {
       const order = getInvoiceOrder(invoice);
-      return Number(invoice?.freight ?? invoice?.frete ?? order?.frete ?? order?.taxaEntrega ?? 0) || 0;
+      return Number(invoice?.totals?.freight ?? invoice?.manualInvoice?.freight ?? invoice?.freight ?? invoice?.frete ?? order?.frete ?? order?.taxaEntrega ?? 0) || 0;
     }, [getInvoiceOrder]);
 
     const getInvoiceChange = useCallback((invoice) => {
@@ -19975,7 +19965,8 @@ const handleSubmit = async (e) => {
             await downloadInvoiceArtifact(result.invoiceId, 'danfePdf');
           }
         } else {
-          setMessage({ type: ['pending_return', 'rejected', 'denied'].includes(result.status) ? 'error' : 'success', text: result.xMotivo || 'Consulta fiscal concluída.' });
+          setMessage({ type: ['pending_return', 'rejected', 'denied'].includes(result.status) ? 'error' : 'success',
+            text: result.lastConsultation ? `Consulta SEFAZ: ${result.lastConsultation.xMotivo || 'Retorno recebido'}. A rejeição original foi preservada.` : result.xMotivo || 'Consulta fiscal concluída.' });
         }
       } catch (error) {
         console.error('[NotaFiscal] Consulta de retorno fiscal falhou:', error);
@@ -20324,7 +20315,7 @@ const handleSubmit = async (e) => {
         [
           ['Valor total dos produtos', productsTotal],
           ['Valor do frete', freight],
-          ['Valor do seguro', taxes.insurance || taxes.seguro || invoice?.insurance],
+          ['Valor do seguro', invoice?.totals?.insurance ?? taxes.insurance ?? taxes.seguro ?? invoice?.insurance],
           ['Desconto', discount],
           ['Outras despesas', taxes.otherExpenses || taxes.outrasDespesas || invoice?.otherExpenses],
           ['Valor total da nota', invoiceTotal]
@@ -20338,7 +20329,7 @@ const handleSubmit = async (e) => {
         sectionTitle('Transportador/Volumes Transportados', y);
         y += 2;
         field(margin, y, 54, 11, 'Razão social', transport.legalName || transport.razaoSocial, { blank: true, maxLines: 1 });
-        field(margin + 54, y, 32, 11, 'Frete por conta de', transport.freightMode || transport.modalidadeFrete || (freight > 0 ? '0 - Remetente' : '9 - Sem frete'), { maxLines: 1 });
+        field(margin + 54, y, 32, 11, 'Frete por conta de', transport.freightMode ?? transport.modalidadeFrete ?? invoice?.manualInvoice?.freightMode ?? '9 - Sem ocorrência de transporte', { maxLines: 1 });
         field(margin + 86, y, 24, 11, 'Código ANTT', transport.anttCode || transport.codigoAntt, { blank: true, maxLines: 1 });
         field(margin + 110, y, 26, 11, 'Placa do veículo', transport.vehiclePlate || transport.placaVeiculo, { blank: true, maxLines: 1 });
         field(margin + 136, y, 10, 11, 'UF', transport.vehicleUf || transport.ufPlaca, { blank: true, maxLines: 1 });
@@ -21991,11 +21982,13 @@ const handleSubmit = async (e) => {
 
             <section className="rounded-xl border border-gray-100 bg-gray-50 p-4">
               <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Input label="Frete" type="number" min="0" step="0.01" value={manualInvoiceForm.freight ?? ''} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, freight: event.target.value}))} />
+                <Input label="Frete (R$)" type="number" min="0" step="0.01" value={manualInvoiceForm.freight ?? ''} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, freight: event.target.value}))} />
                 <Input label="Seguro" type="number" min="0" step="0.01" value={manualInvoiceForm.insurance ?? ''} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, insurance: event.target.value}))} />
                 <Input label="Outras despesas" type="number" min="0" step="0.01" value={manualInvoiceForm.other ?? ''} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, other: event.target.value}))} />
                 <Input label="Natureza da operação" value={manualInvoiceForm.operationNature ?? ''} placeholder="Usar configuração atual da loja" onChange={(event) => setManualInvoiceForm((prev) => ({...prev, operationNature: event.target.value}))} />
-                <Input label="Modalidade de frete" value={manualInvoiceForm.freightMode ?? '9'} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, freightMode: event.target.value}))} />
+                <Select label="Modalidade de frete" value={manualInvoiceForm.freightMode ?? '9'} onChange={(event) => setManualInvoiceForm((prev) => ({...prev, freightMode: event.target.value}))}>
+                  {[['0', '0 — Contratação por conta do remetente (CIF)'], ['1', '1 — Contratação por conta do destinatário (FOB)'], ['2', '2 — Contratação por conta de terceiros'], ['3', '3 — Transporte próprio do remetente'], ['4', '4 — Transporte próprio do destinatário'], ['9', '9 — Sem ocorrência de transporte']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </Select>
                 <Input label="Indicador de presença" value={manualInvoiceForm.presence ?? ''} placeholder="Usar configuração atual da loja" onChange={(event) => setManualInvoiceForm((prev) => ({...prev, presence: event.target.value}))} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -22141,6 +22134,7 @@ const handleSubmit = async (e) => {
                     <DetailField label="Protocolo de autorização" value={invoice.protocol || '-'} mono />
                     <DetailField label="Autorização" value={formatDateTime(invoice.authorizedAt || invoice.serviceResult?.authorizedAt || (invoice.status === 'authorized' ? invoice.updatedAt : null))} />
                     <DetailField label="Motivo/status SEFAZ" value={reason || '-'} full />
+                    {invoice.lastConsultation && <DetailField label="Última consulta SEFAZ (informação adicional)" value={`${invoice.lastConsultation.cStat ?? '-'} — ${invoice.lastConsultation.xMotivo || '-'} · ${formatDateTime(invoice.lastConsultation.at)}`} full />}
                     <DetailField label="Observação" value={invoice.additionalInfo || '-'} full />
                     <DetailField label="Justificativa de cancelamento" value={invoice.cancelReason || '-'} full />
                     {invoice.cancelRequestedAt && <DetailField label="Cancelamento solicitado" value={formatDateTime(invoice.cancelRequestedAt)} />}
