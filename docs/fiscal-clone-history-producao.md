@@ -42,4 +42,6 @@ Testes de interface cobrem omissão dos rascunhos, preservação dos retornos/pr
 - Lint de Functions e lint dos arquivos frontend alterados: aprovados.
 - Build novo: `main.ee2b1af3.js`. Apenas avisos preexistentes de sourcemaps do native-audio e bases Browserslist/Baseline antigas.
 - `git diff --check`: aprovado. Revisão limitada ao detalhe do histórico, seu componente/testes e teste de clonagem do backend. Nenhuma alteração no código das Functions ou da clonagem.
-- Não houve teste interativo no navegador nem emissão real; a interface foi verificada com testes DOM e a publicação será conferida por hash HTTP.
+- Não houve teste interativo no navegador nem emissão real; a interface foi verificada com testes DOM.
+- Commit de implementação: `3715a019`, enviado a `origin/codex/fiscal-clone-history-producao`.
+- Deploy **Hosting concluído** em `ana-guimaraes`. `ana-guimaraes.web.app` e `anaguimaraesdoceria.com.br` entregam `main.ee2b1af3.js`. SHA-256 local e publicado iguais: `DC922AF87EA66D754C0E60464C13D3BEE87B2AD86921E1E6CF96760E346C5BFB`.
