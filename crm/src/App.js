@@ -18852,7 +18852,9 @@ const handleSubmit = async (e) => {
 
     const fiscalReturnReason = useCallback((invoice) => {
       if (!invoice) return '';
+      const original = invoice.status === 'rejected' ? invoice.issuanceRejection || invoice.serviceResult?.duplicateIssueResult : null;
       const directReason = [
+        original?.xMotivo,
         invoice.xMotivo,
         invoice.serviceResult?.xMotivo,
         invoice.error,
@@ -22133,8 +22135,8 @@ const handleSubmit = async (e) => {
                     <DetailField label="Emissão" value={invoice.status === 'draft' ? 'Não emitida' : formatDateTime(invoice.issuedAt || invoice.createdAt)} />
                     <DetailField label="Protocolo de autorização" value={invoice.protocol || '-'} mono />
                     <DetailField label="Autorização" value={formatDateTime(invoice.authorizedAt || invoice.serviceResult?.authorizedAt || (invoice.status === 'authorized' ? invoice.updatedAt : null))} />
-                    <DetailField label="Motivo/status SEFAZ" value={reason || '-'} full />
-                    {invoice.lastConsultation && <DetailField label="Última consulta SEFAZ (informação adicional)" value={`${invoice.lastConsultation.cStat ?? '-'} — ${invoice.lastConsultation.xMotivo || '-'} · ${formatDateTime(invoice.lastConsultation.at)}`} full />}
+                    <DetailField label="Motivo/status SEFAZ" value={`${invoice.status === 'rejected' ? invoice.issuanceRejection?.cStat ?? invoice.serviceResult?.duplicateIssueResult?.cStat ?? invoice.cStat ?? '-' : invoice.cStat ?? '-'} — ${reason || '-'}`} full />
+                    {(invoice.lastConsultation || invoice.serviceResult?.duplicateIssueResult) && <DetailField label="Última consulta SEFAZ (informação adicional)" value={`${(invoice.lastConsultation || invoice.serviceResult)?.cStat ?? '-'} — ${(invoice.lastConsultation || invoice.serviceResult)?.xMotivo || '-'}${invoice.lastConsultation?.at ? ` · ${formatDateTime(invoice.lastConsultation.at)}` : ''}`} full />}
                     <DetailField label="Observação" value={invoice.additionalInfo || '-'} full />
                     <DetailField label="Justificativa de cancelamento" value={invoice.cancelReason || '-'} full />
                     {invoice.cancelRequestedAt && <DetailField label="Cancelamento solicitado" value={formatDateTime(invoice.cancelRequestedAt)} />}

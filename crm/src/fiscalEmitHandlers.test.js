@@ -24,6 +24,15 @@ function handler(name, bindings) {
   return new Function(...Object.keys(bindings), `return (${source.slice(expression.start, expression.end)});`)(...Object.values(bindings));
 }
 const noop = () => {};
+test('Detalhe e listagem mostram rejeição original preservada mesmo após consulta 217', () => {
+  const invoice = {status: 'rejected', cStat: 217, xMotivo: 'Não consta na SEFAZ',
+    serviceResult: {duplicateIssueResult: {cStat: 539, xMotivo: 'Duplicidade de NF-e, diferença na chave'}}};
+  expect(handler('fiscalReturnReason', {})(invoice)).toBe('Duplicidade de NF-e, diferença na chave');
+});
+test('Rejeição histórica não substitui motivo de documento autorizado', () => {
+  expect(handler('fiscalReturnReason', {})({status: 'authorized', xMotivo: 'Autorizado',
+    issuanceRejection: {xMotivo: 'Duplicidade antiga'}})).toBe('Autorizado');
+});
 test.each([
   [{totals: {freight: 300}, manualInvoice: {freight: 0}}, 300],
   [{totals: {freight: 0}, manualInvoice: {freight: 300}}, 0],
