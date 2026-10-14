@@ -91,7 +91,7 @@ A prévia continua **DOCUMENTO NÃO EMITIDO**, exibindo produtos, desconto, fret
 
 ## 6. Checar requisitos e backend
 
-- Número finito e não negativo para frete, seguro e outras despesas.
+- Número finito e não negativo para frete, seguro e outras despesas. Booleanos, listas e objetos enviados como valores monetários ficam pendentes e não são transmitidos.
 - Base de produtos válida para rateio quando há cobrança.
 - Produtos, descontos e total consistentes.
 - Soma dos acréscimos por item igual ao total da nota.
@@ -148,6 +148,8 @@ firebase deploy --project ana-guimaraes --only 'functions:fiscalSaveDraft,functi
 # Complemento da proteção da consulta automática:
 firebase deploy --project ana-guimaraes --only 'functions:fiscalIssueDraft,functions:fiscalIssueManualInvoice' --non-interactive
 firebase deploy --project ana-guimaraes --only hosting:prod --non-interactive
+# Validação estrita dos tipos monetários na checagem e emissão:
+firebase deploy --project ana-guimaraes --only 'functions:fiscalCheckDraft,functions:fiscalIssueDraft,functions:fiscalIssueManualInvoice' --non-interactive
 ```
 
 Deploys concluídos. Nenhuma outra Function, Rule, índice, API de pedidos/cardápios ou configuração de loja foi publicada/alterada. A descoberta local de Functions precisou de `FUNCTIONS_DISCOVERY_TIMEOUT=120`; não houve mudança de runtime por isso.
@@ -161,6 +163,7 @@ Commits enviados para origin:
 - `42b5e060`: frete, rateio, schema/validação, persistência e consulta manual.
 - `c9965641`: proteção da rejeição na consulta automática.
 - `1782fa64`: apresentação da rejeição original e da consulta adicional.
+- `fd86058c`: rejeição de tipos monetários inválidos antes de transmitir; testes fiscais e lint repetidos e aprovados.
 
 Arquivos de código/testes alterados:
 
