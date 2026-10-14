@@ -817,6 +817,7 @@ const createFiscalFunctions = ({
     authorizedXmlPath: artifacts.authorizedXml?.path || null,
     danfePdfPath: artifacts.danfePdf?.path || null,
     duplicateIssueResult: result.duplicateIssueResult || null,
+    consultationResult: result.consultationResult || null,
     duplicateConsultFailed: Boolean(result.duplicateConsultFailed),
     duplicateConsultSkipped: Boolean(result.duplicateConsultSkipped),
     duplicateConsultError: cleanText(result.duplicateConsultError).slice(0, 1000) || null,
@@ -1518,8 +1519,13 @@ const createFiscalFunctions = ({
         key: result.key || null,
         signedXml: result.signedXml || null,
       }, serviceConfig);
+      const confirmed = [INVOICE_STATUS.AUTHORIZED, INVOICE_STATUS.CANCELLED].includes(consultResult.status);
       return {
-        ...consultResult,
+        ...(confirmed ? consultResult : result),
+        ...(!confirmed ? {consultationResult: {
+          status: consultResult.status || null, cStat: consultResult.cStat ?? null,
+          xMotivo: fiscalResultReason(consultResult, consultResult.status),
+        }} : {}),
         signedXml: consultResult.signedXml || result.signedXml || null,
         duplicateIssueResult: {
           status: result.status || null,
@@ -1563,6 +1569,7 @@ const createFiscalFunctions = ({
     const orderRef = orderId ? db.collection('lojas').doc(lojaId).collection('pedidos').doc(orderId) : null;
     const status = result.status || INVOICE_STATUS.REJECTED;
     const resultReason = fiscalResultReason(result, status);
+    const consultation = result.consultationResult ? {...result.consultationResult, at: admin.firestore.Timestamp.now(), by: uid} : null;
     const duplicateRejected = status === INVOICE_STATUS.REJECTED && isDuplicateNfeResult({
       ...result,
       xMotivo: resultReason,
@@ -1584,6 +1591,7 @@ const createFiscalFunctions = ({
         receipt: result.receipt || null,
         cStat: result.cStat || null,
         xMotivo: resultReason || null,
+        ...(consultation ? {lastConsultation: consultation} : {}),
         ...(status === INVOICE_STATUS.REJECTED ? {issuanceRejection: {
           cStat: result.cStat ?? null, xMotivo: resultReason || null,
           at: admin.firestore.Timestamp.now(), by: uid, attemptId: invoiceId,
@@ -1600,7 +1608,7 @@ const createFiscalFunctions = ({
           by: uid,
           message: historyMessage || resultReason || 'Retorno recebido do serviço fiscal.',
           cStat: result.cStat ?? null,
-        }),
+        }, ...(consultation ? [{...consultation, action: 'consultation', status}] : [])),
       }, {merge: true});
 
       if (!orderRef) {

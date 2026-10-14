@@ -499,3 +499,27 @@ test('Consulta 217 não apaga rejeição 535, XML, identificação, data ou tent
     assert.equal(stored.history[1].action, 'consultation');
   } finally { global.fetch = previous; }
 });
+
+test('Consulta automática 217 após duplicidade preserva retorno original da emissão e não retransmite', async () => {
+  const previous = global.fetch;
+  const issued = [];
+  global.fetch = async (url, options) => {
+    const endpoint = new URL(url).pathname;
+    if (!['/issue', '/consult'].includes(endpoint)) return previous(url, options);
+    issued.push(endpoint);
+    const result = endpoint === '/issue' ? {status: 'rejected', cStat: 204, xMotivo: 'Duplicidade de NF-e', key: 'test-key', signedXml: '<NFe/>'}
+      : {status: 'rejected', cStat: 217, xMotivo: 'NF-e não consta na base de dados da SEFAZ'};
+    return {ok: true, status: 200, text: async () => JSON.stringify(result)};
+  };
+  try {
+    const saved = await call('fiscalSaveDraft', {model: 55, manualInvoice: form()});
+    const result = await call('fiscalIssueDraft', {draftId: saved.draftId, model: 55});
+    assert.equal(result.cStat, 204);
+    assert.match(result.xMotivo, /Duplicidade/);
+    const stored = records.get(`lojas/${storeId}/invoices/${saved.draftId}`);
+    assert.equal(stored.lastConsultation.cStat, 217);
+    assert.equal(stored.issuanceRejection.cStat, 204);
+    assert.equal(stored.history.at(-1).action, 'consultation');
+    assert.deepEqual(issued, ['/issue', '/consult']);
+  } finally { global.fetch = previous; }
+});
