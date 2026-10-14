@@ -1218,7 +1218,10 @@ const createFiscalFunctions = ({
     const manualInputErrors = [];
     if (selectedOperationCfop.length !== 4) manualInputErrors.push('Documento: selecione CFOP válido com 4 dígitos.');
     for (const field of ['freight', 'insurance', 'other']) {
-      if (!Number.isFinite(Number(manualInvoice[field] || 0)) || Number(manualInvoice[field] || 0) < 0) manualInputErrors.push(`Totais: ${field === 'freight' ? 'frete' : field === 'insurance' ? 'seguro' : 'outras despesas'} inválido.`);
+      const value = manualInvoice[field] ?? 0;
+      if (!['number', 'string'].includes(typeof value) || !Number.isFinite(Number(value)) || Number(value) < 0) {
+        manualInputErrors.push(`Totais: ${field === 'freight' ? 'frete' : field === 'insurance' ? 'seguro' : 'outras despesas'} inválido.`);
+      }
     }
     const freightMode = String(manualInvoice.freightMode ?? '9');
     if (!['0', '1', '2', '3', '4', '9'].includes(freightMode)) manualInputErrors.push('Transporte: modalidade de frete inválida (0, 1, 2, 3, 4 ou 9).');

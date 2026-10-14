@@ -457,7 +457,7 @@ test('NF-e manual persiste, reabre, altera e rateia frete sem pedido, ignorando 
 });
 
 test('NF-e manual negativa ou modalidade inválida é salva, mas não transmitida', async () => {
-  for (const change of [{freight: -1}, {freight: 'abc'}, {freightMode: '7'}]) {
+  for (const change of [{freight: -1}, {freight: 'abc'}, {freight: false}, {freight: []}, {freight: {}}, {freightMode: '7'}]) {
     const saved = await call('fiscalSaveDraft', {model: 55, manualInvoice: {...form(), ...change}});
     const before = sent.length;
     const result = await call('fiscalCheckDraft', {draftId: saved.draftId});
