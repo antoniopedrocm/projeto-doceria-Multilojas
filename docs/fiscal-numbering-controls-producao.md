@@ -67,7 +67,11 @@ Nenhuma Rule, índice, Storage, arquivo de outro módulo, configuração de ambi
 - Backend: testes automatizados do fluxo com Firestore/provedor em memória, inclusive permissões, dimensões, histórico/539, concorrência, retry, reservas, auditoria atômica e proteção do comprovante.
 - Frontend: testes DOM de edição sem salvar, cancelamento, confirmação de cada modelo, avisos de redução/lacuna, entradas inválidas, permissões, clique duplo e recarga após concorrência/alteração de escopo.
 - Integração real com emulador foi adicionada para transações concorrentes e auditoria, mas não executou neste host: Java 25 e Java 21 temporário verificado por SHA-256 falharam em `UnixDomainSockets.connect0` / `Invalid argument: connect`, antes dos testes. Docker não está disponível. Não houve mudança de configuração do sistema nem substituição por testes de emissão real. Essa limitação é explícita; os testes com mocks passaram.
-- Build/lint/diff e publicação final são registrados após execução.
+- **55 testes fiscais aprovados** (incluindo helpers e fluxo com mocks).
+- **25 suítes / 286 testes frontend aprovados**, incluindo 15 testes do novo controle e regressões do fluxo fiscal existente.
+- Lint completo de Functions e lint dos arquivos frontend alterados aprovados. `git diff --check` e revisão do diff/allowlist aprovados.
+- Build recém-gerado da branch: `main.448a4808.js`. Avisos preexistentes de source maps do native-audio e bases Browserslist/Baseline antigas; nenhuma dependência da aplicação atualizada.
+- Antes da publicação, os **25 artefatos fora do bundle principal/index/manifest de assets** foram comparados por SHA-256 com a produção e permaneceram idênticos: cardápios, configuração Firebase, service worker, CSS, imagens, áudios e chunk auxiliar. A base publicada ainda era `main.ee2b1af3.js`.
 
 ## 8. Publicação autorizada
 
@@ -79,3 +83,13 @@ firebase deploy --project ana-guimaraes --only hosting:prod --non-interactive
 ```
 
 Validar depois por integridade do bundle publicado, estado das Functions, rejeição de chamadas não autenticadas e leitura dos contadores/configuração. Não confirmar alteração de número nem emitir nota real para testar.
+
+## 9. Git e validação pós-deploy
+
+- Implementação: commit **1c36ce68**, enviado para `origin/codex/fiscal-numbering-controls-producao`.
+- Os dois deploys acima concluíram com sucesso. As nove Functions selecionadas estão **ACTIVE**, Node.js 22, região `us-central1`.
+- Os domínios `ana-guimaraes.web.app` e `anaguimaraesdoceria.com.br` entregam `main.448a4808.js`. SHA-256 do build e do bundle publicado em ambos: **0508B76D9F86F18B14E9E3B30FC4E59FE6A83FAD463B28B4B0F6C48040D7A6FF**.
+- Chamadas de teste sem autenticação às duas APIs novas retornam **HTTP 401 / UNAUTHENTICATED**, antes de qualquer mutação.
+- Leitura de configuração/contadores após publicação: ambiente fiscal Produção, série 1 dos dois modelos, próximo número NF-e **67**, NFC-e **27**. Não se confirmaram alterações reais para testar; não houve emissão, cancelamento ou inutilização fiscal.
+- A UI foi verificada em testes DOM; não houve teste de sessão autenticada no navegador nem transmissão real. A limitação do emulador Windows permanece registrada na seção 7.
+- Nenhuma Rule, índice, Storage ou revisão do fiscal-service foi publicada. Nenhum módulo DEV foi promovido. O checkout principal com pendências de outros módulos continua intacto.
