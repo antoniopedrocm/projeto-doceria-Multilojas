@@ -528,3 +528,33 @@ test('Consulta automática 217 após duplicidade preserva retorno original da em
     assert.deepEqual(issued, ['/issue', '/consult']);
   } finally { global.fetch = previous; }
 });
+
+test('contador NF-e ajustado para 67 segue até 70 somente na emissão e preserva NFC-e e nota de origem', async () => {
+  seedOriginal('legacy-sequence-reference', 55);
+  const originalPath = `lojas/${storeId}/invoices/legacy-sequence-reference`;
+  write(ref(originalPath), {number: 62}, true);
+  const original = JSON.stringify(records.get(originalPath));
+  const counterPath = `lojas/${storeId}/fiscalCounters/homologation_55_1`;
+  const nfcePath = `lojas/${storeId}/fiscalCounters/homologation_65_2`;
+  const nfceBefore = JSON.stringify(records.get(nfcePath));
+  write(ref(counterPath), {environment: 'homologation', model: 55, series: 1, nextNumber: 67});
+  for (let number = 67; number <= 70; number++) {
+    const draft = await clone('legacy-sequence-reference', `sequence-confirmation-token-${number}`);
+    assert.equal(draft.number, null);
+    assert.equal(records.get(counterPath).nextNumber, number);
+    assert.equal((await call('fiscalCheckDraft', {draftId: draft.draftId})).ok, true);
+    assert.equal(records.get(counterPath).nextNumber, number);
+    const before = sent.filter((entry) => entry.path === '/issue').length;
+    await call('fiscalIssueDraft', {draftId: draft.draftId, model: 55});
+    const issued = records.get(`lojas/${storeId}/invoices/${draft.draftId}`);
+    assert.equal(issued.number, number);
+    assert.equal(issued.model, 55);
+    assert.equal(records.get(counterPath).nextNumber, number + 1);
+    assert.equal(sent.filter((entry) => entry.path === '/issue').at(-1).body.invoice.number, number);
+    await call('fiscalIssueDraft', {draftId: draft.draftId, model: 55});
+    assert.equal(sent.filter((entry) => entry.path === '/issue').length, before + 1);
+    assert.equal(records.get(counterPath).nextNumber, number + 1);
+  }
+  assert.equal(JSON.stringify(records.get(nfcePath)), nfceBefore);
+  assert.equal(JSON.stringify(records.get(originalPath)), original);
+});
