@@ -17,3 +17,8 @@ Origem funcional: worktree DEV `infinitepay-auth-worktree`, branch `feature/infi
 Indicadores formais preservados: **Fase 9 100%; Fase 10 87,50%; global 97,00%; Fase 13 0%.** C15/C16 não foram fechados por testes simulados.
 
 Próximo passo: completar validação fiscal/nativa e revisão do candidato; não repetir migração, vínculos, SMS ou testes financeiros reais. Seguir os gates de produção documentados. Nenhum push/deploy PROD, alteração de credenciais, dados reais, usuário, cobrança, SMS ou WhatsApp foi executado. Publicação exige autorização explícita posterior; predeploy bloqueado localmente.
+
+
+## Complemento — modal checkout responsivo, 08/11/2026
+
+Patch UI DEV `9d208090`, evidência final `2a1dbafe`, integrado nesta branch local sem substituir configurações ou scripts originais de negócio. [Checkpoint específico](CHECKPOINT_CHECKOUT_RESPONSIVE.md). Cabeçalho/conteúdo rolável/rodapé próprios em visitante e autenticado/celular; VisualViewport, safe area, teclado/foco e botão acessível. **73/73 regressões, 39/39 cenários Chrome, build local, lint e diff-check PASS**. Assets UI idênticos ao DEV e ao build; configurações/deploy guards preservados. DEV Hosting publicado e 61/61 hashes conferidos. Sem push/deploy PROD, dados reais, cobrança, SMS ou WhatsApp. Falta homologação física Safari/iPhone/Android e zoom nativo. Os gates fiscal/nativo anteriores continuam pendentes. Preparação local 90%; global formal97,00%; Fase9 100%; Fase10 87,50%; Fase13 0%, sem inflação por esta correção.
