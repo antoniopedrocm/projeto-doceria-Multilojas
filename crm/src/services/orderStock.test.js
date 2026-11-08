@@ -84,16 +84,19 @@ test.each([
   [[item('morango', 2)], 2, 0],
   [[item('morango', 1), item('morango', 1)], 2, 0],
   [[item('morango', 3)], 10, 7]
-])('checkout persiste quantidade exata inclusive linhas repetidas', async (itens, initial, expected) => {
+])('checkout preserva quantidade e rejeita linhas repetidas antes de movimentar estoque', async (itens, initial, expected) => {
   const source = fs.readFileSync(path.join(__dirname, '../../../functions/index.js'), 'utf8');
-  const start = source.indexOf('      const stockUpdates = new Map();');
+  const start = source.indexOf('      const seenProducts=new Set();');
   const end = source.indexOf('      const subtotalFinal', start);
   const execute = new Function('itens', 'transaction', 'db', 'lojaId', 'createHttpError',
     `return (async () => { ${source.slice(start, end)}; return stockUpdates; })();`);
   const db = { collection: () => ({ doc: () => ({ collection: () => ({ doc: id => ({ id }) }) }) }) };
   const transaction = { get: async () => ({ exists: true, data: () => ({ estoque: initial, preco: 0, status: 'Ativo' }) }) };
-  const updates = await execute(itens, transaction, db, 'loja-1', (_code, message) => new Error(message));
-  expect(updates.size).toBe(1);
-  expect(updates.get('morango').newStock).toBe(expected);
-  expect(updates.get('morango').quantity).toBe(initial - expected);
+  const operation=execute(itens, transaction, db, 'loja-1', (_code, message) => new Error(message));
+  // eslint-disable-next-line jest/no-conditional-expect -- Parameterized negative case must reject before stock writes.
+  if(itens.length>1){await expect(operation).rejects.toThrow('Item de pedido inválido');return;}
+  const updates=await operation;
+  expect(updates.length).toBe(1);
+  expect(updates[0].newStock).toBe(expected);
+  expect(updates[0].quantity).toBe(initial - expected);
 });

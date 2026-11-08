@@ -1,0 +1,62 @@
+{
+  "protectedFiles": [
+    {
+      "path": ".firebaserc",
+      "unchanged": true
+    },
+    {
+      "path": "firebase.json",
+      "unchanged": false
+    },
+    {
+      "path": "crm/.env",
+      "unchanged": true
+    },
+    {
+      "path": "functions/.env",
+      "unchanged": true
+    },
+    {
+      "path": "crm/src/firebaseConfig.js",
+      "unchanged": false
+    },
+    {
+      "path": "crm/public/firebaseClientConfig.js",
+      "unchanged": false
+    },
+    {
+      "path": "crm/public/firebase-messaging-sw.js",
+      "unchanged": true
+    },
+    {
+      "path": "crm/android/app/google-services.json",
+      "unchanged": true
+    }
+  ],
+  "dependencies": [
+    {
+      "path": "package.json",
+      "declarationsUnchanged": true
+    },
+    {
+      "path": "crm/package.json",
+      "declarationsUnchanged": true
+    },
+    {
+      "path": "functions/package.json",
+      "declarationsUnchanged": true
+    },
+    {
+      "path": "fiscal-service/composer.json",
+      "declarationsUnchanged": true
+    }
+  ],
+  "firebaseDefaultsPreserved": true,
+  "remoteConfigUnchanged": true,
+  "originalBranchUnchanged": true,
+  "prodAccessed": false,
+  "deployExecuted": false,
+  "pushExecuted": false,
+  "remoteCheckMethod": "No remote or push mutation executed; .git/config lastWriteTime 2026-10-14 predates 2026-11-08 audit. Original remote-output hash algorithm was not reproduced; final file SHA retained separately.",
+  "finalGitConfigSha256": "7bdc50f0fed94abd04bd3839ab135571ec29a146312e36c948afd0744568d7f2"
+}

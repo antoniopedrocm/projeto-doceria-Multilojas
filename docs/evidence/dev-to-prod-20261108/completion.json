@@ -1,0 +1,78 @@
+{
+  "scope": "LOCAL PRODUCTION PREPARATION ONLY",
+  "workspace": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja",
+  "branch": "codex/dev-to-prod-preparation-20261108",
+  "initialProductionHead": "662de0c28b7a0283d9dd22826560cf1e76d9c763",
+  "preservationCommit": "fecaee91",
+  "functionalSource": "c2a387e4df994e7dea6f5390f1068e9cbe4c9622",
+  "documentationSource": "65974d509cc5d0175563935f90ce113b16a03139",
+  "localChecklist": {
+    "passed": 9,
+    "total": 10,
+    "percent": 90
+  },
+  "formalProgress": {
+    "phase9": 100,
+    "phase10": 87.5,
+    "global": 97,
+    "phase13": 0
+  },
+  "tests": {
+    "react": {
+      "suites": 61,
+      "passed": 618,
+      "failed": 0
+    },
+    "node": {
+      "files": 130,
+      "passed": 1069,
+      "failed": 0,
+      "skipped": 0
+    },
+    "php": {
+      "payloadChecks": 12,
+      "syntaxFiles": 12
+    }
+  },
+  "build": {
+    "status": "PASS",
+    "artifacts": 59,
+    "devUrls": 0
+  },
+  "lint": {
+    "frontend": {
+      "files": 161,
+      "errors": 0,
+      "warnings": 87
+    },
+    "backend": {
+      "files": 163,
+      "errors": 0,
+      "warnings": 0
+    }
+  },
+  "blocked": [
+    "Exact fiscal runtime/NFePHP dependencies, XML/DANFE test and Docker build",
+    "Android offline plugins unavailable; no instrumented device test"
+  ],
+  "releaseGatesPending": [
+    "Production configuration and data-compatibility audit",
+    "Human diff/Rules review and authenticated candidate acceptance",
+    "Formal Phase10 C15/C16 acceptance",
+    "Owner explicit production deployment authorization"
+  ],
+  "pixOnlyGuestImplemented": false,
+  "guestAgreedLaterPreserved": true,
+  "pushExecuted": false,
+  "deployExecuted": false,
+  "remoteDataModified": false,
+  "realPayments": 0,
+  "realSms": 0,
+  "realWhatsApp": 0,
+  "fileChanges": {
+    "M": 47,
+    "A": 328
+  },
+  "dependencyValidation": "CRM/Functions npm ls --depth=0 --offline: zero issues",
+  "diffCheck": "PASS"
+}

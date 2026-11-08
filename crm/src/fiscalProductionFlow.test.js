@@ -17,7 +17,7 @@ visit(ast);
 const setup = (name, overrides = {}) => {
   const code = functionsByName.get(name);
   const calls = [];
-  const context = {isReadOnly: false, busyOrderId: '', effectiveStoreId: 'loja-a', functions: {}, modelOverride: '55', operationCfop: '5101',
+  const context = {fiscalPaymentByOrder:{},requiresManualFiscalPayment:()=>false,isReadOnly: false, busyOrderId: '', effectiveStoreId: 'loja-a', functions: {}, modelOverride: '55', operationCfop: '5101',
     findOrderDraft, validateFiscalOrder, invoices: [], getPreInvoiceLockedReason: () => '',
     invoicesByOrderId: new Map(), callablePayload: (payload) => ({lojaId: 'loja-a', ...payload}),
     httpsCallable: (_, callable) => async (payload) => {

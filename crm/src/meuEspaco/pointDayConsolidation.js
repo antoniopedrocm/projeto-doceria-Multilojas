@@ -22,6 +22,7 @@ const getTimestampMillis = (value) => {
   const parsed = value instanceof Date ? value : new Date(value);
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 };
+
 const getRecordOrder = (record = {}, index = 0) => Math.max(
   getTimestampMillis(record.updatedAt),
   getTimestampMillis(record.atualizadoEm),

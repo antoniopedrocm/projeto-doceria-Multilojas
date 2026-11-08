@@ -1,4 +1,8 @@
-import { calculatePointDayCore } from './pointCalculationCore';
+import {
+  applyPointJourneyTimeCorrection,
+  buildPointWorkPeriodsFromEvents,
+  calculatePointDayCore
+} from './pointCalculationCore';
 import { consolidatePointDayRecords, groupPointRecordsByDay } from './pointDayConsolidation';
 import { buildPointPresentationRows } from './pointPresentation';
 
@@ -27,6 +31,7 @@ const workRecord = (id, horaEntrada, horaSaida, extra = {}) => ({
   horaSaida,
   ...extra
 });
+
 const supplementalRecord = (id, period) => ({
   ...base,
   id,

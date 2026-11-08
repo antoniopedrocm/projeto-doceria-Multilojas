@@ -1,0 +1,1511 @@
+{
+  "baseline": "fecaee91",
+  "files": [
+    {
+      "status": "M",
+      "path": "crm/package.json"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/address-management.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/address-verification-firebase.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/canonical-auth.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/canonical-session.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/public/cardapio-festa.html"
+    },
+    {
+      "status": "M",
+      "path": "crm/public/cardapio-garavelo.html"
+    },
+    {
+      "status": "M",
+      "path": "crm/public/cardapio-matriz.html"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/cardapio.html"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/checkout-addresses.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/checkout-environment.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/checkout-identity.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/checkout-payment-choice.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/checkout-payment-client.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-account-core.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-account.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-area.css"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-area.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-auth-errors.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-home.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-orders-view.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-phone-claim.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-profile.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-reorder-view.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/customer-session.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/public/firebaseClientConfig.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/fulfillment-availability.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/guest-payment-attempt.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/public/index.html"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/legacy-address-save.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/payment-return.html"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/payment-return.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/reorder-cart.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/sms-enterprise.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/staff-push-cleanup.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/store-availability.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/store-links.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/public/store-public-config.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/App.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/canonicalAuth.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/clientEditHandlers.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalInvoiceHistory.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalInvoiceHistory.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalNumberingControls.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalNumberingControls.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalOrderPaymentField.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/FiscalOrderPaymentField.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/PaymentReconciliation.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/PaymentReconciliation.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/WhatsAppOrderStatus.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/WhatsAppOrderStatus.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/components/financeiro/useFinancialComparison.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/financeiro/useFinancialComparison.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/food99/Food99Hub.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/food99/food99UiCore.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/food99/food99UiCore.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/fornecedores/ProducaoVitrine.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/components/fornecedores/ReceitasModal.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/ifood/IfoodHub.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/components/notifications/NotificationsBell.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderAdminHistory.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderAdminHistory.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderPaymentStatus.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderPaymentStatus.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderStatusBadge.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/OrderStatusBadge.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/components/orders/SearchableClientSelect.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/components/orders/SearchableClientSelect.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/crmReconciliation.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/AdminCustomerPreview.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/AdminCustomerPreview.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/ApplicationGate.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/ApplicationGate.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/CustomerFrame.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/CustomerLogout.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/CustomerShell.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/CustomerShell.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/LegacyCustomerShell.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/LegacyCustomerShell.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/LegacyPhoneAccess.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/adminCustomerPreview.css"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/adminPreviewAccess.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerAccount.css"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerContext.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerLogin.css"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerRuntime.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerRuntimePhoneLogout.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/customerShell.css"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/legacyPhoneSession.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/staffRole.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/staffUiState.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/userCapabilities.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/customer/userCapabilities.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/firebaseConfig.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/firebaseMessagingInit.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/firebaseRuntime.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/firebaseRuntime.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/fiscalEmitHandlers.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/fiscalOrderActions.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/fiscalOrderActions.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/fiscalProductionFlow.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/fiscalQueueEligibility.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/index.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointCalculationCore.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointCalculationCore.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointDayConsolidation.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointDayConsolidation.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointHourly.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/meuEspaco/pointPresentation.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/orderFinancialRecognition.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/orderFinancialRecognition.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/payments/InfinitePaySettings.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/payments/InfinitePaySettings.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/performance/storeBootstrapPerf.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/performance/storeBootstrapPerf.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/services/orderStock.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/services/producaoVitrineService.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/ApplicationEntry.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/ApplicationEntry.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/CrmHome.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/StorefrontLinks.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/StorefrontLinks.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/storefront/storeRoutes.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/FulfillmentSettings.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/FulfillmentSettings.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreManagementModal.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreManagementModal.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreManagementSettings.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreManagementSettings.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreSelector.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/StoreSelector.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/staffDirectory.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/staffDirectory.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/storeRequests.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/storeRequests.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/useStaffSection.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/stores/useStaffSection.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/adminOrderEdit.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/adminOrderEdit.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/clientApi.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/clientApi.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/fiscalMoney.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/fiscalMoney.test.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/utils/notifications.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/notifications.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/onlineOrderStatus.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/utils/orderFreight.js"
+    },
+    {
+      "status": "M",
+      "path": "crm/src/utils/orderFreight.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/orderStatus.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/rideService.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/src/utils/rideService.test.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/address-management.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/auth-persistence-browser.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/canonical-auth.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/cart-hydration.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-addresses.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-completion.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-freight-refresh.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-freight-visual-review.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-identity.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/checkout-payment-choice.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-account-entry.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-account-styles.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-auth-errors.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-first-registration-return.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-inline-login.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-phone-claim.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-return-path.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/customer-visual-review.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fiscal-eligibility-audit.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fixtures/auth-persistence-browser-entry.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fixtures/customer-visual-entry.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fixtures/customer-visual-runtime.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fixtures/legacy-customer-visual-entry.js"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/friendly-menu-routes.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/fulfillment-availability.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/full-order-edit-form.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/guest-checkout-payment.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/guest-checkout-visual-review.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/guest-payment-attempt.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/helpers/order-edit-modal.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/hosting-cache.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/legacy-address-save.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/legacy-address-trust.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/menu-header-review.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/online-order-status-handler.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/online-order-status.test.mjs"
+    },
+    {
+      "status": "M",
+      "path": "crm/tests/order-details-total.test.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/payment-choice-visual-review.cjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/public-auth-esm.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/sms-enterprise.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/staff-push-cross-tab.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/store-availability.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "crm/tests/storefront.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "docs/CHECKPOINT_DEV_TO_PROD_LOCAL.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/DEV_TO_PROD_MIGRATION_CHECKLIST.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/android-tests.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/audit.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/backend-lint.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/build-manifest.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/completion.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/conflict-decisions.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/crm-tests.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/dependency-validation.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/environment-adaptations.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/environment-scan.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/lint-summary.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/local-tests.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/migration-files.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/php-tests.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/preservation-checks.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/production-only-preservation.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/promotion-files.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/evidence/dev-to-prod-20261108/source-commits.json"
+    },
+    {
+      "status": "A",
+      "path": "firebase.checkout-local.json"
+    },
+    {
+      "status": "M",
+      "path": "firebase.json"
+    },
+    {
+      "status": "M",
+      "path": "firestore.indexes.json"
+    },
+    {
+      "status": "M",
+      "path": "firestore.rules"
+    },
+    {
+      "status": "M",
+      "path": "fiscal-service/Dockerfile"
+    },
+    {
+      "status": "A",
+      "path": "fiscal-service/src/Service/ItemCharges.php"
+    },
+    {
+      "status": "M",
+      "path": "fiscal-service/src/Service/NFe/InvoiceXmlBuilder.php"
+    },
+    {
+      "status": "M",
+      "path": "fiscal-service/src/Service/PayloadValidator.php"
+    },
+    {
+      "status": "A",
+      "path": "fiscal-service/tests/FreightXmlTest.php"
+    },
+    {
+      "status": "M",
+      "path": "fiscal-service/tests/PayloadValidatorTest.php"
+    },
+    {
+      "status": "A",
+      "path": "functions/address-verification-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/address-verification-provider.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/address-verification-provider.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/address-verification.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-customer-preview-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-customer-preview.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-customer-preview.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-order-audit-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-order-edit.integration.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-order-edit.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/admin-order-total.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/agreed-payment-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/canonical-session.test.mjs"
+    },
+    {
+      "status": "A",
+      "path": "functions/catalog-session.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-addresses-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-addresses.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-addresses.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-auth.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-auth.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-http.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-identity-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-identity.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-notification.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-payment-access.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-payment-access.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-payment.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-payment.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-reservation-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-reservation.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/checkout-reservation.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/crm-client-edit.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/crm-client-edit.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-area.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-canonical-history-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-cors.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-legacy-compat.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-legacy.test-fixture.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-migration-driver-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-migration-plan.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-migration-writes.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-migration-writes.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-orders-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-orders.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-orders.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-ownership.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-phone-claim-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-phone-claim.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-phone.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-phone.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-profile-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-profile-security.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-profile.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-registry-api-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-registry-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-registry-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-registry.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-registry.test-fixture.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-reorder-view.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-reorder.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-reorder.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-session.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/customer-shell-emulator.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/fiscal-clone.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/fiscal-flow.integration.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/fiscal-flow.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fiscal-money.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fiscal-money.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/fiscal-ncm-options.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fiscal-numbering.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fiscal-numbering.rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fiscal-numbering.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/fiscal.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/fixtures/hosting-before.json"
+    },
+    {
+      "status": "A",
+      "path": "functions/fixtures/preprod-boundary-before.rules"
+    },
+    {
+      "status": "A",
+      "path": "functions/fixtures/staff-push-dev-contract.rules"
+    },
+    {
+      "status": "A",
+      "path": "functions/fixtures/stores-v1.cjs"
+    },
+    {
+      "status": "M",
+      "path": "functions/freight-checkout.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/freight-core.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/freight-distance.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/freight-distance.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/freight-pages.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/guest-checkout-emulator.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/index.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/infinitepay-diagnostics.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/infinitepay-diagnostics.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/legacy-customer-session-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/legacy-customer-session.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/legacy-phone-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/online-order-status-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/order-payment-method.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/order-payment-method.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/package.json"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-contract-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-financial-events-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-financial-events.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-prefill.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-prefill.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-return-auth.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-return-auth.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-settings-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-settings.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-signal-policy.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-signal-policy.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-verification.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-verification.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/payment-webhook-payload.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/phone-payment-http.test.js"
+    },
+    {
+      "status": "M",
+      "path": "functions/point-hourly.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/preprod-store-boundary-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/production-migration-compat.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/recaptcha-enterprise.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/recaptcha-enterprise.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/staff-push-logout-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-config-emulator.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-config.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-config.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-directory.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-fulfillment-admin.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-fulfillment-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-fulfillment.integration.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-management-rules.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-management.integration.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-management.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/store-owner-policy.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-access.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-admin.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-admin.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-checkout.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-checkout.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-client.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-config.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-history.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-history.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-order-summary.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-order-summary.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-test-support.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-webhook.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-webhook.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-worker.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp-worker.test.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp.js"
+    },
+    {
+      "status": "A",
+      "path": "functions/whatsapp.test.js"
+    },
+    {
+      "status": "M",
+      "path": "package.json"
+    },
+    {
+      "status": "A",
+      "path": "scripts/block-production-deploy.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/check-production-preparation.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/migration-local-tests.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/migration-test-network-guard.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/sync-canonical-auth.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/sync-fiscal-money.cjs"
+    },
+    {
+      "status": "A",
+      "path": "scripts/test-support/customer-phone-migrate-fixture.cjs"
+    }
+  ],
+  "counts": {
+    "M": 47,
+    "A": 328
+  },
+  "productionOnly": "All 27 retained; 23 unchanged, four test files adapted. See production-only-preservation.json.",
+  "manifestIncludesItsOwnPath": true
+}

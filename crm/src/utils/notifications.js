@@ -1,11 +1,14 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { getToken, onMessage } from 'firebase/messaging';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { db, messagingPromise, VAPID_KEY } from '../firebaseConfig.js';
+import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db, messagingPromise, VAPID_KEY } from '../firebaseConfig.js';
 import { claimOrderAlert } from './orderAlertDeduper.js';
 
 const isBrowser = typeof window !== 'undefined';
 const OrderPush = registerPlugin('OrderPush');
+const registrationFlights = new Map();
+let webTokenFlight = null;
+const pushCleanupModule = () => import(/* webpackIgnore: true */ '/staff-push-cleanup.mjs?v=20261015-fcm-delete');
 
 export const PUSH_PERMISSION_STATUS = Object.freeze({
   GRANTED: 'granted',
@@ -64,22 +67,60 @@ async function ensureServiceWorkerRegistration() {
   }
 
   const registrations = await navigator.serviceWorker.getRegistrations();
+  const scriptURL = new URL('/firebase-messaging-sw.js', window.location.origin).href;
+  // Functions also obtains a Messaging token implicitly with the SDK's default
+  // scope. Use that same subscription; choosing the page's root worker would
+  // make the two paths replace each other's cached token on reload.
+  const scope = new URL('/firebase-cloud-messaging-push-scope', window.location.origin).href;
   const existing = registrations.find((registration) => {
-    const scriptURL =
+    const workerURL =
       registration.active?.scriptURL ||
       registration.installing?.scriptURL ||
       registration.waiting?.scriptURL;
-    return scriptURL?.includes('firebase-messaging-sw.js');
+    return registration.scope === scope && workerURL === scriptURL;
   });
 
-  if (existing?.active) return existing;
-  if (existing) {
-    await navigator.serviceWorker.ready;
-    return existing;
+  const registration = existing || await navigator.serviceWorker.register(scriptURL, { scope });
+  const worker = registration.active || registration.installing || registration.waiting;
+  if (!worker) throw new Error('O worker de notificações não está disponível.');
+  if (worker.state !== 'activated') {
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        worker.removeEventListener('statechange', onStateChange);
+        if (error) reject(error); else resolve();
+      };
+      const onStateChange = () => {
+        if (worker.state === 'activated') finish();
+        else if (worker.state === 'redundant') finish(new Error('O worker de notificações foi substituído.'));
+      };
+      const timer = setTimeout(() => finish(new Error('O worker de notificações não iniciou.')), 10000);
+      worker.addEventListener('statechange', onStateChange);
+      onStateChange();
+    });
   }
+  if (registration.active?.scriptURL !== scriptURL) {
+    throw new Error('O worker de notificações ativo não corresponde à aplicação.');
+  }
+  return registration;
+}
 
-  await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-  return navigator.serviceWorker.ready;
+function getStaffWebToken(messaging) {
+  if (!webTokenFlight) {
+    webTokenFlight = (async () => {
+      // Auth and Messaging are created from the same app in firebaseConfig.
+      // Messaging has no public .app property in this SDK version.
+      if (auth.app?.options?.projectId !== 'ana-guimaraes') {
+        throw new Error('Notificações vinculadas ao projeto Firebase incorreto.');
+      }
+      const registration = await ensureServiceWorkerRegistration();
+      const tokenOptions = { serviceWorkerRegistration: registration };
+      if (VAPID_KEY) tokenOptions.vapidKey = VAPID_KEY;
+      else console.warn('[notifications] Chave VAPID própria ausente; usando a chave padrão do FCM quando suportada.');
+      return getToken(messaging, tokenOptions);
+    })().finally(() => { webTokenFlight = null; });
+  }
+  return webTokenFlight;
 }
 
 async function requestPushPermissionIfNeeded({ requestPermission }) {
@@ -103,57 +144,68 @@ async function requestPushPermissionIfNeeded({ requestPermission }) {
   return normalizePermissionStatus(result);
 }
 
-export async function registerDeviceForPush(uid, { requestPermission = false } = {}) {
-  if (!isBrowser || !uid) return null;
+export function registerDeviceForPush(uid, options = {}) {
+  if (registrationFlights.has(uid)) return registrationFlights.get(uid);
+  const flight = registerStaffDevice(uid, options).finally(() => {
+    if (registrationFlights.get(uid) === flight) registrationFlights.delete(uid);
+  });
+  registrationFlights.set(uid, flight);
+  return flight;
+}
 
+async function registerStaffDevice(uid, { requestPermission = false } = {}) {
+  if (!isBrowser || !uid) return null;
+  if (auth.currentUser?.uid !== uid) return null;
+
+  // Keep permission requests in the original click chain, before loading code.
   const permissionStatus = await requestPushPermissionIfNeeded({ requestPermission });
-  if (permissionStatus !== PUSH_PERMISSION_STATUS.GRANTED) {
+  if (permissionStatus !== PUSH_PERMISSION_STATUS.GRANTED || auth.currentUser?.uid !== uid) return null;
+  const {staffPushRegistrationAllowed, withStaffPushLock} = await pushCleanupModule();
+  if (!staffPushRegistrationAllowed(auth.currentUser)) return null;
+  // Browser writes and logout deletes share an origin-wide lock. Without it,
+  // keep in-app alerts rather than issuing an uncoordinated new web association.
+  if (!isNativeAndroidPushRuntime() && !navigator.locks?.request) {
+    console.warn('[Auth] Push registration unavailable: coordination-unavailable');
     return null;
   }
 
   try {
-    let token = null;
-    let platform = 'web';
+    return await withStaffPushLock(async () => {
+      if (auth.currentUser?.uid !== uid || !staffPushRegistrationAllowed(auth.currentUser)) return null;
+      let token = null;
+      let platform = 'web';
 
-    if (isNativeAndroidPushRuntime()) {
-      const result = await OrderPush.getToken();
-      token = String(result?.token || '').trim();
-      platform = 'android';
-    } else {
-      const messaging = await messagingPromise;
-      if (!messaging) return null;
-
-      const registration = await ensureServiceWorkerRegistration();
-      const tokenOptions = { serviceWorkerRegistration: registration };
-      if (VAPID_KEY) {
-        tokenOptions.vapidKey = VAPID_KEY;
+      if (isNativeAndroidPushRuntime()) {
+        const result = await OrderPush.getToken();
+        token = String(result?.token || '').trim();
+        platform = 'android';
       } else {
-        console.warn('[notifications] Chave VAPID própria ausente; usando a chave padrão do FCM quando suportada.');
+        const messaging = await messagingPromise;
+        if (!messaging) return null;
+        token = await getStaffWebToken(messaging);
       }
-      token = await getToken(messaging, tokenOptions);
-    }
 
-    if (!token) {
-      console.warn('Não foi possível obter o token de push.');
-      return null;
-    }
+      if (!token) {
+        console.warn('Não foi possível obter o token de push.');
+        return null;
+      }
+      if (auth.currentUser?.uid !== uid || !staffPushRegistrationAllowed(auth.currentUser)) return null;
+      await setDoc(
+        doc(db, 'notificationTokens', token),
+        {
+          uid,
+          platform,
+          devicePlatform: navigator.platform || platform,
+          userAgent: navigator.userAgent || '',
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-    await setDoc(
-      doc(db, 'notificationTokens', token),
-      {
-        uid,
-        platform,
-        devicePlatform: navigator.platform || platform,
-        userAgent: navigator.userAgent || '',
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    if (platform === 'android') {
-      window.__anaAndroidPushTokenSync = token;
-    }
-    return token;
+      try { sessionStorage.setItem('doceria-staff-push-device', JSON.stringify({uid,token})); } catch {}
+      if (platform === 'android') window.__anaAndroidPushTokenSync = token;
+      return token;
+    });
   } catch (error) {
     const errorCode = error?.code || '';
     const errorMessage = String(error?.message || '');
@@ -170,6 +222,26 @@ export async function registerDeviceForPush(uid, { requestPermission = false } =
     console.error('Falha ao registrar notificações push:', error);
     throw error;
   }
+}
+
+export async function unregisterDeviceForPush(uid, fallbackToken = null, signal) {
+  if (!uid || auth.currentUser?.uid !== uid || signal?.aborted) return 'uid-changed';
+  const {cleanupStaffDevice, existingBrowserPushToken, removeStaffTokenAssociation} = await pushCleanupModule();
+  return cleanupStaffDevice({auth, uid, fallbackToken, signal,
+    pendingRegistration: registrationFlights.get(uid),
+    warn: code => console.warn('[Auth] Push cleanup incomplete:', code),
+    resolveToken: async () => {
+      if (isNativeAndroidPushRuntime()) {
+        if (await getPushPermissionStatus() !== PUSH_PERMISSION_STATUS.GRANTED) return null;
+        return String((await OrderPush.getToken())?.token || '').trim() || null;
+      }
+      return existingBrowserPushToken({app: auth.app, isCurrent: () => !signal?.aborted && auth.currentUser?.uid === uid, loadMessaging: async () => {
+        const instance = await messagingPromise;
+        return instance ? {instance, getToken} : null;
+      }});
+    },
+    removeAssociation: (token, current) => removeStaffTokenAssociation({db, token, current, doc, deleteDoc}),
+  });
 }
 
 export async function listenForForegroundMessages(callback) {

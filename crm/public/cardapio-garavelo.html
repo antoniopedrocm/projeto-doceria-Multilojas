@@ -304,6 +304,22 @@
 				scroll-padding-top: 140px !important;
 			}
 		}
+
+        /* Shared menu header: brand at left, account/cart together at right. */
+        .menu-header-row { gap: 12px; }
+        .menu-header-brand { min-width: 0; flex-shrink: 1; }
+        .menu-header-row #customer-account-button { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+        .menu-header-row #cart-button { flex-shrink: 0; }
+        @media (min-width: 769px) {
+            header .menu-header-row { padding-top: 0; padding-bottom: 0; }
+        }
+        @media (max-width: 768px) {
+            header .menu-header-row { padding: 0; }
+            header .menu-header-brand { flex-direction: column; align-items: flex-start; gap: 3px; }
+            header .menu-header-brand img { width: 120px; height: auto; max-height: 24px !important; }
+            header .menu-header-brand h1 { font-size: 14px !important; line-height: 20px; margin: 0 !important; }
+            .menu-header-row #customer-account-button { padding: 8px 10px; font-size: 13px; }
+        }
 	</style>
 
         <!-- Google Maps API -->
@@ -320,8 +336,8 @@
 <body class="bg-pink-50">
     <!-- CABEÇALHO -->
     <header class="bg-white shadow-md sticky top-0 z-20">
-        <div class="container mx-auto px-3 py-4 flex justify-between items-center">
-            <a href="https://www.anaguimaraesdoceria.com.br" class="flex items-center space-x-4">
+        <div class="menu-header-row container mx-auto px-3 py-4 flex justify-between items-center">
+            <a href="https://www.anaguimaraesdoceria.com.br" class="menu-header-brand flex items-center space-x-4">
                 <img src="/logotipo.png" alt="Logotipo" class="h-10">
                 <h1 class="text-2xl font-bold text-pink-600">Nosso Cardápio</h1>
             </a>
@@ -377,9 +393,17 @@
             <p class="text-gray-600 mb-6">Você pode buscar seu cadastro ou continuar como visitante.</p>
             <div class="space-y-4">
                 <button id="use-phone-button" class="w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-mobile-screen-button"></i> Usar número de celular
+                    <i class="fa-solid fa-mobile-screen-button"></i> Continuar com celular
                 </button>
-                <button id="continue-guest-button" class="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700 transition-colors">Continuar sem cadastro</button>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="continue-google-button" class="w-full min-w-0 border border-gray-300 bg-white text-gray-800 px-1 sm:px-2 py-3 rounded-lg text-xs sm:text-sm font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-1 sm:gap-2 whitespace-nowrap">
+                        <svg aria-hidden="true" class="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.91h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.32 2.98-7.4Z"/><path fill="#34A853" d="M12 22c2.7 0 4.98-.9 6.63-2.37l-3.24-2.54c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.11-1.32.31-1.92V7.46H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.54l3.35-2.62Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.51 3.83 1.5l2.87-2.87A9.62 9.62 0 0 0 12 2a10 10 0 0 0-8.96 5.46l3.35 2.62C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
+                        <span>Entrar com Google</span>
+                    </button>
+                    <button id="continue-email-button" class="w-full min-w-0 border border-pink-600 bg-pink-600 text-white px-1 sm:px-2 py-3 rounded-lg text-xs sm:text-sm font-bold hover:bg-pink-700 transition-colors flex items-center justify-center whitespace-nowrap">Entrar com e-mail</button>
+                </div>
+                <div class="flex items-center gap-3 text-gray-500"><hr class="flex-1">ou<hr class="flex-1"></div>
+                <button id="continue-guest-button" class="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700 transition-colors">Continuar como visitante</button>
                 <button id="close-identification-modal" class="text-sm text-gray-500 mt-4 hover:underline">Cancelar</button>
             </div>
         </div>
@@ -439,12 +463,12 @@
 	<!-- Modal de Gerenciamento de Endereço -->
 	<div id="address-management-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-40">
 		<div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col">
-			<div class="p-6 border-b bg-white flex justify-between items-center">
-                <div>
+			<div class="p-6 border-b bg-white flex flex-wrap gap-3 justify-between items-center">
+                <div class="min-w-0 break-words">
                     <h2 class="text-2xl font-bold text-pink-600">Seus Endereços</h2>
                     <p class="text-gray-600 mt-1">Olá, <strong id="confirm-customer-name"></strong>!</p>
                 </div>
-                <button id="edit-profile-btn" class="bg-blue-500 text-white py-2 px-4 rounded-lg font-bold hover:bg-blue-600 text-sm flex items-center gap-2">
+                <button id="edit-profile-btn" class="bg-blue-500 text-white py-2 px-4 rounded-lg font-bold hover:bg-blue-600 text-sm flex shrink-0 items-center gap-2">
                     <i class="fa-solid fa-user-pen"></i> Editar Perfil
                 </button>
             </div>
@@ -573,7 +597,7 @@
                     <div class="flex justify-between text-lg font-bold border-t pt-2 mt-2"><span>Total a pagar:</span><span id="payment-total" class="text-pink-600">R$ 0,00</span></div>
                 </div>
                 <p class="text-gray-600 mb-4">Selecione como você prefere pagar.</p>
-                <select id="payment-method-select" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
+                <select id="payment-method-select" aria-label="Forma de pagamento" aria-describedby="payment-choice-help" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
                     <option value="" disabled selected>Escolha uma opção...</option>
                     <option value="Cartão de Crédito">Cartão de Crédito</option>
                     <option value="Cartão de Débito">Cartão de Débito</option>
@@ -581,7 +605,13 @@
                     <option value="Pix">Pix</option>
                     <option value="Link de Pagamento">Link de Pagamento</option>
                 </select>
+                <p id="payment-choice-help" hidden class="text-sm text-gray-600 mt-3" aria-live="polite"></p>
                 <p id="payment-error" class="text-red-500 text-sm mt-2 hidden"></p>
+                <label class="flex items-start gap-2 mt-4 text-sm text-gray-700">
+                    <input id="platform-whatsapp-consent" type="checkbox" autocomplete="off" class="mt-1" aria-describedby="platform-whatsapp-consent-help">
+                    <span>Quero receber a confirmação e o resumo deste pedido pelo WhatsApp da Ana Guimarães Doceria.</span>
+                </label>
+                <p id="platform-whatsapp-consent-help" class="text-xs text-gray-600 mt-2">Opcional, somente para este pedido, sem promoções. Você pode concluir a compra sem marcar esta opção. Use um telefone brasileiro com DDD.</p>
             </div>
             <div class="p-6 border-t">
                 <button id="confirm-order-button" class="w-full bg-pink-600 text-white py-3 rounded-lg font-bold hover:bg-pink-700 transition-colors">Confirmar Pedido</button>
@@ -600,9 +630,13 @@
                 <!-- Dados Pessoais -->
                 <div>
                     <h3 class="text-lg font-semibold text-gray-800 mb-3">Seus Dados</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                         <input id="guest-name" type="text" placeholder="Seu nome completo *" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
-                        <input id="guest-phone" type="tel" placeholder="Seu telefone (WhatsApp) *" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                        <div>
+                            <label for="guest-phone" class="sr-only">Telefone com DDD</label>
+                            <input id="guest-phone" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="guest-phone-error" placeholder="Seu telefone com DDD *" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500">
+                            <p id="guest-phone-error" class="hidden mt-1 text-sm text-red-600" role="alert"></p>
+                        </div>
                     </div>
                 </div>
 
@@ -691,16 +725,24 @@
                         <div id="guest-shipping-row" class="flex justify-between text-sm"><span>Frete:</span><span id="guest-shipping" class="font-medium text-gray-800">Aguardando endereço...</span></div>
                         <div class="flex justify-between text-lg font-bold border-t pt-2 mt-2"><span>Total a pagar:</span><span id="guest-total" class="text-pink-600">R$ 0,00</span></div>
                     </div>
-                    <select id="guest-payment-method" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
-                        <option value="" disabled selected>Forma de Pagamento *</option>
-                        <option value="Cartão de Crédito">Cartão de Crédito</option>
-                        <option value="Cartão de Débito">Cartão de Débito</option>
-                        <option value="Dinheiro">Dinheiro</option>
-                        <option value="Pix">Pix</option>
-                        <option value="Link de Pagamento">Link de Pagamento</option>
+                    <label for="guest-payment-method" class="block text-sm font-semibold text-gray-800 mb-2">Forma de Pagamento</label>
+                    <select id="guest-payment-method" aria-describedby="guest-payment-choice-help" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white">
+                        <option value="ONLINE_NOW" disabled>Pagar Agora — Pix</option>
+                        <option value="AGREED_LATER" selected>Combinar Pagamento</option>
                     </select>
+                    <p id="guest-payment-choice-help" class="text-sm text-gray-600 mt-2" aria-live="polite"></p>
+                    <p class="text-sm text-amber-800 mt-2" role="status">Pagamento Pix online indisponível para visitantes no momento. Você pode continuar com Combinar Pagamento.</p>
+                    <div id="guest-pending-payment" class="hidden mt-3 p-3 border border-amber-200 bg-amber-50 rounded-lg text-sm text-gray-800" role="status" aria-live="polite">
+                        <p id="guest-pending-payment-message"></p>
+                        <a id="guest-pending-payment-link" class="hidden inline-block mt-3 font-semibold text-pink-700 underline focus:outline-none focus:ring-2 focus:ring-pink-500 rounded" href="/payment-return.html">Consultar pagamento existente</a>
+                    </div>
+                    <label class="flex items-start gap-2 mt-4 text-sm text-gray-700">
+                    <input id="guest-whatsapp-consent" type="checkbox" autocomplete="off" class="mt-1" aria-describedby="guest-whatsapp-consent-help">
+                    <span>Quero receber a confirmação e o resumo deste pedido pelo WhatsApp da Ana Guimarães Doceria.</span>
+                </label>
+                <p id="guest-whatsapp-consent-help" class="text-xs text-gray-600 mt-2">Opcional, somente para este pedido, sem promoções. Você pode concluir a compra sem marcar esta opção. Use um telefone brasileiro com DDD. No pagamento online, a confirmação respeita a aprovação do pagamento.</p>
                     <button id="send-whatsapp-button" class="w-full bg-green-500 text-white py-3 px-4 rounded-lg font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2 mt-4">
-                        <i class="fa-brands fa-whatsapp"></i> Finalizar e Enviar via WhatsApp
+                        Confirmar Pedido
                     </button>
                 </div>
             </div>
@@ -713,8 +755,6 @@
             <i class="fas fa-check-circle text-5xl text-green-500 mb-4"></i>
             <h2 class="text-2xl font-bold text-gray-800 mb-2">Pedido Enviado!</h2>
             <p class="text-gray-600">Obrigado! Seu pedido foi registrado e a mensagem está pronta para ser enviada.</p>
-            <p class="confirmed-freight text-gray-700 mt-3"></p>
-            <p class="confirmed-total text-pink-600 font-bold"></p>
             <button id="close-confirmation" class="bg-pink-600 text-white py-2 px-6 rounded-lg mt-6 font-bold hover:bg-pink-700 transition-colors">Fechar</button>
         </div>
     </div>
@@ -725,8 +765,6 @@
             <i class="fas fa-check-circle text-5xl text-green-500 mb-4"></i>
             <h2 class="text-2xl font-bold text-gray-800 mb-2">Pedido Registrado!</h2>
             <p class="text-gray-600">Obrigado! Seu pedido foi enviado diretamente para a nossa plataforma.</p>
-            <p class="confirmed-freight text-gray-700 mt-3"></p>
-            <p class="confirmed-total text-pink-600 font-bold"></p>
             <button id="close-platform-confirmation" class="bg-pink-600 text-white py-2 px-6 rounded-lg mt-6 font-bold hover:bg-pink-700 transition-colors">Fechar</button>
         </div>
     </div>
@@ -738,46 +776,14 @@
 
     <!-- SCRIPTS -->
         <script type="module">
-          import { db, doc, getDoc } from "./firebaseClientConfig.js";
-
-          const DEFAULT_STORE_ID = 'ana-guimaraes-garavelo';
-          const STORE_ID = new URLSearchParams(window.location.search).get('store') || DEFAULT_STORE_ID;
-          window.STORE_ID = STORE_ID;
-          const CONFIG_DOC_ID = 'config';
-          const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
-          const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
-          // A configuração é carregada exclusivamente dentro da loja selecionada.
-
-          // Variável global para armazenar os dados de frete
-          window.dadosFrete = null;
-          window.freteACombinar = false;
-          window.distanciaFreteKm = null;
-
-          async function carregarConfiguracoesFrete() {
-              window.dadosFrete = null;
-              window.freteACombinar = false;
-              try {
-                  for (const suffix of [['configuracoes', 'config'], ['configuracoes', 'frete'], ['info', 'dados']]) {
-                      const snapshot = await getDoc(doc(db, 'lojas', STORE_ID, ...suffix));
-                      if (!snapshot.exists()) continue;
-                      const data = snapshot.data() || {};
-                      const config = data.frete || (suffix[0] === 'info' ? {} : data);
-                      if (!['lat', 'lng', 'valorPorKm', 'freteACombinar'].some(key => Object.prototype.hasOwnProperty.call(config, key))) continue;
-                      window.dadosFrete = config;
-                      window.freteACombinar = config.freteACombinar === true;
-                      if (window.freteACombinar) window.valorFrete = 0;
-                      window.updateAllSummaries?.();
-                      return;
-                  }
-                  throw new Error('Configuração de frete não encontrada para esta loja.');
-              } catch (error) {
-                  console.error('Erro ao carregar frete:', error);
-                  window.showToast?.(error.message || 'Não foi possível carregar o frete desta loja.', true);
-              }
-          }
-
-	  document.addEventListener("DOMContentLoaded", carregarConfiguracoesFrete);
-	</script>
+          import {bootstrapPublicStore} from './store-public-config.mjs';
+          window.dadosFrete = null; window.freteACombinar = false; window.distanciaFreteKm = null;
+          window.publicStoreReady = bootstrapPublicStore().then(config => {
+            window.publicStoreConfig = config; window.STORE_ID = config?.storeId || null;
+            if(!config) {document.getElementById('checkout-button')?.setAttribute('disabled','');document.getElementById('cart-button')?.setAttribute('disabled','');}
+            return config;
+          });
+        </script>
 
 	<script>
     // --- LÓGICA DO GOOGLE MAPS (CLIENTE CADASTRADO) ---
@@ -949,10 +955,11 @@
       }
 
 	  if (saveAddressBtn) {
-        saveAddressBtn.disabled = !hasBasicInfo;
-        saveAddressBtn.classList.toggle('opacity-50', !hasBasicInfo);
-        saveAddressBtn.classList.toggle('cursor-not-allowed', !hasBasicInfo);
-        saveAddressBtn.setAttribute('aria-disabled', hasBasicInfo ? 'false' : 'true');
+        const enabled=hasBasicInfo && saveAddressBtn.dataset.saving!=='true';
+        saveAddressBtn.disabled = !enabled;
+        saveAddressBtn.classList.toggle('opacity-50', !enabled);
+        saveAddressBtn.classList.toggle('cursor-not-allowed', !enabled);
+        saveAddressBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
       }
 	}
 
@@ -1202,19 +1209,44 @@
         } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
         import {
             app
-        } from "./firebaseClientConfig.js";
+        } from "./firebaseClientConfig.js?v=20261015-persistence";
+
+        import {createCartOwnerObserver} from './canonical-session.mjs?v=20261015-fcm-delete';
+        import {apiBaseUrl} from './checkout-environment.js';
+        import {createPageCartBridge,stockLimit} from './reorder-cart.mjs';
+        import {installCustomerAccount} from './customer-account.js?v=20261015-persistence';
+        import {isLinkedCustomer,retainAuthenticatedCustomer} from './customer-session.mjs';
+        import {createCheckoutIdentity,CHECKOUT_MODES} from './checkout-identity.mjs';
+        import {renderCheckoutAddresses,savedAddressFields,mergeCheckoutAddressOptions} from './checkout-addresses.mjs';
+        import {createLegacyAddressSaver} from './legacy-address-save.mjs';
+        import {createPhoneAddressManager} from './address-management.mjs';
+        import {createSmsRecaptcha} from './address-verification-firebase.mjs';
+        import {checkoutHeaders, paymentStatusHeaders, paymentAttempt, redirectToPayment, enableOnlinePayment, syncOnlinePaymentOption} from './checkout-payment-client.js?v=20261015-fcm-delete';
+        import {paymentSelection, resetPaymentChoice} from './checkout-payment-choice.mjs';
+        import {inspectGuestPaymentAttempt,completeCheckoutAttempt} from './guest-payment-attempt.mjs';
+        import {fetchPublicStore} from './store-public-config.mjs';
+        import {STORE_AVAILABILITY, getStoreAvailabilityMessage} from './store-availability.mjs';
+        import {fulfillmentBanner} from './fulfillment-availability.mjs';
+        let publicStore = await window.publicStoreReady;
+        if (publicStore) {
+        function resetWhatsAppConsent() {
+            ['platform-whatsapp-consent', 'guest-whatsapp-consent'].forEach((id) => {
+                const checkbox = document.getElementById(id);
+                if (checkbox) checkbox.checked = false;
+            });
+        }
+        resetWhatsAppConsent();
+        window.addEventListener('pageshow', resetWhatsAppConsent);
 
         // --- VARIÁVEIS GLOBAIS ---
         const WHATSAPP_NUMBER = '5562991056075';
-        const API_BASE_URL = 'https://us-central1-ana-guimaraes.cloudfunctions.net/api';
+        const API_BASE_URL = apiBaseUrl;
         window.API_BASE_URL = API_BASE_URL;
-        const DEFAULT_STORE_TIMEZONE = 'America/Sao_Paulo';
-        const STORE_ID = window.STORE_ID || 'ana-guimaraes-garavelo';
+        const escapeCheckoutText = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const STORE_ID = publicStore.storeId;
         const CONFIG_DOC_ID = 'config';
         const CONFIG_COLLECTIONS = new Set(['cupons', 'logs']);
         const storeConfigDocPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', CONFIG_DOC_ID, ...segments];
-        const legacyConfigPath = (...segments) => ['lojas', STORE_ID, 'configuracoes', ...segments];
-        const legacyStorePath = (...segments) => ['lojas', STORE_ID, ...segments];
         const storePath = (...segments) => {
             if (!segments.length) return ['lojas', STORE_ID];
 
@@ -1230,6 +1262,38 @@
             return ["lojas", STORE_ID, first, ...rest];
         };
         let allProducts = [], cart = [], currentClient = null, pendingOrderDetails = {}, appliedCupom = null;
+        const checkoutIdentity=createCheckoutIdentity({storage:sessionStorage,storeId:STORE_ID,getUid:()=>getAuth(app).currentUser?.uid,
+            request:async data=>{
+                const headers={'Content-Type':'application/json'};
+                if(data.mode===CHECKOUT_MODES.STRONG) {
+                    const user=getAuth(app).currentUser;
+                    if(!user || user.isAnonymous) throw new Error('Entre com Google ou e-mail para pagar online.');
+                    headers.Authorization=`Bearer ${await user.getIdToken()}`;
+                }
+                const response=await fetch(`${API_BASE_URL}/checkout/identity`,{method:'POST',headers,body:JSON.stringify(data)});
+                const result=await response.json();
+                if(!response.ok) throw new Error(result.message || 'Não foi possível selecionar a identificação. Tente novamente.');
+                return result;
+            }});
+        function syncCheckoutPayment() {
+            syncOnlinePaymentOption(currentClient,checkoutIdentity.isStrong(),checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE);
+            document.querySelectorAll('[data-checkout-strong-invitation]').forEach(el=>{el.hidden=checkoutIdentity.isStrong();});
+        }
+        const legacyAddressSaver=createLegacyAddressSaver({identity:checkoutIdentity,storeId:STORE_ID,request:async data=>{
+            let response;
+            try {response=await fetch(API_BASE_URL+'/checkout/addresses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});}
+            catch {throw new Error('Não foi possível salvar o endereço. Tente novamente.');}
+            const result=await response.json().catch(()=>({}));
+            if(!response.ok) throw new Error(result.message || 'Não foi possível salvar o endereço. Tente novamente.');
+            return result;
+        }});
+        async function selectWeakCheckout(mode) {
+            invalidateCheckoutFreight();
+            currentClient=null;pendingOrderDetails={};syncCheckoutPayment();
+            const ready=checkoutIdentity.select(mode);syncCheckoutPayment();
+            persistCheckoutState();
+            try {await ready;return true;} catch(error) {showToast(error.message,true);return false;}
+        }
         const CHECKOUT_STORAGE_KEY = 'checkoutState_v1';
         let addressStep = Number.isInteger(window.addressFlowState?.currentStep) ? window.addressFlowState.currentStep : 1;
         const createInitialGuestAddressFlowState = () => ({
@@ -1243,12 +1307,18 @@
         window.guestManualAddressLocationConfirmed = !!window.guestAddressFlowState?.locationConfirmed;
         const subcategoryOrder = ['Queridinhos', 'Bolo no pote', 'Copo da felicidade', 'Bombom aberto', 'Pipoca', 'Cone recheado', 'Bolo gelado', 'Bombom recheado'];
         window.valorFrete = 0;
+        window.freightQuoteState = 'UNQUOTED';
+        window.guestFreightGeneration = 0;
                 window.guestCurrentLatLng = null;
-        let storeConfig = {};
+        let storeConfig = null;
         let storeConfigListenerUnsubscribe = null;
         let productListenerUnsubscribe = null;
-        let storeIsOpenNow = true;
+        let storeAvailability = STORE_AVAILABILITY.CONFIG_UNAVAILABLE;
+        let storeIsOpenNow = false;
         let checkoutBlockingIssue = null;
+        let reorderOwnerUid = null;
+        let cartHydrated = false;
+        let preservedCartStoreId = null;
 
         // --- SELEÇÃO DE ELEMENTOS DOM ---
         const productList = document.getElementById('product-list'),
@@ -1330,39 +1400,9 @@
         }
 
         async function initApp() {
-            if (window.appInitialized) return;
-            try {
-                if (window.firebaseAnonAuthUnavailable) {
-                    console.warn('⚠️ Autenticação anônima desativada; iniciando em modo visitante.');
-                    await startAppFlow('modo visitante');
-                    return;
-                }
-
-                const auth = getAuth(app);
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        console.log("✅ Usuário autenticado anonimamente:", user.uid);
-                        await startAppFlow('sessão anônima');
-                        return;
-                    }
-
-                    if (window.firebaseAnonAuthUnavailable) {
-                        console.warn('⚠️ Autenticação anônima desativada; prosseguindo sem login.');
-                        await startAppFlow('modo visitante');
-                        return;
-                    }
-
-                    try {
-                        await signInAnonymously(auth);
-                    } catch (error) {
-                        console.warn("⚠️ Falha no login anônimo, continuando sem autenticação:", error);
-                        await startAppFlow('modo visitante');
-                    }
-                });
-            } catch (error) {
-                console.error('❌ Erro ao inicializar aplicação:', error);
-                await startAppFlow('falha na autenticação');
-            }
+            // Auth is resolved independently by firebaseClientConfig/customerAccount.
+            // Public store configuration and products must not wait for that session.
+            await startAppFlow('catálogo público');
         }
 
 
@@ -1403,8 +1443,12 @@
         window.setCheckoutBlockingIssue = setCheckoutBlockingIssue;
         window.clearCheckoutBlockingIssue = clearCheckoutBlockingIssue;
 
-        function ensureCheckoutNotBlocked() {
+        function ensureCheckoutNotBlocked(clientInfo = pendingOrderDetails) {
             if (!checkoutBlockingIssue) return;
+            if (checkoutBlockingIssue.type === 'frete' && clientInfo?.clienteEndereco === 'Retirar na Loja') {
+                clearCheckoutBlockingIssue('frete');
+                return;
+            }
             const message = checkoutBlockingIssue.message || 'Há uma pendência de conexão/sessão. Tente novamente.';
             showToast(message, true);
             if (paymentError) {
@@ -1415,22 +1459,25 @@
         }
 
         async function revalidateCheckoutBeforeFinalSubmit(clientInfo) {
-            ensureCheckoutNotBlocked();
+            ensureCheckoutNotBlocked(clientInfo);
 
             if (clientInfo?.clienteEndereco !== 'Retirar na Loja') {
+                const freightGeneration = window.guestFreightGeneration;
                 const response = await fetch(`${API_BASE_URL}/frete/calcular?lojaId=${encodeURIComponent(STORE_ID)}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({distanciaKm: window.distanciaFreteKm})
+                    body: JSON.stringify({...savedAddressFields(clientInfo),checkoutIdentityToken:checkoutIdentity.get().token,clienteEndereco: clientInfo.clienteEndereco})
                 });
                 const currentQuote = await response.json().catch(() => ({}));
+                if (freightGeneration !== window.guestFreightGeneration) {
+                    throw new Error('O endereço mudou durante o cálculo. Confira o endereço antes de confirmar.');
+                }
                 if (!response.ok) {
                     const message = currentQuote.message || 'Confirme novamente o endereço de entrega.';
                     setCheckoutBlockingIssue('frete', message);
                     throw new Error(message);
                 }
-                window.valorFrete = Number(currentQuote.valorFrete);
-                window.freteACombinar = currentQuote.freteACombinar === true;
+                applyCheckoutFreight(currentQuote);
                 updateAllSummaries();
             }
 
@@ -1467,11 +1514,35 @@
             }
         }
 
+        const invalidateCheckoutFreight = (state = 'UNQUOTED') => {
+            window.guestFreightGeneration = (window.guestFreightGeneration || 0) + 1;
+            window.valorFrete = 0;
+            window.distanciaFreteKm = null;
+            window.freteACombinar = false;
+            window.freightQuoteState = state;
+        };
+        const applyCheckoutFreight = quote => {
+            if (typeof quote?.valorFrete !== 'number' || !Number.isFinite(quote.valorFrete) || quote.valorFrete < 0) {
+                throw new Error('Não foi possível validar o frete deste endereço.');
+            }
+            window.valorFrete = quote.valorFrete;
+            window.distanciaFreteKm = quote.distanciaKm == null ? null : Number(quote.distanciaKm);
+            window.freteACombinar = quote.freteACombinar === true;
+            window.freightQuoteState = 'READY';
+        };
+        window.invalidateCheckoutFreight = invalidateCheckoutFreight;
+        window.applyCheckoutFreight = applyCheckoutFreight;
+
         function persistCheckoutState() {
+            // Session/profile callbacks may run before the saved cart is restored.
+            if (!cartHydrated) return;
+            // Merely visiting another menu must not replace its saved cart with [].
+            if (preservedCartStoreId && preservedCartStoreId !== STORE_ID && cart.length === 0) return;
             try {
                 const checkoutState = {
                     storeId: STORE_ID,
                     savedAt: Date.now(),
+                    ...(reorderOwnerUid ? {reorderOwnerUid} : {}),
                     cart: cart.map(item => ({
                         id: item.id || item.produtoId,
                         produtoId: item.produtoId || item.id,
@@ -1484,13 +1555,12 @@
                     guestCurrentLatLng: window.guestCurrentLatLng || null,
                     guestAddressFlowState: window.guestAddressFlowState || createInitialGuestAddressFlowState(),
                     guestManualAddressLocationConfirmed: !!window.guestManualAddressLocationConfirmed,
-                    valorFrete: Number.isFinite(window.valorFrete) ? window.valorFrete : 0,
-                    distanciaFreteKm: window.distanciaFreteKm,
                     addressStep: Number.isInteger(window.addressFlowState?.currentStep)
                         ? window.addressFlowState.currentStep
                         : (Number.isInteger(addressStep) ? addressStep : 1)
                 };
                 sessionStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify(checkoutState));
+                preservedCartStoreId = null;
             } catch (error) {
                 console.warn('Não foi possível persistir o checkout:', error);
             }
@@ -1502,13 +1572,21 @@
                 if (!rawState) return;
 
                 const savedState = JSON.parse(rawState);
+                if (!savedState || typeof savedState !== 'object' || Array.isArray(savedState)) return;
+                if (savedState.reorderOwnerUid && savedState.reorderOwnerUid !== getAuth(app).currentUser?.uid) {
+                    clearCheckoutState(); return;
+                }
+                reorderOwnerUid = savedState.reorderOwnerUid || null;
                 if (savedState?.storeId && savedState.storeId !== STORE_ID) {
-                    clearCheckoutState();
+                    preservedCartStoreId = savedState.storeId;
                     return;
                 }
+                if (!savedState.storeId) return;
 
                 cart = Array.isArray(savedState?.cart)
                     ? savedState.cart
+                        .filter(item => item && typeof item === 'object' &&
+                            item.preco !== null && item.preco !== undefined && item.preco !== '')
                         .map(item => ({
                             id: item.id || item.produtoId,
                             produtoId: item.produtoId || item.id,
@@ -1517,7 +1595,9 @@
                             quantity: Number(item.quantity || 0),
                             updatedFromFirestoreAt: item.updatedFromFirestoreAt || null
                         }))
-                        .filter(item => item.id && item.quantity > 0)
+                        .filter(item => typeof item.id === 'string' && /^[a-zA-Z0-9_-]{1,150}$/.test(item.id) &&
+                            Number.isSafeInteger(item.quantity) && item.quantity > 0 &&
+                            Number.isFinite(item.preco) && item.preco >= 0)
                     : [];
                 pendingOrderDetails = (savedState?.pendingOrderDetails && typeof savedState.pendingOrderDetails === 'object')
                     ? savedState.pendingOrderDetails
@@ -1528,9 +1608,9 @@
                     : createInitialGuestAddressFlowState();
                 window.guestManualAddressLocationConfirmed = !!savedState?.guestManualAddressLocationConfirmed || !!window.guestAddressFlowState?.locationConfirmed;
                 window.guestAddressStep = Number.isInteger(window.guestAddressFlowState?.currentStep) ? window.guestAddressFlowState.currentStep : 1;
-                window.valorFrete = Number.isFinite(savedState?.valorFrete) ? savedState.valorFrete : 0;
-                window.distanciaFreteKm = Number.isFinite(savedState?.distanciaFreteKm) ? savedState.distanciaFreteKm : null;
-                if (window.freteACombinar) window.valorFrete = 0;
+                // Keep the draft, but never restore a previous price as a current quote.
+                // Both normal and hard reload preserve sessionStorage.
+                invalidateCheckoutFreight();
                 addressStep = Number.isInteger(savedState?.addressStep) ? savedState.addressStep : 1;
                 if (window.addressFlowState) {
                     window.addressFlowState.currentStep = addressStep;
@@ -1554,6 +1634,7 @@
 
         function clearCheckoutState() {
             sessionStorage.removeItem(CHECKOUT_STORAGE_KEY);
+            invalidateCheckoutFreight();
         }
 
         window.persistCheckoutState = persistCheckoutState;
@@ -1564,44 +1645,9 @@
 
         // Funções de Produtos
         async function fetchStoreConfig() {
-            try {
-                const { db, doc, getDoc } = await import('./firebaseClientConfig.js');
-                const configDoc = await getDoc(doc(db, ...storeConfigDocPath()));
-                if (configDoc.exists()) {
-                    const data = configDoc.data() || {};
-                    storeConfig = data;
-                    console.log("✅ Configurações da loja carregadas:", storeConfig);
-                    syncStoreAvailabilityStatus();
-                    return;
-                }
-
-                const storeConfigDoc = await getDoc(doc(db, ...storePath("info", "dados")));
-
-                if (storeConfigDoc.exists()) {
-                    const data = storeConfigDoc.data();
-                    storeConfig = data?.frete || data || {};
-                    console.log("✅ Configurações da loja carregadas:", storeConfig);
-                    syncStoreAvailabilityStatus();
-                    return;
-                }
-
-                const legacyFreteDoc = await getDoc(doc(db, ...legacyConfigPath('frete')));
-                if (legacyFreteDoc.exists()) {
-                    storeConfig = legacyFreteDoc.data();
-                    console.log("⚠️ Usando configuração legada da loja:", storeConfig);
-                    syncStoreAvailabilityStatus();
-                    return;
-                }
-
-                const fallbackConfig = await getDoc(doc(db, "configuracoes", "frete"));
-                if (fallbackConfig.exists()) {
-                    storeConfig = fallbackConfig.data();
-                    console.log("⚠️ Configurações específicas não encontradas. Usando fallback padrão:", storeConfig);
-                    syncStoreAvailabilityStatus();
-                }
-            } catch (error) {
-                console.error("Erro ao carregar configurações:", error);
-            }
+            const config = await fetchPublicStore({storeId:STORE_ID,channelId:publicStore.channel?.id || null});
+            publicStore = config; window.publicStoreConfig = config;
+            storeConfig = config.schedule; syncStoreAvailabilityStatus();
         }
 
         function normalizeActiveProducts(products = []) {
@@ -1636,7 +1682,7 @@
                 }
 
                 const requestedQuantity = Number(item.quantity || 0);
-                const currentStock = Number(latestProduct.estoque);
+                const currentStock = stockLimit(latestProduct);
                 if (Number.isFinite(currentStock) && currentStock <= 0) {
                     changed = true;
                     messages.push(`${latestProduct.nome || productLabel} está sem estoque e foi removido do carrinho.`);
@@ -1713,20 +1759,17 @@
         }
 
         async function listenToStoreConfig() {
-            const { db, doc, onSnapshot } = await import('./firebaseClientConfig.js');
             if (storeConfigListenerUnsubscribe) storeConfigListenerUnsubscribe();
-
-            storeConfigListenerUnsubscribe = onSnapshot(doc(db, ...storeConfigDocPath()), (snap) => {
-                if (!snap.exists()) return;
-                storeConfig = snap.data() || {};
-                syncStoreAvailabilityStatus();
-            }, (error) => {
-                console.error('Erro ao sincronizar configurações da loja:', error);
+            const refresh=()=>fetchStoreConfig().catch(()=>{
+                storeIsOpenNow=false;storeAvailability=STORE_AVAILABILITY.CONFIG_UNAVAILABLE;updateStoreAvailabilityUI();
             });
+            const timer=setInterval(refresh,60000);window.addEventListener('focus',refresh);
+            storeConfigListenerUnsubscribe=()=>{clearInterval(timer);window.removeEventListener('focus',refresh);};
+            window.addEventListener('pagehide',storeConfigListenerUnsubscribe,{once:true});
         }
 
         async function listenToProducts() {
-            const { db, collection, onSnapshot } = await import('./firebaseClientConfig.js');
+            const { db, collection, onSnapshot } = await import('./firebaseClientConfig.js?v=20261015-persistence');
             if (productListenerUnsubscribe) productListenerUnsubscribe();
 
             return new Promise((resolve, reject) => {
@@ -1762,7 +1805,7 @@
         async function fetchProducts() {
             try {
                 console.log("🔄 Revalidando produtos do Firebase...");
-                const { db, collection, getDocs } = await import('./firebaseClientConfig.js');
+                const { db, collection, getDocs } = await import('./firebaseClientConfig.js?v=20261015-persistence');
                 const productsSnapshot = await getDocs(collection(db, ...storePath("produtos")));
                 const products = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 return applyLatestProducts(products, { notifyCartChanges: false });
@@ -1791,7 +1834,7 @@
         }
 
         function renderMenu() {
-            const deliveryProducts = allProducts.filter(p => p.categoria === 'Delivery');
+            const deliveryProducts = allProducts.filter(p => p.categoria === publicStore.catalog.category);
 
             if (deliveryProducts.length === 0) {
                 productList.innerHTML = `
@@ -1943,7 +1986,7 @@
                 : cart.map(item => `
                     <div class="flex justify-between items-center mb-4 p-3 bg-gray-50 rounded-lg">
                         <div class="flex-1">
-                            <p class="font-bold text-gray-800">${item.nome}</p>
+                            <p class="font-bold text-gray-800">${escapeCheckoutText(item.nome)}</p>
                             <p class="text-sm text-gray-500">R$ ${item.preco.toFixed(2)}</p>
                         </div>
                         <div class="flex items-center gap-3">
@@ -1979,7 +2022,11 @@
 				cartDiscountLine.classList.add('hidden');
 			}
 
-			if (window.freteACombinar && pendingOrderDetails?.clienteEndereco !== 'Retirar na Loja') {
+			if (window.freightQuoteState !== 'READY' && pendingOrderDetails?.clienteEndereco !== 'Retirar na Loja') {
+                cartShipping.textContent = 'A calcular';
+                cartShippingLine.classList.remove('hidden');
+                cartTotal.textContent += ' + frete';
+            } else if (window.freteACombinar && pendingOrderDetails?.clienteEndereco !== 'Retirar na Loja') {
                 cartShipping.textContent = 'A Combinar';
                 cartShippingLine.classList.remove('hidden');
             } else if (window.valorFrete > 0 && pendingOrderDetails?.clienteEndereco !== 'Retirar na Loja') {
@@ -2042,74 +2089,28 @@
         }
         window.showToast = showToast;
 
-        function parseTimeToMinutes(value) {
-            if (!value || typeof value !== "string") return null;
-            const match = value.match(/^(\d{2}):(\d{2})$/);
-            if (!match) return null;
-            const hh = Number(match[1]);
-            const mm = Number(match[2]);
-            if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-            return (hh * 60) + mm;
-        }
-
-        function getTimeDataForTimezone(timezone) {
-            try {
-                const formatter = new Intl.DateTimeFormat('en-CA', {
-                    timeZone: timezone || DEFAULT_STORE_TIMEZONE,
-                    weekday: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                });
-                const parts = formatter.formatToParts(new Date());
-                const weekdayRaw = (parts.find((part) => part.type === 'weekday')?.value || 'sun').toLowerCase().slice(0, 3);
-                const weekdayMap = { mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat', sun: 'sun' };
-                const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
-                const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
-                return { weekday: weekdayMap[weekdayRaw] || 'sun', minutes: (hour * 60) + minute };
-            } catch (error) {
-                console.error('Falha ao converter horário da loja:', error);
-                return { weekday: 'sun', minutes: 0 };
-            }
-        }
-
-        function isStoreOpenNow(config) {
-            const overrideMode = config?.manualOverride?.mode || 'auto';
-            if (overrideMode === 'force_open') return true;
-            if (overrideMode === 'force_closed') return false;
-
-            const timezone = config?.timezone || DEFAULT_STORE_TIMEZONE;
-            const schedule = config?.schedule || {};
-            const { weekday, minutes } = getTimeDataForTimezone(timezone);
-            const day = schedule?.[weekday];
-            if (!day || !day.enabled) return false;
-
-            const openMinutes = parseTimeToMinutes(day.open);
-            const closeMinutes = parseTimeToMinutes(day.close);
-            if (openMinutes === null || closeMinutes === null) return false;
-            if (closeMinutes <= openMinutes) return false;
-
-            return minutes >= openMinutes && minutes < closeMinutes;
-        }
-
         function updateStoreAvailabilityUI() {
-            const isClosed = !storeIsOpenNow;
-            if (checkoutButton) checkoutButton.disabled = isClosed;
-            if (checkoutButton) checkoutButton.classList.toggle('opacity-60', isClosed);
-            if (checkoutButton) checkoutButton.classList.toggle('cursor-not-allowed', isClosed);
+            const noFulfillment = !publicStore.pickup.enabled && !publicStore.delivery.available;
+            const isUnavailable = !storeIsOpenNow || noFulfillment;
+            if (checkoutButton) checkoutButton.disabled = isUnavailable;
+            if (checkoutButton) checkoutButton.classList.toggle('opacity-60', isUnavailable);
+            if (checkoutButton) checkoutButton.classList.toggle('cursor-not-allowed', isUnavailable);
+            if (checkoutButton) checkoutButton.title = !storeIsOpenNow ? getStoreAvailabilityMessage(storeAvailability) : '';
+            if (continueGuestButton) {
+                continueGuestButton.disabled = !publicStore.delivery.available;
+                continueGuestButton.title = publicStore.delivery.available ? '' : 'Entrega indisponível nesta loja. Use a identificação para retirada, quando disponível.';
+            }
 
             if (storeStatusBanner) {
-                if (isClosed) {
-                    storeStatusBanner.textContent = 'A loja está fechada no momento. Volte em nosso horário de atendimento.';
-                    storeStatusBanner.classList.remove('hidden');
-                } else {
-                    storeStatusBanner.classList.add('hidden');
-                }
+                const message = fulfillmentBanner(publicStore);
+                storeStatusBanner.textContent = message;
+                storeStatusBanner.classList.toggle('hidden', !message);
             }
         }
 
         function syncStoreAvailabilityStatus() {
-            storeIsOpenNow = isStoreOpenNow(storeConfig || {});
+            storeAvailability = publicStore.active && publicStore.catalog.enabled ? storeConfig?.effectiveAvailability || STORE_AVAILABILITY.CONFIG_UNAVAILABLE : STORE_AVAILABILITY.CONFIG_UNAVAILABLE;
+            storeIsOpenNow = storeAvailability === STORE_AVAILABILITY.OPEN;
             updateStoreAvailabilityUI();
         }
 
@@ -2118,9 +2119,10 @@
             cartButton.addEventListener('click', () => cartModal.classList.remove('hidden'));
             closeCartButton.addEventListener('click', () => cartModal.classList.add('hidden'));
 
-            checkoutButton.addEventListener('click', () => {
+            checkoutButton.addEventListener('click', async () => {
+                resetWhatsAppConsent();
                 if (!storeIsOpenNow) {
-                    showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
+                    showToast(getStoreAvailabilityMessage(storeAvailability), true);
                     return;
                 }
                 if (cart.length === 0) {
@@ -2128,12 +2130,15 @@
                     return;
                 }
                 cartModal.classList.add('hidden');
+                persistCheckoutState();
+                await customerAccount.ready;
                 identificationModal.classList.remove('hidden');
             });
 
             closeIdentificationModal.addEventListener('click', () => identificationModal.classList.add('hidden'));
 
-            usePhoneButton.addEventListener('click', () => {
+            usePhoneButton.addEventListener('click', async () => {
+                if(!await selectWeakCheckout(CHECKOUT_MODES.PHONE)) return;
                 identificationModal.classList.add('hidden');
                 phoneLoginModal.classList.remove('hidden');
                 phoneInput.value = '';
@@ -2145,17 +2150,23 @@
                 currentClient = null;
             });
 
-            continueGuestButton.addEventListener('click', () => {
+            continueGuestButton.addEventListener('click', async () => {
+                if (!publicStore.delivery.available) {showToast('Entrega indisponível nesta loja.',true);return;}
+                if(!await selectWeakCheckout(CHECKOUT_MODES.GUEST)) return;
+                resetPaymentChoice(guestPaymentMethodSelect);
+                if(appliedCupom) removeCupom();
                 identificationModal.classList.add('hidden');
                 guestCheckoutModal.classList.remove('hidden');
+                void previewGuestPayment();
                 window.initGuestAddressFlow?.();
                 window.showGuestAddressStep?.(window.guestAddressFlowState?.currentStep || 1);
                 updateGuestSummary();
-                setTimeout(() => window.initGuestAddressMap?.(window.guestCurrentLatLng), 300);
             });
 
             closeGuestCheckoutModal.addEventListener('click', () => {
                 guestCheckoutModal.classList.add('hidden');
+                invalidateCheckoutFreight();
+                updateAllSummaries();
                 persistCheckoutState();
             });
 
@@ -2166,14 +2177,11 @@
                 document.getElementById('customer-details-modal').classList.add('hidden');
             });
 
-            document.getElementById('edit-profile-btn').addEventListener('click', () => {
-                if (currentClient) {
-                    addressManagementModal.classList.add('hidden');
-                    openCustomerModalForEdit(currentClient);
-                }
-            });
+            document.getElementById('edit-profile-btn').addEventListener('click', editCheckoutProfile);
 
-            document.getElementById('show-new-address-btn').addEventListener('click', showNewAddressSection);
+            document.getElementById('show-new-address-btn').addEventListener('click', () => {
+                showNewAddressSection();
+            });
             document.getElementById('address-step1-back-btn').addEventListener('click', goBackAddressFlowStep);
             document.getElementById('address-step2-confirm-btn').addEventListener('click', () => {
                 if (!isValidLatLng(window.currentLatLng)) {
@@ -2214,6 +2222,8 @@
             });
 
             sendWhatsappButton.addEventListener('click', handleGuestOrder);
+            guestPhoneInput.addEventListener('input', () => setGuestPhoneError());
+            guestPaymentMethodSelect.addEventListener('change',()=>{void previewGuestPayment();});
             confirmOrderButton.addEventListener('click', handlePlatformOrder);
             document.getElementById('guest-address-step2-confirm-btn')?.addEventListener('click', async () => {
                 const normalizedLatLng = window.normalizeGuestLatLng?.(window.guestCurrentLatLng);
@@ -2236,7 +2246,10 @@
                 }
             });
             document.getElementById('guest-address-step2-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(1));
-            document.getElementById('guest-address-step3-back-btn')?.addEventListener('click', () => window.showGuestAddressStep?.(2));
+            document.getElementById('guest-address-step3-back-btn')?.addEventListener('click', () => {
+                window.showGuestAddressStep?.(2);
+                void window.initGuestAddressMap?.(window.guestCurrentLatLng);
+            });
 
             closeConfirmationButton.addEventListener('click', () => {
                 confirmationModal.classList.add('hidden');
@@ -2252,6 +2265,10 @@
         }
 
         async function showNewAddressSection() {
+            const weak=checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE;
+            const defaultInput=document.getElementById('manual-address-frequent-location');
+            if(defaultInput){const label=defaultInput.closest('label');label.hidden=weak;label.classList.toggle('hidden',weak);defaultInput.disabled=weak;if(weak)defaultInput.checked=false;}
+            document.getElementById('save-manual-address-button').textContent='Salvar Endereço';
             document.getElementById('new-address-section').classList.remove('hidden');
             document.getElementById('address-list').classList.add('hidden');
             document.getElementById('show-new-address-wrapper').classList.add('hidden');
@@ -2307,7 +2324,9 @@
             cancelNewAddress();
         }
 
+        let addressSaveInFlight=false;
         async function saveManualAddress() {
+            if(addressSaveInFlight) return;
             const street = document.getElementById('manual-address-street').value.trim();
             const numberInputValue = document.getElementById('manual-address-number').value.trim();
             const noNumber = document.getElementById('manual-address-no-number')?.checked || false;
@@ -2357,6 +2376,8 @@
             ].filter(Boolean);
             const addressText = addressParts.join(', ');
 
+            const saveButton=document.getElementById('save-manual-address-button');
+            addressSaveInFlight=true;if(saveButton){saveButton.disabled=true;saveButton.dataset.saving='true';}
             try {
                 if (!currentClient?.id) {
                     throw new Error('Cliente não identificado para atualizar endereço.');
@@ -2372,6 +2393,7 @@
 
                 const newAddress = {
                     enderecoCompleto: addressText,
+                    cep:zip,street,number,neighborhood,city,complement,
                     nickname,
                     lat,
                     lng,
@@ -2384,6 +2406,24 @@
                 };
 
                 const functions = getFunctions(app, 'us-central1');
+                if(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE) {
+                    const clientAtStart=currentClient;
+                    const result=await legacyAddressSaver.save(newAddress);
+                    if(currentClient!==clientAtStart) return;
+                    currentClient.enderecos=result.addresses;
+                    cancelNewAddress(true);openAddressManagementModal(currentClient);
+                    showToast('Endereço salvo.');
+                    await useSavedPhoneAddress(result.selected);return;
+                }
+                if (currentClient.accountLinked) {
+                    const result = await httpsCallable(functions, 'customerAddAddress')({address: newAddress});
+                    currentClient = result.data.customer;
+                    showToast('✅ Endereço salvo com sucesso!');
+                    cancelNewAddress(true);
+                    openAddressManagementModal(currentClient);
+                    await useExistingAddress(addressText, newAddress);
+                    return;
+                }
                 const addClientAddress = httpsCallable(functions, 'addClientAddress');
                 await addClientAddress({
                     clientId: currentClient.id,
@@ -2408,12 +2448,45 @@
                     showToast('Sem permissão para salvar endereço agora. Tente novamente em instantes.', true);
                     return;
                 }
-                showToast('❌ Erro ao salvar o endereço. Tente novamente.', true);
+                showToast(error.message || 'Não foi possível salvar o endereço. Tente novamente.', true);
+            } finally {
+                addressSaveInFlight=false;if(saveButton)delete saveButton.dataset.saving;validateAddressForm();
             }
         }
 
+        let phoneAddressManager=null;
+        function getPhoneAddressManager() {
+            if(!phoneAddressManager) {
+                phoneAddressManager=createPhoneAddressManager({document,identity:checkoutIdentity,storeId:STORE_ID,
+                    request:async(method,data,scope)=>{
+                        let response;
+                        try {response=await fetch(API_BASE_URL+'/checkout/address-verification/'+method,{
+                            method:'POST',headers:{'Content-Type':'application/json'},keepalive:method==='revoke',body:JSON.stringify({...scope,...data})});}
+                        catch {throw new Error('Não foi possível conectar. Tente novamente em alguns instantes.');}
+                        const result=await response.json().catch(()=>({}));
+                        if(!response.ok) throw Object.assign(new Error(result.message || 'Não foi possível verificar o número agora.'),{code:result.code});
+                        return result;
+                    },recaptcha:createSmsRecaptcha,
+                    onAddresses:(addresses,promotedId)=>{currentClient.enderecos=mergeCheckoutAddressOptions(addresses,(currentClient.enderecos || []).filter(a=>a.id!==promotedId));openAddressManagementModal(currentClient);persistCheckoutState();},
+                    onProfile:publicName=>{currentClient.nome=publicName;currentClient.nomeAbreviado=publicName;delete currentClient.aniversario;openAddressManagementModal(currentClient);persistCheckoutState();}
+                });
+                window.addEventListener('pagehide',()=>phoneAddressManager.pageHide());
+                window.addEventListener('pageshow',event=>{if(event.persisted)phoneAddressManager.pageShow();});
+            }
+            return phoneAddressManager;
+        }
+
+        async function editCheckoutProfile() {
+            if(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE) return getPhoneAddressManager().perform('profile').catch(error=>showToast(error.message,true));
+            if(currentClient && checkoutIdentity.get().mode!==CHECKOUT_MODES.GUEST) {
+                addressManagementModal.classList.add('hidden');openCustomerModalForEdit(currentClient);
+            }
+        }
 		function openAddressManagementModal(client) {
 			currentClient = client;
+            document.getElementById('edit-profile-btn').hidden=false;
+            document.getElementById('edit-profile-btn').classList.remove('hidden');
+            syncCheckoutPayment();
 			addressList.innerHTML = '';
 			confirmCustomerName.textContent = client.nome || 'Cliente';
             window.clearManualAddressMapWarning?.();
@@ -2440,37 +2513,33 @@
 			`;
             // Atribui o novo handler
 			pickupCard.querySelector('.use-pickup-btn').onclick = usePickupAddress;
-			addressList.appendChild(pickupCard);
+			pickupCard.hidden=!publicStore.pickup.enabled;
+            addressList.appendChild(pickupCard);
+            document.getElementById('show-new-address-wrapper').hidden=!publicStore.delivery.available;
+            if(!publicStore.delivery.available) {const notice=document.createElement('p');notice.textContent='Entrega indisponível para esta loja.';addressList.append(notice);}
             /* === FIM DA MODIFICAÇÃO === */
 
-			if (client.enderecos && client.enderecos.length > 0) {
-				client.enderecos.forEach((address, index) => {
-					const { enderecoCompleto, nickname } = (typeof address === 'string')
-                        ? { enderecoCompleto: address, nickname: `Endereço ${index + 1}` }
-                        : { enderecoCompleto: address.enderecoCompleto, nickname: address.nickname || `Endereço ${index + 1}`};
-
-					const addressDiv = document.createElement('div');
-					addressDiv.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow mb-4';
-					addressDiv.innerHTML = `
-						<div class="flex items-center justify-between gap-2 mb-2">
-							<span class="bg-pink-100 text-pink-800 text-xs font-medium px-2 py-1 rounded">${nickname}</span>
-							<button class="text-red-500 hover:text-red-700 transition-colors delete-address-btn" title="Excluir endereço"><i class="fa-solid fa-trash-alt text-lg"></i></button>
-						</div>
-						<p class="text-gray-800 font-medium text-sm leading-tight">${enderecoCompleto}</p>
-						<button class="w-full mt-3 bg-pink-600 text-white py-2 px-4 rounded-lg font-bold hover:bg-pink-700 transition-colors flex items-center justify-center gap-2 use-address-btn"><i class="fa-solid fa-truck"></i> Usar este Endereço</button>
-					`;
-
-					addressDiv.querySelector('.use-address-btn').onclick = () => useExistingAddress(enderecoCompleto, address);
-					addressDiv.querySelector('.delete-address-btn').onclick = (e) => { e.stopPropagation(); deleteAddress(index); };
-					addressList.appendChild(addressDiv);
-				});
-			}
+            if(publicStore.delivery.available && checkoutIdentity.get().mode!==CHECKOUT_MODES.GUEST) {
+                const cards=renderCheckoutAddresses({document,addresses:client.enderecos || [],
+                    weak:checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE,
+                    onSelect:useExistingAddress,onDelete:deleteAddress,
+                    ...(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE?{
+                        onView:address=>getPhoneAddressManager().perform('view',address).catch(error=>showToast(error.message,true)),
+                        onPromote:address=>getPhoneAddressManager().perform('create',address).catch(error=>showToast(error.message,true)),
+                        onEdit:address=>getPhoneAddressManager().perform('update',address).catch(error=>showToast(error.message,true)),
+                        onDefault:address=>getPhoneAddressManager().perform('default',address).catch(error=>showToast(error.message,true))}:{} )});
+                addressList.append(...cards);
+            }
             // O 'else' block que exibia "Nenhum endereço cadastrado" foi removido
             // para não apagar a opção "Retirar na Loja".
 			addressManagementModal.classList.remove('hidden');
 		}
 
 		async function deleteAddress(addressIndex) {
+            if(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE) {
+                if(currentClient.enderecos[addressIndex]?.checkoutOnly){currentClient.enderecos=currentClient.enderecos.filter((_,index)=>index!==addressIndex);openAddressManagementModal(currentClient);persistCheckoutState();return;}
+                return getPhoneAddressManager().perform('delete',currentClient.enderecos[addressIndex]).catch(error=>showToast(error.message,true));
+            }
 			if (!confirm('Tem certeza que deseja excluir este endereço?')) return;
 
 			try {
@@ -2483,6 +2552,11 @@
                     : [];
                 if (!existingAddresses[addressIndex]) {
                     throw new Error('Endereço não encontrado.');
+                }
+                if(currentClient.accountLinked) {
+                    const address=existingAddresses[addressIndex];
+                    const result=await httpsCallable(getFunctions(app,'us-central1'),'customerDeleteAddress')({index:addressIndex,expectedAddress:typeof address==='string'?address:address.enderecoCompleto});
+                    currentClient=result.data.customer;openAddressManagementModal(currentClient);showToast('Endereço excluído!');return;
                 }
                 existingAddresses.splice(addressIndex, 1);
 
@@ -2514,8 +2588,15 @@
         /* === INÍCIO DA MODIFICAÇÃO === */
 		/* Nova função para lidar com a opção "Retirar na Loja" */
 		function usePickupAddress() {
+            if(!publicStore.pickup.enabled) {showToast('Retirada indisponível nesta loja.',true);return;}
+            ++addressSelectionGeneration;
+            invalidateCheckoutFreight('READY');
 			window.valorFrete = 0; // Retirada não cobra frete
             window.distanciaFreteKm = null;
+            window.freteACombinar = false;
+            window.checkoutDeliveryAddress = null;
+            window.currentLatLng = null;
+            clearCheckoutBlockingIssue('frete');
 
 			pendingOrderDetails = {
 				clienteId: currentClient.id,
@@ -2533,13 +2614,49 @@
 		}
         /* === FIM DA MODIFICAÇÃO === */
 
+        let addressSelectionGeneration=0;
+        async function useSavedPhoneAddress(addressData) {
+            const generation=++addressSelectionGeneration;
+            const identity=checkoutIdentity.get();
+            if(identity.mode!==CHECKOUT_MODES.PHONE) return;
+            invalidateCheckoutFreight();
+            updateAllSummaries();
+            const fields={checkoutAddressId:addressData.id,checkoutAddressRevision:identity.revision};
+            try {
+                const response=await fetch(`${API_BASE_URL}/frete/calcular?lojaId=${encodeURIComponent(STORE_ID)}`,{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({...fields,checkoutIdentityToken:identity.token})});
+                const quote=await response.json();
+                if(generation!==addressSelectionGeneration || checkoutIdentity.get().token!==identity.token || checkoutIdentity.get().revision!==identity.revision) return;
+                if(!response.ok) throw new Error(quote.message || 'Selecione novamente o endereço.');
+                if(typeof quote.valorFrete!=='number' || !Number.isFinite(quote.valorFrete) || quote.valorFrete<0) throw new Error('Não foi possível validar o frete deste endereço.');
+                pendingOrderDetails={clienteId:currentClient.id,clienteNome:currentClient.nome,
+                    telefone:currentClient.telefone,clienteEndereco:addressData.summary,...fields};
+                window.checkoutDeliveryAddress=null;window.currentLatLng=null;
+                applyCheckoutFreight(quote);
+                clearCheckoutBlockingIssue('frete');selectedAddressText.textContent=addressData.summary;
+                addressManagementModal.classList.add('hidden');updateAllSummaries();persistCheckoutState();
+                paymentModal.classList.remove('hidden');
+            } catch(error) {
+                if(generation!==addressSelectionGeneration || checkoutIdentity.get().revision!==identity.revision) return;
+                showToast(error.message || 'Não foi possível selecionar o endereço.',true);
+            }
+        }
 		async function useExistingAddress(addressText, addressData) {
+            if(!publicStore.delivery.available) {showToast('Entrega indisponível nesta loja.',true);return;}
+            if(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE && addressData?.saved) return useSavedPhoneAddress(addressData);
+            ++addressSelectionGeneration;
+            invalidateCheckoutFreight();
+            const quoteGeneration = window.guestFreightGeneration;
             window.distanciaFreteKm = null;
             window.valorFrete = 0;
+            window.checkoutDeliveryAddress=addressData || null;
+            window.currentLatLng = addressData?.lat != null ? {lat:Number(addressData.lat),lng:Number(addressData.lng)} : null;
 			pendingOrderDetails = {
 				clienteId: currentClient.id,
 				clienteNome: currentClient.nome,
 				clienteEndereco: addressText,
+                address: addressData || null,
 				telefone: currentClient.telefone
 			};
 			selectedAddressText.textContent = addressText;
@@ -2547,14 +2664,13 @@
 
 			if (window.freteACombinar || (addressData?.lat != null && addressData?.lng != null)) {
 				try {
-					if (!window.freteACombinar) await window.aguardarGoogleMaps();
 					const resultado = await window.calcularFreteParaEndereco({ lat: Number(addressData?.lat), lng: Number(addressData?.lng) });
-					window.valorFrete = Number(resultado.valorFrete);
-                    window.freteACombinar = resultado.freteACombinar === true;
-                    window.distanciaFreteKm = resultado.distanciaKm == null ? null : Number(resultado.distanciaKm);
+                    if (quoteGeneration !== window.guestFreightGeneration) return;
+					applyCheckoutFreight(resultado);
                     showToast(`Frete: ${freightDisplayValue()}`);
 					clearCheckoutBlockingIssue('frete');
 				} catch (error) {
+                    if (quoteGeneration !== window.guestFreightGeneration) return;
 					console.error('Erro ao calcular frete:', error);
 					const friendlyMessage = mapCriticalCheckoutError(error, 'Não foi possível calcular o frete para este endereço.');
 					setCheckoutBlockingIssue('frete', friendlyMessage);
@@ -2757,7 +2873,7 @@
                 document.getElementById('customer-modal-error').classList.add('hidden');
 
                 try {
-                    const { updateClientProfile, normalizeCallableError } = await import('./firebaseClientConfig.js');
+                    const { updateClientProfile, normalizeCallableError } = await import('./firebaseClientConfig.js?v=20261015-persistence');
                     const response = await updateClientProfile({
                         lojaId: STORE_ID,
                         clientId: client.id,
@@ -2835,17 +2951,18 @@
                     const response = await fetch(`${API_BASE_URL}/clientes?lojaId=${encodeURIComponent(STORE_ID)}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(newClientData)
+                        body: JSON.stringify({...newClientData,checkoutIdentityToken:checkoutIdentity.get().token,checkoutIdentityRevision:checkoutIdentity.get().revision})
                     });
                     const savedClient = await response.json().catch(() => ({}));
                     if (!response.ok || !savedClient?.id) {
                         throw new Error(savedClient?.message || 'Não foi possível criar o cadastro.');
                     }
 
-                    currentClient = savedClient;
                     showToast("Novo cliente criado com sucesso!");
                     modal.classList.add('hidden');
-                    openAddressManagementModal(currentClient);
+                    // Bind the new canonical record through the same minimal lookup.
+                    phoneInput.value=phone;
+                    await handlePhoneSearch();
 
                 } catch (error) {
                     console.error("Erro ao criar cliente:", error);
@@ -2877,7 +2994,14 @@
             try {
                 const functions = getFunctions(app, 'us-central1');
                 const lookupClientByPhone = httpsCallable(functions, 'lookupClientByPhone');
-                const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID });
+                await checkoutIdentity.ready();
+                const selectedIdentity=checkoutIdentity.get();
+                const lookupResult = await lookupClientByPhone({ telefone: phoneDigits, lojaId: STORE_ID,checkoutIdentityToken:selectedIdentity.token,checkoutIdentityRevision:selectedIdentity.revision });
+                if(checkoutIdentity.get().mode!==CHECKOUT_MODES.PHONE || checkoutIdentity.get().revision!==selectedIdentity.revision) return;
+                checkoutIdentity.acceptPhone(lookupResult.data.checkoutIdentity);
+                if(lookupResult.data.found===false) {
+                    phoneLoginModal.classList.add('hidden');openCustomerModalForCreate(phone);return;
+                }
 
                 phoneLoginModal.classList.add('hidden');
 
@@ -2890,12 +3014,7 @@
                     throw new Error('Dados do cliente não retornados pela função.');
                 }
 
-                currentClient = { id: clientId, ...client };
-                console.log('✅ Cliente identificado:', {
-                    id: clientId,
-                    nomeAbreviado: client?.nomeAbreviado || currentClient.nome,
-                    statusCadastro: client?.statusCadastro || 'indefinido'
-                });
+                currentClient = { id: clientId, ...client,telefone:phoneDigits,enderecos:Array.isArray(client.enderecos)?client.enderecos:[],accountLinked:false };
                 openAddressManagementModal(currentClient);
             } catch (error) {
                 const rawCode = typeof error?.code === 'string' ? error.code : '';
@@ -2913,7 +3032,7 @@
                 }
 
                 if (errorCode === 'permission-denied') {
-                    phoneError.textContent = 'Acesso não autorizado para busca de cadastro.';
+                    phoneError.textContent = /tentativas/i.test(error?.message || '') ? 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.' : 'Não foi possível identificar o cadastro nesta loja.';
                 } else if (errorCode === 'unauthenticated') {
                     phoneError.textContent = 'Faça login para continuar.';
                 } else if (errorCode === 'unavailable') {
@@ -2964,7 +3083,11 @@
 			if (pendingOrderDetails?.clienteEndereco === "Retirar na Loja") {
 				shippingValuePayment.textContent = 'R$ 0,00';
 				shippingRowPayment.classList.remove('hidden'); // Mostra a linha com R$ 0,00
-			} else if (window.freteACombinar) {
+			} else if (window.freightQuoteState !== 'READY') {
+                shippingValuePayment.textContent = 'A calcular';
+                shippingRowPayment.classList.remove('hidden');
+                document.getElementById('payment-total').textContent += ' + frete';
+            } else if (window.freteACombinar) {
                 shippingValuePayment.textContent = 'A Combinar';
                 shippingRowPayment.classList.remove('hidden');
             } else if (window.valorFrete > 0) {
@@ -2979,16 +3102,22 @@
 		function updateGuestSummary() {
 			const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
 			let discount = appliedCupom?.valorDesconto || 0;
-			let total = checkoutTotal(subtotal, discount);
+            const quoted = window.freightQuoteState === 'READY' && window.guestManualAddressLocationConfirmed;
+			let total = quoted ? checkoutTotal(subtotal, discount) : subtotal - discount;
 
 			document.getElementById('guest-subtotal').textContent = `R$ ${subtotal.toFixed(2)}`;
-			document.getElementById('guest-total').textContent = `R$ ${total.toFixed(2)}`;
+			document.getElementById('guest-total').textContent = `R$ ${total.toFixed(2)}` + (quoted ? '' : ' + frete');
 			document.getElementById('guest-discount-row').classList.toggle('hidden', discount === 0);
 			if (discount > 0) document.getElementById('guest-discount').textContent = `- R$ ${discount.toFixed(2)}`;
 
                         const shippingRow = document.getElementById('guest-shipping-row');
                         const shippingValue = document.getElementById('guest-shipping');
-                        if (window.freteACombinar) {
+                        if (!quoted) {
+                            shippingRow.classList.remove('hidden');
+                            shippingValue.textContent = window.freightQuoteState === 'LOADING' ? 'Calculando...'
+                                : window.freightQuoteState === 'ERROR' ? 'Confirme o endereço para calcular o frete.'
+                                : window.guestCurrentLatLng ? 'Confirme o local para calcular o frete.' : 'Aguardando endereço...';
+                        } else if (window.freteACombinar) {
                             shippingValue.textContent = 'A Combinar';
                             shippingRow.classList.remove('hidden');
                         } else if (window.valorFrete > 0) {
@@ -3020,8 +3149,8 @@
             if (!codigo) { showToast('Digite um cupom.', true); return; }
 
             if (!storeIsOpenNow) {
-                showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
-                throw new Error('STORE_CLOSED');
+                showToast(getStoreAvailabilityMessage(storeAvailability), true);
+                throw new Error(storeAvailability);
             }
             const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
             if (subtotal <= 0) { showToast('Adicione itens ao carrinho.', true); return; }
@@ -3093,7 +3222,78 @@
             persistCheckoutState();
         }
 
+        let guestPaymentPreviewGeneration=0;
+        function showGuestPendingPayment(pending) {
+            const notice=document.getElementById('guest-pending-payment');
+            const message=document.getElementById('guest-pending-payment-message');
+            const link=document.getElementById('guest-pending-payment-link');
+            notice.classList.toggle('hidden',!pending?.blocked);
+            message.textContent=pending?.message || '';
+            const canConsult=/^[a-f0-9]{64}$/.test(pending?.paymentId || '');
+            link.classList.toggle('hidden',!canConsult);
+            if(canConsult)link.href='/payment-return.html?order_nsu='+encodeURIComponent(pending.paymentId);
+        }
+        const setGuestPhoneError = (message = '') => {
+            const hint=document.getElementById('guest-phone-error');
+            hint.textContent=message;hint.classList.toggle('hidden',!message);
+            if(message)guestPhoneInput.setAttribute('aria-invalid','true');else guestPhoneInput.removeAttribute('aria-invalid');
+        };
+        const inspectCurrentGuestPayment = async () => {
+            return inspectGuestPaymentAttempt({storage:sessionStorage,storeId:STORE_ID,request:async body=>{
+                const response=await fetch(API_BASE_URL+'/checkout/payment-status',{method:'POST',headers:await paymentStatusHeaders(true),body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+                return {ok:response.ok,data:await response.json()};
+            }});
+        };
+        async function previewGuestPayment() {
+            const current=++guestPaymentPreviewGeneration,identity=checkoutIdentity.get(),mode=guestPaymentMethodSelect.value;
+            if(identity.mode!==CHECKOUT_MODES.GUEST) return;
+            const prior=await inspectCurrentGuestPayment();
+            if(current!==guestPaymentPreviewGeneration || checkoutIdentity.get().revision!==identity.revision || checkoutIdentity.get().mode!==CHECKOUT_MODES.GUEST || guestPaymentMethodSelect.value!==mode || document.getElementById('guest-checkout-modal').classList.contains('hidden')) return;
+            if(prior.registered) {recoverRegisteredCheckout(prior);return;}
+            showGuestPendingPayment(prior);
+        }
+
+        const finishConfirmedCheckout = (data,attemptKey,mode) => {
+            if(attemptKey && mode && !completeCheckoutAttempt({storage:sessionStorage,attemptKey,orderId:data.id,paymentId:data.paymentId || null,
+                paymentReturnToken:data.paymentReturnToken,storeId:STORE_ID,mode}))return false;
+            cart=[];currentClient=retainAuthenticatedCustomer(currentClient);pendingOrderDetails={};
+            removeCupom();
+            guestCheckoutModal.classList.add('hidden');paymentModal.classList.add('hidden');
+            for(const input of guestCheckoutModal.querySelectorAll('input')) {
+                if(input.type==='checkbox')input.checked=false;else input.value='';
+                input.disabled=false;
+            }
+            window.guestCurrentLatLng=null;window.guestManualAddressLocationConfirmed=false;
+            window.guestAddressFlowState=createInitialGuestAddressFlowState();window.guestAddressStep=1;
+            window.showGuestAddressStep?.(1);
+            clearCheckoutState();clearCheckoutBlockingIssue();
+            showGuestPendingPayment({blocked:false});resetPaymentChoice(paymentMethodSelect);resetPaymentChoice(guestPaymentMethodSelect);
+            setGuestPhoneError();
+            renderCart();resetWhatsAppConsent();
+            return true;
+        };
+        const recoverRegisteredCheckout = prior => {
+            if(prior.otherStore) {
+                completeCheckoutAttempt({storage:sessionStorage,attemptKey:prior.attemptKey,orderId:prior.orderId,
+                    paymentId:prior.paymentId,storeId:prior.storeId,mode:'ONLINE_NOW'});
+                showGuestPendingPayment({blocked:false});return false;
+            }
+            const completed=finishConfirmedCheckout({id:prior.orderId,paymentId:prior.paymentId},prior.attemptKey,'ONLINE_NOW');
+            if(completed) {
+                showToast('Seu pedido online anterior já foi registrado. O carrinho foi finalizado; adicione produtos para iniciar uma nova compra.');
+                confirmationModal.querySelector('h2').textContent='Pedido já registrado';
+                confirmationModal.querySelector('p').textContent='A compra anterior continua com seu próprio pagamento. O carrinho está pronto para uma nova compra.';
+                let link=confirmationModal.querySelector('[data-existing-payment]');
+                if(!link){link=document.createElement('a');link.dataset.existingPayment='';link.className='block mt-4 text-pink-700 underline';confirmationModal.append(link);}
+                link.textContent='Consultar pagamento do pedido anterior';link.href='/payment-return.html?order_nsu='+encodeURIComponent(prior.paymentId);
+                confirmationModal.classList.remove('hidden');
+            }
+            return completed;
+        };
+
         async function handleGuestOrder() {
+            if (sendWhatsappButton.disabled) return;
+            if(!cart.length){showToast('Adicione produtos para iniciar uma nova compra.',true);return;}
             const name = guestNameInput.value.trim();
             const phone = guestPhoneInput.value.trim();
             const paymentMethod = guestPaymentMethodSelect.value;
@@ -3145,22 +3345,38 @@
 
 			try {
 				ensureCheckoutNotBlocked();
+				await checkoutIdentity.ready();
+				const identity=checkoutIdentity.get();
+				const selection=paymentSelection(paymentMethod,identity.mode===CHECKOUT_MODES.GUEST && !!identity.token);
+				if(selection.mode==='ONLINE_NOW' && guestPaymentMethodSelect.selectedOptions[0]?.disabled) throw new Error('Pagamento online indisponível nesta loja. Tente novamente ou escolha Combinar Pagamento.');
+				const cartAtInspection=cart;
+				const prior=await inspectCurrentGuestPayment();
+				if(cart!==cartAtInspection || !cart.length)return;
+				showGuestPendingPayment(prior);
+				if(prior.blocked) {showToast(prior.message,true);return;}
+				if(prior.registered && recoverRegisteredCheckout(prior))return;
 				await finalizeOrder({
 					clienteNome: name,
 					clienteEndereco: fullAddress,
 					telefone: phone,
-					formaPagamento: paymentMethod
+					formaPagamento: selection.forma,
+					paymentMode: selection.mode,
+					pendingPaymentId: prior.paymentId || null
 				}, null, false);
 
 			} catch (error) {
+				if(['CUSTOMER_PHONE_INVALID','GUEST_PIX_ONLY_UNAVAILABLE'].includes(error.code))return;
 				console.error('Erro ao processar pedido do visitante:', error);
 				showToast(error?.message || 'Erro ao processar o pedido.', true);
+			} finally {
 				sendWhatsappButton.disabled = false;
-				sendWhatsappButton.innerHTML = '<i class="fa-brands fa-whatsapp"></i> Finalizar e Enviar via WhatsApp';
+				sendWhatsappButton.textContent = 'Confirmar Pedido';
 			}
 		}
 
         async function handlePlatformOrder() {
+            if (confirmOrderButton.disabled) return;
+            if(!cart.length){showToast('Adicione produtos para iniciar uma nova compra.',true);return;}
             if (!paymentMethodSelect.value) {
                 paymentError.textContent = 'Selecione uma forma de pagamento.';
                 paymentError.classList.remove('hidden');
@@ -3171,8 +3387,10 @@
             confirmOrderButton.innerHTML = '<div class="loader !w-5 !h-5 !border-2 !border-t-white mx-auto"></div> Confirmando...';
 
             try {
-                ensureCheckoutNotBlocked();
-                const finalOrderDetails = { ...pendingOrderDetails, formaPagamento: paymentMethodSelect.value };
+                ensureCheckoutNotBlocked(pendingOrderDetails);
+                const selection = paymentSelection(paymentMethodSelect.value, checkoutIdentity.isStrong() || checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE);
+                if (selection.mode === 'ONLINE_NOW' && paymentMethodSelect.selectedOptions[0]?.disabled) throw new Error('Pagamento online indisponível nesta loja. Tente novamente ou escolha Combinar Pagamento.');
+                const finalOrderDetails = { ...pendingOrderDetails, formaPagamento: selection.forma, paymentMode: selection.mode };
                 await finalizeOrder(finalOrderDetails, finalOrderDetails.clienteId, true);
             } catch (error) {
                 console.error('Erro ao confirmar pedido:', error);
@@ -3184,10 +3402,18 @@
         }
 
         async function finalizeOrder(clientInfo, clientId, isPlatform) {
+            const whatsappConsent = {
+                accepted: document.getElementById(isPlatform ? 'platform-whatsapp-consent' : 'guest-whatsapp-consent')?.checked === true,
+                version: 'order-confirmation-v1',
+            };
             await revalidateCheckoutBeforeFinalSubmit(clientInfo);
+            const online = clientInfo.formaPagamento === 'Online';
+            const guest=!isPlatform && checkoutIdentity.get().mode===CHECKOUT_MODES.GUEST && !!checkoutIdentity.get().token;
+            if (!isPlatform && !guest) throw new Error('Selecione novamente como continuar.');
+            if (online && !guest && !(checkoutIdentity.isStrong() && isLinkedCustomer(currentClient)) && !(checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE && currentClient)) throw new Error('Identifique seu celular antes de pagar.');
             if (!storeIsOpenNow) {
-                showToast('A loja está fechada no momento. Volte em nosso horário de atendimento.', true);
-                throw new Error('STORE_CLOSED');
+                showToast(getStoreAvailabilityMessage(storeAvailability), true);
+                throw new Error(storeAvailability);
             }
             const subtotal = cart.reduce((sum, item) => sum + (item.preco * item.quantity), 0);
             let cupomData = null;
@@ -3195,18 +3421,23 @@
                 cupomData = { codigo: appliedCupom.codigo, valorDesconto: appliedCupom.valorDesconto };
             }
             const desconto = cupomData?.valorDesconto || 0;
-            // Final totals and freight come from the order saved by the server.
+            // O total e o frete finais vêm do pedido salvo pelo servidor.
 
             const orderData = {
                 lojaId: STORE_ID,
+                checkoutIdentityToken:checkoutIdentity.get().token,
+                ...savedAddressFields(clientInfo),
+                whatsappConsent,
                 cliente: {
                     id: clientId || null,
                     nome: clientInfo.clienteNome,
                     endereco: clientInfo.clienteEndereco,
                     telefone: clientInfo.telefone,
                 },
+                ...(online || clientInfo.paymentMode ? {idempotencyKey:paymentAttempt(),delivery:{pickup:clientInfo.clienteEndereco==='Retirar na Loja',address:isPlatform ? pendingOrderDetails?.address : {cep:document.getElementById('guest-address-zip')?.value,street:document.getElementById('guest-address-street')?.value,number:document.getElementById('guest-address-no-number')?.checked ? 'S/N' : document.getElementById('guest-address-number')?.value,neighborhood:document.getElementById('guest-address-neighborhood')?.value,complement:document.getElementById('guest-address-complement')?.value},lat:(isPlatform ? window.currentLatLng : window.guestCurrentLatLng)?.lat,lng:(isPlatform ? window.currentLatLng : window.guestCurrentLatLng)?.lng}} : {}),
                 pagamento: {
                     forma: clientInfo.formaPagamento,
+                    ...(clientInfo.paymentMode ? {mode: clientInfo.paymentMode} : {}),
                 },
                 itens: cart.map(item => ({ produtoId: item.id, nome: item.nome, quantity: item.quantity, preco: item.preco })),
                 subtotal,
@@ -3221,7 +3452,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/checkout/confirmar?lojaId=${encodeURIComponent(STORE_ID)}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: await checkoutHeaders(online,checkoutIdentity),
                     body: JSON.stringify(orderData)
                 });
 
@@ -3232,13 +3463,14 @@
                         throw new Error('STORE_CLOSED');
                     }
                     const backendMessage = responseData?.message || 'Não foi possível confirmar o pedido no servidor.';
-                    throw new Error(backendMessage);
+                    throw Object.assign(new Error(backendMessage),{code:responseData?.code});
                 }
 
                 if (!responseData?.ok || !responseData?.id) {
                     throw new Error('Pedido não confirmado. Tente novamente.');
                 }
 
+                if (online) {redirectToPayment(responseData,()=>finishConfirmedCheckout(responseData,orderData.idempotencyKey,clientInfo.paymentMode || 'ONLINE_NOW'));return;}
                 clearCheckoutBlockingIssue();
 
                 const docRef = { id: responseData.id };
@@ -3266,29 +3498,112 @@
                     platformConfirmationModal.classList.remove('hidden');
                 }
 
-                cart = [];
-                currentClient = null;
-                pendingOrderDetails = {};
-                removeCupom();
-                clearCheckoutState();
-                renderCart();
+                finishConfirmedCheckout(responseData,orderData.idempotencyKey,clientInfo.paymentMode);
+                if (whatsappConsent.accepted && responseData.whatsappPhoneStatus === 'invalid') {
+                    showToast('Pedido confirmado. O telefone não é válido para receber a confirmação por WhatsApp.', true);
+                }
 
             } catch (error) {
-                console.error("Erro ao salvar pedido:", error);
                 const friendlyMessage = mapCriticalCheckoutError(error, 'Erro ao confirmar o pedido.');
+                if(!isPlatform && error.code==='CUSTOMER_PHONE_INVALID') {
+                    setGuestPhoneError(friendlyMessage);
+                    if(!guestCheckoutModal.classList.contains('hidden'))guestPhoneInput.focus();
+                    throw error;
+                }
+                if(!isPlatform && error.code==='GUEST_PIX_ONLY_UNAVAILABLE') {
+                    showToast(friendlyMessage,true);
+                    throw error;
+                }
+                console.error("Erro ao salvar pedido:", error);
+                if (!isPlatform && error.code==='CHECKOUT_ATTEMPT_CONFLICT') {
+                    showGuestPendingPayment({blocked:true,paymentId:clientInfo.pendingPaymentId,message:'Esta tentativa já possui um pedido com outros dados. As alterações não foram enviadas. Consulte o pedido existente ou fale com a loja antes de confirmar outro.'});
+                    throw error;
+                }
                 setCheckoutBlockingIssue('pedido', friendlyMessage);
                 showToast(friendlyMessage, true);
                 throw error;
             }
         }
-        document.addEventListener('DOMContentLoaded', () => {
-            restoreCheckoutState();
+        function applyReorderCart({items,products,uid}) {
+            const keys=['valorFrete','freteACombinar','freightQuoteState','distanciaFreteKm','guestCurrentLatLng','guestAddressFlowState','guestManualAddressLocationConfirmed','guestAddressStep','currentLatLng','pendingAddressLatLng','manualAddressLocationConfirmed'];
+            const oldWindow=Object.fromEntries(keys.map(key=>[key,window[key]]));
+            const old={cart,allProducts,pendingOrderDetails,appliedCupom,addressStep,checkoutBlockingIssue,reorderOwnerUid,addressFlow:{...window.addressFlowState}};
+            try {
+                cart=items.map(item=>({...item}));
+                const catalog=new Map(allProducts.map(product=>[product.id,product]));
+                products.filter(product=>product.available).forEach(product=>catalog.set(product.id,{...catalog.get(product.id),...product,status:'Ativo',ativo:true,categoria:'Delivery'}));
+                allProducts=[...catalog.values()];
+                pendingOrderDetails={};appliedCupom=null;reorderOwnerUid=uid;checkoutBlockingIssue=null;addressStep=1;
+                invalidateCheckoutFreight();window.guestCurrentLatLng=null;
+                window.guestAddressFlowState=createInitialGuestAddressFlowState();window.guestManualAddressLocationConfirmed=false;window.guestAddressStep=1;
+                window.currentLatLng=null;window.pendingAddressLatLng=null;window.manualAddressLocationConfirmed=false;
+                Object.assign(window.addressFlowState,{currentStep:1,autocompleteSelection:'',locationConfirmed:false,currentLatLng:null,pendingAddressLatLng:null,formData:{}});
+                renderCart();updateAllSummaries();
+            } catch(error) {
+                ({cart,allProducts,pendingOrderDetails,appliedCupom,addressStep,checkoutBlockingIssue,reorderOwnerUid}=old);
+                Object.assign(window,oldWindow);Object.assign(window.addressFlowState,old.addressFlow);
+                renderCart();updateAllSummaries();throw error;
+            }
+            resetWhatsAppConsent();
+            if(selectedAddressText) selectedAddressText.textContent='';
+            [paymentMethodSelect,guestPaymentMethodSelect,paymentCupomInput].filter(Boolean).forEach(input=>{input.value='';input.disabled=false;});
+            if(paymentCupomMessage) paymentCupomMessage.textContent='';
+            if(paymentError) paymentError.textContent='';
+            if(paymentVerifyCupomButton) {paymentVerifyCupomButton.textContent='Aplicar';paymentVerifyCupomButton.classList.replace('bg-red-600','bg-gray-600');}
+        }
+        const reorderCart=createPageCartBridge({storeId:STORE_ID,storage:sessionStorage,navigate:url=>window.location.assign(url),readCart:()=>cart,applyCart:applyReorderCart,open:()=>cartModal.classList.remove('hidden')});
+        onAuthStateChanged(getAuth(app),createCartOwnerObserver({
+            initialUid:getAuth(app).currentUser && !getAuth(app).currentUser.isAnonymous ? getAuth(app).currentUser.uid : null,
+            onClear:()=>{applyReorderCart({items:[],products:[],uid:null});currentClient=null;checkoutIdentity.invalidate();syncCheckoutPayment();},
+            onOwner:uid=>{reorderOwnerUid=uid;persistCheckoutState();}
+        }));
+        const customerAccount=installCustomerAccount({reorderCart,onCustomer:async client=>{
+            invalidateCheckoutFreight();
+            await checkoutIdentity.select(CHECKOUT_MODES.STRONG);
+            currentClient=client;syncCheckoutPayment();
+            identificationModal.classList.add('hidden');paymentModal.classList.add('hidden');
+            openAddressManagementModal(client);
+        },onSession:client=>{
+            if(reorderOwnerUid && reorderOwnerUid!==getAuth(app).currentUser?.uid) {cart=[];pendingOrderDetails={};reorderOwnerUid=null;persistCheckoutState();renderCart();}
+            if(client && getAuth(app).currentUser?.uid) {reorderOwnerUid=getAuth(app).currentUser.uid;persistCheckoutState();}
+            // Passive session publication must not upgrade an explicit weak selection.
+            if(checkoutIdentity.isStrong()) currentClient=client;
+            syncCheckoutPayment();
+        },onLogout:()=>{invalidateCheckoutFreight();if(reorderOwnerUid) {cart=[];reorderOwnerUid=null;renderCart();}currentClient=null;checkoutIdentity.invalidate();syncCheckoutPayment();pendingOrderDetails={};persistCheckoutState();updateAllSummaries();},notify:showToast});
+        const startCheckout = async () => {
+            try {
+                // Auth is canonical and configured before this module is exposed.
+                // Restore once, before public controls/catalog or passive writes start.
+                await getAuth(app).authStateReady();
+                restoreCheckoutState();
+                const user = getAuth(app).currentUser;
+                reorderOwnerUid = user && !user.isAnonymous ? user.uid : null;
+                cartHydrated = true;
+            } catch {
+                console.warn('Não foi possível preparar o carrinho salvo.');
+                return;
+            }
             initApp();
-        });
+            enableOnlinePayment(STORE_ID,()=>currentClient,()=>checkoutIdentity.isStrong(),()=>checkoutIdentity.get().mode===CHECKOUT_MODES.PHONE);
+            for(const container of [document.getElementById('payment-method-select')]) {
+                if(!container) continue;
+                const notice=document.createElement('section');notice.dataset.checkoutStrongInvitation='';
+                const text=document.createElement('p');text.textContent='Para pagar online, entre com Google ou e-mail.';notice.append(text);
+                for(const [label,id] of [['Entrar com Google','continue-google-button'],['Entrar com e-mail','continue-email-button']]) {
+                    const button=document.createElement('button');button.type='button';button.className='border rounded px-3 py-2 my-2';button.textContent=label;
+                    button.onclick=()=>{paymentModal.classList.add('hidden');guestCheckoutModal.classList.add('hidden');document.getElementById(id).click();};notice.append(button);
+                }
+                container.after(notice);
+            }
+            syncCheckoutPayment();
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startCheckout, {once:true});
+        else startCheckout();
+        }
     </script>
 
 	<script type="module">
-		import { db, doc, getDoc } from './firebaseClientConfig.js';
+		import { db, doc, getDoc } from './firebaseClientConfig.js?v=20261015-persistence';
 	</script>
 
 	<script>
@@ -3414,43 +3729,40 @@
     window.normalizeGuestLatLng = normalizeGuestLatLng;
 
     async function updateGuestShippingAndSummary(latlng) {
-        window.distanciaFreteKm = null;
+        window.invalidateCheckoutFreight('LOADING');
+        const generation = window.guestFreightGeneration;
         const normalizedLatLng = normalizeGuestLatLng(latlng);
         if (!normalizedLatLng) {
             console.warn('Coordenadas inválidas para cálculo de frete do visitante:', latlng);
             window.guestCurrentLatLng = null;
-            window.valorFrete = 0;
+            window.invalidateCheckoutFreight();
             window.persistCheckoutState?.();
-            window.updateGuestSummary();
+            window.updateAllSummaries();
             return;
         }
 
         window.guestCurrentLatLng = normalizedLatLng;
         window.persistCheckoutState?.();
-        document.getElementById('guest-shipping').textContent = 'Calculando...';
-        window.valorFrete = 0;
-        window.updateGuestSummary();
+        window.updateAllSummaries();
 
         try {
-            if (!window.freteACombinar) await window.aguardarGoogleMaps();
             const resultado = await window.calcularFreteParaEndereco(normalizedLatLng);
-            const valorCalculado = parseFloat(resultado.valorFrete);
-            window.valorFrete = Number.isFinite(valorCalculado) ? valorCalculado : 0;
-            window.freteACombinar = resultado.freteACombinar === true;
-            window.distanciaFreteKm = resultado.distanciaKm == null ? null : Number(resultado.distanciaKm);
+            if (generation !== window.guestFreightGeneration) return;
+            window.applyCheckoutFreight(resultado);
             window.persistCheckoutState?.();
             window.showToast(`Frete: ${window.freightDisplayValue()}`);
             window.clearCheckoutBlockingIssue?.('frete');
         } catch (error) {
+            if (generation !== window.guestFreightGeneration) return;
             console.error('Falha ao calcular frete para visitante:', error);
             const fallbackMessage = 'Não foi possível calcular o frete para este endereço.';
             const friendlyMessage = window.mapCriticalCheckoutError?.(error, fallbackMessage) || error?.message || fallbackMessage;
             window.setCheckoutBlockingIssue?.('frete', friendlyMessage);
             window.showToast(friendlyMessage, true);
-            window.valorFrete = 0;
+            window.invalidateCheckoutFreight('ERROR');
             window.persistCheckoutState?.();
         } finally {
-            window.updateGuestSummary();
+            window.updateAllSummaries();
         }
     }
     window.updateGuestShippingAndSummary = updateGuestShippingAndSummary;
@@ -3506,11 +3818,16 @@
             guestGeocoder = new google.maps.Geocoder();
         }
 
+        const geocodeGeneration = window.guestGeocodeGeneration = (window.guestGeocodeGeneration || 0) + 1;
+        const quoteGeneration = window.guestFreightGeneration;
         guestGeocoder.geocode({ location: normalizedLatLng }, (results, status) => {
+            if (window.guestAddressStep !== 2 || geocodeGeneration !== window.guestGeocodeGeneration || quoteGeneration !== window.guestFreightGeneration) return;
 		    if (status === 'OK' && results[0]) {
                 fillGuestAddressFields(results[0]);
                 window.guestCurrentLatLng = normalizedLatLng;
                 window.guestManualAddressLocationConfirmed = false;
+                window.invalidateCheckoutFreight();
+                window.updateAllSummaries();
                 showGuestMapWarning('Mova o mapa para ajustar o pino no local da entrega.');
                 syncGuestAddressFlowState({ locationConfirmed: false });
             }
@@ -3536,6 +3853,8 @@
                 fillGuestAddressFields(place);
                 window.guestCurrentLatLng = coords;
                 window.guestManualAddressLocationConfirmed = false;
+                window.invalidateCheckoutFreight();
+                window.updateAllSummaries();
                 syncGuestAddressFlowState({ currentStep: 2, locationConfirmed: false });
                 showGuestAddressStep(2);
                 await window.initGuestAddressMap(coords);
@@ -3564,6 +3883,8 @@
             const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             window.guestCurrentLatLng = coords;
             window.guestManualAddressLocationConfirmed = false;
+            window.invalidateCheckoutFreight();
+            window.updateAllSummaries();
             syncGuestAddressFlowState({ currentStep: 2, locationConfirmed: false });
             showGuestAddressStep(2);
             await window.initGuestAddressMap(coords);
@@ -3633,8 +3954,11 @@
         }
         const step = window.guestAddressFlowState.currentStep || 1;
         showGuestAddressStep(step);
-        if (step >= 2 && normalizeGuestLatLng(window.guestCurrentLatLng)) {
+        if (step === 2 && normalizeGuestLatLng(window.guestCurrentLatLng)) {
             await window.initGuestAddressMap(window.guestCurrentLatLng);
+        } else if (step === 3 && window.guestManualAddressLocationConfirmed && normalizeGuestLatLng(window.guestCurrentLatLng)) {
+            // A restored address can be reused; its previous quote cannot.
+            await window.updateGuestShippingAndSummary(window.guestCurrentLatLng);
         }
         if (!window.guestManualAddressLocationConfirmed) {
             showGuestMapWarning('Confirme o local para calcular o frete.');
@@ -3650,6 +3974,21 @@
             input.dataset.boundGuestState = 'true';
             input.addEventListener('input', () => syncGuestAddressFlowState());
             input.addEventListener('change', () => syncGuestAddressFlowState());
+        });
+
+    // Editing delivery fields invalidates the price, not the customer's draft.
+    ['guest-address-street', 'guest-address-number', 'guest-address-no-number', 'guest-address-neighborhood', 'guest-address-city', 'guest-address-zip']
+        .forEach(id => {
+            const input = document.getElementById(id);
+            const invalidate = () => {
+                window.guestManualAddressLocationConfirmed = false;
+                window.invalidateCheckoutFreight();
+                syncGuestAddressFlowState({locationConfirmed:false});
+                window.updateAllSummaries();
+                showGuestMapWarning('Confirme o local para calcular o frete.');
+            };
+            input?.addEventListener('input', invalidate);
+            input?.addEventListener('change', invalidate);
         });
 
     const guestNoNumberCheckbox = document.getElementById('guest-address-no-number');
@@ -3692,44 +4031,48 @@
 
 	// Função para calcular frete usando Google Distance Matrix API
 	async function calcularFreteParaEndereco(destinoLatLng) {
-        if (!window.dadosFrete) throw new Error('Configurações de frete não carregadas');
-        if (window.freteACombinar) {
+        if(window.publicStoreConfig && !window.publicStoreConfig.delivery.available) throw new Error('Entrega indisponível nesta loja.');
+        if (window.dadosFrete && window.freteACombinar) {
             return {valorFrete: 0, freteACombinar: true, distanciaKm: null};
-        }
-        if (!window.google || !window.google.maps) throw new Error('Google Maps não carregado');
-        const loja = {lat: Number(window.dadosFrete.lat), lng: Number(window.dadosFrete.lng)};
-        if (window.dadosFrete.lat == null || window.dadosFrete.lng == null ||
-            String(window.dadosFrete.lat).trim() === '' || String(window.dadosFrete.lng).trim() === '' ||
-            !Number.isFinite(loja.lat) || Math.abs(loja.lat) > 90 ||
-            !Number.isFinite(loja.lng) || Math.abs(loja.lng) > 180) {
-            throw new Error('Coordenadas da loja inválidas. Corrija latitude e longitude em Configurações → Frete.');
         }
         if (!destinoLatLng || !Number.isFinite(destinoLatLng.lat) || Math.abs(destinoLatLng.lat) > 90 ||
             !Number.isFinite(destinoLatLng.lng) || Math.abs(destinoLatLng.lng) > 180) {
             throw new Error('Coordenadas do endereço de entrega inválidas.');
         }
-        const distanceKm = await new Promise((resolve, reject) => {
-            const service = new google.maps.DistanceMatrixService();
-            service.getDistanceMatrix({
-                origins: [loja], destinations: [destinoLatLng],
-                travelMode: google.maps.TravelMode.DRIVING,
-                unitSystem: google.maps.UnitSystem.METRIC
-            }, (response, status) => {
-                if (status !== 'OK' || response?.rows?.[0]?.elements?.[0]?.status !== 'OK') {
-                    console.error('Erro no Google Distance Matrix:', status, response);
-                    return reject(new Error('Não foi possível calcular a distância de entrega.'));
-                }
-                resolve(response.rows[0].elements[0].distance.value / 1000);
+        let requestBody = {clienteLat: destinoLatLng.lat, clienteLng: destinoLatLng.lng};
+        if (window.dadosFrete) {
+            const loja = {lat: Number(window.dadosFrete.lat), lng: Number(window.dadosFrete.lng)};
+            if (window.dadosFrete.lat == null || window.dadosFrete.lng == null ||
+                String(window.dadosFrete.lat).trim() === '' || String(window.dadosFrete.lng).trim() === '' ||
+                !Number.isFinite(loja.lat) || Math.abs(loja.lat) > 90 ||
+                !Number.isFinite(loja.lng) || Math.abs(loja.lng) > 180) {
+                throw new Error('Coordenadas da loja inválidas. Corrija latitude e longitude em Configurações → Frete.');
+            }
+            await window.aguardarGoogleMaps();
+            const distanceKm = await new Promise((resolve, reject) => {
+                const service = new google.maps.DistanceMatrixService();
+                service.getDistanceMatrix({
+                    origins: [loja], destinations: [destinoLatLng],
+                    travelMode: google.maps.TravelMode.DRIVING,
+                    unitSystem: google.maps.UnitSystem.METRIC
+                }, (response, status) => {
+                    if (status !== 'OK' || response?.rows?.[0]?.elements?.[0]?.status !== 'OK') {
+                        console.error('Erro no Google Distance Matrix:', status, response);
+                        return reject(new Error('Não foi possível calcular a distância de entrega.'));
+                    }
+                    resolve(response.rows[0].elements[0].distance.value / 1000);
+                });
             });
-        });
+            requestBody = {distanciaKm: distanceKm};
+        }
         const response = await fetch(`${window.API_BASE_URL}/frete/calcular?lojaId=${encodeURIComponent(window.STORE_ID)}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({distanciaKm: distanceKm})
+            body: JSON.stringify(requestBody)
         });
         const quote = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(quote.message || 'Não foi possível calcular o frete.');
-        return {...quote, distanciaKm: distanceKm};
+        return quote;
     }
     window.calcularFreteParaEndereco = calcularFreteParaEndereco;
 

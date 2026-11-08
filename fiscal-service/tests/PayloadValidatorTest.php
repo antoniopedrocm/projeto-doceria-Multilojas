@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../src/Service/PayloadValidator.php';
+require __DIR__ . '/../src/Service/ItemCharges.php';
 use AnaGuimaraes\Fiscal\Service\PayloadValidator;
 
 $address = ['street' => 'Rua Teste', 'number' => '1', 'district' => 'Centro', 'city' => 'Goiania', 'cityCode' => '5208707', 'state' => 'GO', 'zip' => '74000000'];

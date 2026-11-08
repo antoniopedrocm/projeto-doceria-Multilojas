@@ -1,0 +1,183 @@
+const {createHash, randomUUID} = require('node:crypto');
+const {HttpsError} = require('firebase-functions/v2/https');
+const {FieldValue} = require('firebase-admin/firestore');
+const {createCustomerOrders} = require('./customer-orders');
+const {createCustomerRegistry}=require('./customer-registry');
+const {normalizeCustomerPhone}=require('./customer-phone');
+const {ownsCustomer}=require('./customer-ownership');
+const {historicalAddresses}=require('./customer-migration-plan');
+const {createCustomerReorder} = require('./customer-reorder');
+const digest = (provider, subject) => createHash('sha256').update(`${provider}:${subject}`).digest('hex');
+const fail = (code, message) => { throw new HttpsError(code, message); };
+function verifiedIdentity(token, user) {
+  if (!token || !user || user.disabled || token.uid !== user.uid) fail('unauthenticated', 'Entre novamente.');
+  const google = (user.providerData || []).find(p => p.providerId === 'google.com');
+  if (google?.uid && token.firebase?.identities?.['google.com']?.includes(google.uid)) {
+    return {provider: 'google', sub: google.uid};
+  }
+  const password = (user.providerData || []).find(p => p.providerId === 'password');
+  const tokenEmails = token.firebase?.identities?.email || [];
+  if (password && user.email && token.email === user.email && tokenEmails.includes(user.email)) {
+    return {provider: 'email_password', sub: user.uid};
+  }
+  fail('unauthenticated', 'Entre com Google ou e-mail para acessar sua conta.');
+}
+function normalizeContactPhone(value) {
+  try {return normalizeCustomerPhone(value).national;} catch {fail('invalid-argument','Informe um telefone brasileiro válido com DDD.');}
+}
+function normalizeName(value) {
+  const name = typeof value === 'string' ? value.normalize('NFC').trim().replace(/\s+/gu, ' ') : '';
+  if (!name || name.length > 120 || /\p{Cc}/u.test(name)) fail('invalid-argument', 'Informe um nome válido.');
+  return name;
+}
+// Legacy addresses receive deterministic IDs on read; only an authorized mutation persists them.
+function addressRecords(customerId, values) {
+  const seen = new Map(); const ids = new Set(); let hasDefault = false;
+  return (Array.isArray(values) ? values : []).map(value => {
+    const address = typeof value === 'string' ? {enderecoCompleto: value} : {...value};
+    const signature = JSON.stringify(Object.keys(address).sort().filter(k => !['id', 'isDefault'].includes(k)).map(k => [k, address[k]]));
+    const occurrence = seen.get(signature) || 0; seen.set(signature, occurrence + 1);
+    let id = typeof address.id === 'string' && address.id ? address.id : digest('address', `${customerId}:${signature}:${occurrence}`);
+    if (ids.has(id)) id = digest('address', `${customerId}:${signature}:${occurrence}`);
+    ids.add(id);
+    const isDefault = address.isDefault === true && !hasDefault;
+    hasDefault ||= isDefault;
+    return {...address, id, isDefault};
+  });
+}
+// A persisted array (including []) is authoritative: never revive deleted legacy
+// addresses. Materialize the same virtual records only during an authorized edit.
+function customerAddressRecords(customerId,data) {
+  return addressRecords(customerId,Array.isArray(data.enderecos)?data.enderecos:historicalAddresses(customerId,data));
+}
+function normalizeAddress(value) {
+  const address=value && typeof value==='object' ? value : {};
+  const clean=(field,max)=>String(address[field] || '').trim().slice(0,max);
+  const normalized={...Object.fromEntries(['cep','street','number','neighborhood','complement'].filter(k=>Object.prototype.hasOwnProperty.call(address,k)).map(k=>[k,clean(k,160)])),enderecoCompleto:clean('enderecoCompleto',300),nickname:clean('nickname',60),
+    referencia:clean('referencia',160),complemento:clean('complemento',120),semNumero:!!address.semNumero,
+    isDefault:!!address.isDefault,localizacaoFrequente:!!address.localizacaoFrequente};
+  const lat=Number(address.lat),lng=Number(address.lng);
+  const coordinate=value=>typeof value==='number' || (typeof value==='string' && value.trim()!=='');
+  if(!normalized.enderecoCompleto || !normalized.nickname || !coordinate(address.lat) || !coordinate(address.lng) || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat)>90 || Math.abs(lng)>180) fail('invalid-argument','Dados de endereço inválidos.');
+  return {...normalized,lat,lng};
+}
+function normalizeBirthdate(value) {
+  const text=String(value || '').trim();
+  if(!text) return '';
+  const match=text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!match) fail('invalid-argument','Informe uma data de nascimento válida.');
+  const [,year,month,day]=match.map(Number);const date=new Date(Date.UTC(year,month-1,day));
+  const today=new Date();const todayUtc=Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate());
+  if(year<1900 || date.getUTCFullYear()!==year || date.getUTCMonth()!==month-1 || date.getUTCDate()!==day || date.getTime()>todayUtc) fail('invalid-argument','Informe uma data de nascimento válida.');
+  return text;
+}
+function createCustomerAccount({admin, db, getStoreAvailability=()=> 'CONFIG_UNAVAILABLE', resolveStore}) {
+  const stamp = () => FieldValue.serverTimestamp();
+  const registry=createCustomerRegistry({db});
+  async function identity(request) {
+    if (!request.auth?.uid) fail('unauthenticated', 'Entre com Google ou e-mail.');
+    const user = await admin.auth().getUser(request.auth.uid);
+    return {user, ...verifiedIdentity({...request.auth.token, uid: request.auth.uid}, user)};
+  }
+  async function resolve(request) {
+    const id = await identity(request);
+    return registry.resolveStrongIdentity(id);
+  }
+  const safeProfile = (id, d, identity) => ({id, accountLinked:true, nome: d.nome || '', telefone: d.telefone || d.phone_number || '', aniversario: d.aniversario || '', enderecos: customerAddressRecords(id, d), email: identity.user.email || '', emailVerified: !!identity.user.emailVerified, authProvider: identity.provider, createdAt: d.criadoEm?.toDate?.().toISOString() || null});
+  async function account(request) {
+    const id = await resolve(request);
+    if (!id.customerId) return {needsPhone: true, nome: id.user.displayName || '', email: id.user.email || '', emailVerified: !!id.user.emailVerified, authProvider: id.provider};
+    const snap = await db.collection('clientes').doc(id.customerId).get();
+    if (!snap.exists || !ownsCustomer(snap.data(),id.user.uid)) fail('not-found', 'Cadastro indisponível.');
+    return {customer: safeProfile(snap.id, snap.data(), id)};
+  }
+  async function completeProfile(request) {
+    const id = await identity(request);
+    const national = normalizeContactPhone(request.data?.phone);
+    const requestedName = normalizeName(request.data?.nome || id.user.displayName || 'Cliente');
+    let result;
+    try {result=await registry.createForStrong({identity:id,phone:national,nome:requestedName});}
+    catch(e){fail(e.httpStatus===503?'unavailable':e.httpStatus===400?'invalid-argument':'failed-precondition',e.message);}
+    if(result.claimRequired) return result;
+    return account(request);
+  }
+  async function update(request) {
+    const id = await resolve(request);
+    if (!id.customerId) fail('failed-precondition', 'Informe seu celular de contato.');
+    const nome = normalizeName(request.data?.nome);
+    const fields = {nome, atualizadoEm: stamp()};
+    if (Object.prototype.hasOwnProperty.call(request.data || {}, 'aniversario')) fields.aniversario = normalizeBirthdate(request.data.aniversario);
+    const phone = Object.prototype.hasOwnProperty.call(request.data || {}, 'telefone') ? normalizeContactPhone(request.data.telefone) : null;
+    await db.runTransaction(async tx => {
+      const ref=db.collection('clientes').doc(id.customerId); const customer=await tx.get(ref);
+      if(!customer.exists || !ownsCustomer(customer.data(),id.user.uid)) fail('permission-denied','Cadastro não autorizado.');
+      const patch={...fields};
+      if(phone!==null) {try {registry.assertPhoneUnchanged(customer.data(),phone);} catch {fail('failed-precondition','A troca de telefone exige um fluxo de verificação próprio.');}}
+      tx.update(ref, patch);
+    });
+    return account(request);
+  }
+  async function addAddress(request) {
+    const id=await resolve(request);
+    if(!id.customerId) fail('failed-precondition','Informe seu celular de contato.');
+    const address=normalizeAddress(request.data?.address);
+    await db.runTransaction(async tx=>{
+      const ref=db.collection('clientes').doc(id.customerId);const snap=await tx.get(ref);
+      if(!snap.exists || !ownsCustomer(snap.data(),id.user.uid)) fail('permission-denied','Cadastro não autorizado.');
+      let addresses=customerAddressRecords(id.customerId, snap.data());
+      if(addresses.length>=20) fail('resource-exhausted','Você atingiu o limite de endereços salvos.');
+      if(address.isDefault) addresses=addresses.map(item=>typeof item==='object'?{...item,isDefault:false}:item);
+      addresses.push({...address,id:randomUUID(),isDefault:address.isDefault || addresses.length===0,criadoEm:new Date().toISOString()});
+      tx.update(ref,{enderecos:addresses,atualizadoEm:stamp()});
+    });
+    return account(request);
+  }
+  async function deleteAddress(request) {
+    const id=await resolve(request);
+    if(!id.customerId) fail('failed-precondition','Informe seu celular de contato.');
+    const index=request.data?.index;
+    if(!request.data?.addressId && (!Number.isInteger(index) || index<0)) fail('invalid-argument','Endereço inválido.');
+    await db.runTransaction(async tx=>{
+      const ref=db.collection('clientes').doc(id.customerId);const snap=await tx.get(ref);
+      if(!ownsCustomer(snap.data(),id.user.uid)) fail('permission-denied','Cadastro não autorizado.');
+      const addresses=customerAddressRecords(id.customerId, snap.data());
+      const position=request.data.addressId ? addresses.findIndex(a=>a.id===request.data.addressId) : index;
+      const address=addresses[position];
+      if(!address || (!request.data.addressId && address.enderecoCompleto!==request.data.expectedAddress)) fail('failed-precondition','Os endereços mudaram. Abra sua conta novamente.');
+      addresses.splice(position,1);
+      if (address.isDefault && addresses.length) addresses[0].isDefault=true;
+      tx.update(ref,{enderecos:addresses,atualizadoEm:stamp()});
+    });
+    return account(request);
+  }
+  async function mutateAddress(request, makeDefault) {
+    const id=await resolve(request);
+    if(!id.customerId) fail('failed-precondition','Informe seu celular de contato.');
+    if(typeof request.data?.addressId!=='string' || !request.data.addressId) fail('invalid-argument','Endereço inválido.');
+    const input=request.data.address;
+    if(!makeDefault && (!input || typeof input!=='object' || Array.isArray(input))) fail('invalid-argument','Dados de endereço inválidos.');
+    await db.runTransaction(async tx=>{
+      const ref=db.collection('clientes').doc(id.customerId); const snap=await tx.get(ref);
+      if(!snap.exists || !ownsCustomer(snap.data(),id.user.uid)) fail('permission-denied','Cadastro não autorizado.');
+      let addresses=customerAddressRecords(id.customerId,snap.data());
+      const index=addresses.findIndex(a=>a.id===request.data.addressId);
+      if(index<0) fail('not-found','Endereço não encontrado. Atualize sua conta.');
+      // Merge with the owned record before normalization: omission preserves, explicit empty clears.
+      const edit={...input};
+      if(Object.prototype.hasOwnProperty.call(edit,'complement') && !Object.prototype.hasOwnProperty.call(edit,'complemento')) edit.complemento=edit.complement;
+      if(Object.prototype.hasOwnProperty.call(edit,'complemento') && !Object.prototype.hasOwnProperty.call(edit,'complement')) edit.complement=edit.complemento;
+      const replacement=makeDefault ? null : normalizeAddress({...addresses[index],...edit});
+      const useDefault=makeDefault || replacement.isDefault;
+      if(useDefault) addresses=addresses.map(a=>({...a,isDefault:false}));
+      const frequent=Object.prototype.hasOwnProperty.call(request.data.address || {},'localizacaoFrequente') ? replacement?.localizacaoFrequente : addresses[index].localizacaoFrequente===true;
+      addresses[index]=makeDefault ? {...addresses[index],isDefault:true} : {...addresses[index],...replacement,localizacaoFrequente:frequent,isDefault:useDefault};
+      tx.update(ref,{enderecos:addresses,atualizadoEm:stamp()});
+    });
+    return account(request);
+  }
+  const history=createCustomerOrders({db,resolve});
+  const reorderPreview=createCustomerReorder({db,readOrder:history.detail,getStoreAvailability,resolveStore});
+  return {account, completeProfile, update, orders:history.list, orderDetail:history.detail, reorderPreview, addAddress, resolve, identity, registry, deleteAddress,
+    updateAddress: request=>mutateAddress(request,false), setDefaultAddress: request=>mutateAddress(request,true)};
+}
+module.exports = {createCustomerAccount, verifiedIdentity, normalizeContactPhone, normalizeAddress, normalizeBirthdate, normalizeName, addressRecords, digest};

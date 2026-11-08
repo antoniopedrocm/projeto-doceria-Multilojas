@@ -14,6 +14,7 @@ const FULL_DAY_TYPE_LABELS = {
   folga: 'Folga',
   feriado: 'Feriado'
 };
+
 const SUPPLEMENTAL_ROW_LABELS = {
   abono_periodo: 'Abono de período',
   liberacao_chefia_periodo: 'Liberação Chefia',

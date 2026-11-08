@@ -1,0 +1,1176 @@
+{
+  "localOnly": true,
+  "externalNetworkBlocked": true,
+  "results": [
+    {
+      "file": "functions/address-verification-emulator.test.js",
+      "exitCode": 0,
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-address-verification-emulator.test.js.log"
+    },
+    {
+      "file": "functions/address-verification-provider.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-address-verification-provider.test.js.log"
+    },
+    {
+      "file": "functions/admin-customer-preview-emulator.test.js",
+      "exitCode": 0,
+      "tests": 19,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-admin-customer-preview-emulator.test.js.log"
+    },
+    {
+      "file": "functions/admin-customer-preview.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-admin-customer-preview.test.js.log"
+    },
+    {
+      "file": "functions/admin-order-audit-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-admin-order-audit-rules.test.js.log"
+    },
+    {
+      "file": "functions/admin-order-edit.integration.test.js",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-admin-order-edit.integration.test.js.log"
+    },
+    {
+      "file": "functions/admin-order-total.test.js",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-admin-order-total.test.js.log"
+    },
+    {
+      "file": "functions/agreed-payment-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-agreed-payment-rules.test.js.log"
+    },
+    {
+      "file": "functions/caixa-core.test.js",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-caixa-core.test.js.log"
+    },
+    {
+      "file": "functions/caixa-functions.integration.test.js",
+      "exitCode": 0,
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-caixa-functions.integration.test.js.log"
+    },
+    {
+      "file": "functions/catalog-session.test.js",
+      "exitCode": 0,
+      "tests": 27,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-catalog-session.test.js.log"
+    },
+    {
+      "file": "functions/checkout-addresses-emulator.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-addresses-emulator.test.js.log"
+    },
+    {
+      "file": "functions/checkout-addresses.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-addresses.test.js.log"
+    },
+    {
+      "file": "functions/checkout-auth.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-auth.test.js.log"
+    },
+    {
+      "file": "functions/checkout-emulator.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-emulator.test.js.log"
+    },
+    {
+      "file": "functions/checkout-http.test.js",
+      "exitCode": 0,
+      "tests": 37,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-http.test.js.log"
+    },
+    {
+      "file": "functions/checkout-identity-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-identity-rules.test.js.log"
+    },
+    {
+      "file": "functions/checkout-payment-access.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-payment-access.test.js.log"
+    },
+    {
+      "file": "functions/checkout-payment.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-payment.test.js.log"
+    },
+    {
+      "file": "functions/checkout-reservation-emulator.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-reservation-emulator.test.js.log"
+    },
+    {
+      "file": "functions/checkout-reservation.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-checkout-reservation.test.js.log"
+    },
+    {
+      "file": "functions/crm-client-edit.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-crm-client-edit.test.js.log"
+    },
+    {
+      "file": "functions/customer-area.test.js",
+      "exitCode": 0,
+      "tests": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-area.test.js.log"
+    },
+    {
+      "file": "functions/customer-canonical-history-emulator.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-canonical-history-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-cors.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-cors.test.js.log"
+    },
+    {
+      "file": "functions/customer-legacy-compat.test.js",
+      "exitCode": 0,
+      "tests": 19,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-legacy-compat.test.js.log"
+    },
+    {
+      "file": "functions/customer-migration-driver-emulator.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-migration-driver-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-migration-writes.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-migration-writes.test.js.log"
+    },
+    {
+      "file": "functions/customer-orders-emulator.test.js",
+      "exitCode": 0,
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-orders-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-orders.test.js",
+      "exitCode": 0,
+      "tests": 19,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-orders.test.js.log"
+    },
+    {
+      "file": "functions/customer-phone-claim-emulator.test.js",
+      "exitCode": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-phone-claim-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-phone.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-phone.test.js.log"
+    },
+    {
+      "file": "functions/customer-profile-emulator.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-profile-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-profile-security.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-profile-security.test.js.log"
+    },
+    {
+      "file": "functions/customer-profile.test.js",
+      "exitCode": 0,
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-profile.test.js.log"
+    },
+    {
+      "file": "functions/customer-purchase-metrics-core.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-purchase-metrics-core.test.js.log"
+    },
+    {
+      "file": "functions/customer-registry-api-emulator.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-registry-api-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-registry-emulator.test.js",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-registry-emulator.test.js.log"
+    },
+    {
+      "file": "functions/customer-registry-rules.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-registry-rules.test.js.log"
+    },
+    {
+      "file": "functions/customer-reorder-view.test.js",
+      "exitCode": 0,
+      "tests": 24,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-reorder-view.test.js.log"
+    },
+    {
+      "file": "functions/customer-reorder.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-reorder.test.js.log"
+    },
+    {
+      "file": "functions/customer-session.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-session.test.js.log"
+    },
+    {
+      "file": "functions/customer-shell-emulator.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-customer-shell-emulator.test.js.log"
+    },
+    {
+      "file": "functions/entre-lojas-report.test.js",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-entre-lojas-report.test.js.log"
+    },
+    {
+      "file": "functions/entre-lojas.test.js",
+      "exitCode": 0,
+      "tests": 12,
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-entre-lojas.test.js.log"
+    },
+    {
+      "file": "functions/firestore.rules.test.js",
+      "exitCode": 0,
+      "tests": 41,
+      "passed": 41,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-firestore.rules.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-clone.rules.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-clone.rules.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-clone.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-clone.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-core.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-core.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-flow.integration.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-flow.integration.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-flow.test.js",
+      "exitCode": 0,
+      "tests": 34,
+      "passed": 34,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-flow.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-money.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-money.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-ncm-options.test.js",
+      "exitCode": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-ncm-options.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-numbering.rules.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-numbering.rules.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-numbering.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-numbering.test.js.log"
+    },
+    {
+      "file": "functions/fiscal-permissions.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-fiscal-permissions.test.js.log"
+    },
+    {
+      "file": "functions/freight-checkout.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-freight-checkout.test.js.log"
+    },
+    {
+      "file": "functions/freight-core.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-freight-core.test.js.log"
+    },
+    {
+      "file": "functions/freight-distance.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-freight-distance.test.js.log"
+    },
+    {
+      "file": "functions/freight-pages.test.js",
+      "exitCode": 0,
+      "tests": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-freight-pages.test.js.log"
+    },
+    {
+      "file": "functions/guest-checkout-emulator.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-guest-checkout-emulator.test.js.log"
+    },
+    {
+      "file": "functions/infinitepay-diagnostics.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-infinitepay-diagnostics.test.js.log"
+    },
+    {
+      "file": "functions/legacy-customer-session-emulator.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-legacy-customer-session-emulator.test.js.log"
+    },
+    {
+      "file": "functions/legacy-phone-emulator.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-legacy-phone-emulator.test.js.log"
+    },
+    {
+      "file": "functions/new-order-audio-contract.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-new-order-audio-contract.test.js.log"
+    },
+    {
+      "file": "functions/new-order-notifications.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-new-order-notifications.test.js.log"
+    },
+    {
+      "file": "functions/online-order-status-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-online-order-status-rules.test.js.log"
+    },
+    {
+      "file": "functions/order-payment-method.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-order-payment-method.test.js.log"
+    },
+    {
+      "file": "functions/payment-contract-emulator.test.js",
+      "exitCode": 0,
+      "tests": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-contract-emulator.test.js.log"
+    },
+    {
+      "file": "functions/payment-financial-events-emulator.test.js",
+      "exitCode": 0,
+      "tests": 15,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-financial-events-emulator.test.js.log"
+    },
+    {
+      "file": "functions/payment-prefill.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-prefill.test.js.log"
+    },
+    {
+      "file": "functions/payment-return-auth.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-return-auth.test.js.log"
+    },
+    {
+      "file": "functions/payment-settings-emulator.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-settings-emulator.test.js.log"
+    },
+    {
+      "file": "functions/payment-signal-policy.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-signal-policy.test.js.log"
+    },
+    {
+      "file": "functions/payment-verification.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-verification.test.js.log"
+    },
+    {
+      "file": "functions/payment-webhook-payload.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-payment-webhook-payload.test.js.log"
+    },
+    {
+      "file": "functions/phone-payment-http.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-phone-payment-http.test.js.log"
+    },
+    {
+      "file": "functions/point-hourly.test.js",
+      "exitCode": 0,
+      "tests": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-point-hourly.test.js.log"
+    },
+    {
+      "file": "functions/preprod-store-boundary-rules.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-preprod-store-boundary-rules.test.js.log"
+    },
+    {
+      "file": "functions/recaptcha-enterprise.test.js",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-recaptcha-enterprise.test.js.log"
+    },
+    {
+      "file": "functions/staff-push-logout-emulator.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-staff-push-logout-emulator.test.js.log"
+    },
+    {
+      "file": "functions/store-config-emulator.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-config-emulator.test.js.log"
+    },
+    {
+      "file": "functions/store-config.test.js",
+      "exitCode": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-config.test.js.log"
+    },
+    {
+      "file": "functions/store-directory.test.js",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-directory.test.js.log"
+    },
+    {
+      "file": "functions/store-fulfillment-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-fulfillment-rules.test.js.log"
+    },
+    {
+      "file": "functions/store-fulfillment.integration.test.js",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-fulfillment.integration.test.js.log"
+    },
+    {
+      "file": "functions/store-management-rules.test.js",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-management-rules.test.js.log"
+    },
+    {
+      "file": "functions/store-management.integration.test.js",
+      "exitCode": 0,
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-store-management.integration.test.js.log"
+    },
+    {
+      "file": "functions/transfer-status.rules.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-transfer-status.rules.test.js.log"
+    },
+    {
+      "file": "functions/user-status-core.test.js",
+      "exitCode": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-user-status-core.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-admin.test.js",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-admin.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-checkout.test.js",
+      "exitCode": 0,
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-checkout.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-history.test.js",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-history.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-order-summary.test.js",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-order-summary.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-webhook.test.js",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-webhook.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp-worker.test.js",
+      "exitCode": 0,
+      "tests": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp-worker.test.js.log"
+    },
+    {
+      "file": "functions/whatsapp.test.js",
+      "exitCode": 0,
+      "tests": 20,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\functions-whatsapp.test.js.log"
+    },
+    {
+      "file": "crm/tests/address-management.test.mjs",
+      "exitCode": 0,
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-address-management.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/canonical-auth.test.mjs",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-canonical-auth.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/cart-hydration.test.cjs",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-cart-hydration.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/checkout-addresses.test.mjs",
+      "exitCode": 0,
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-checkout-addresses.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/checkout-completion.test.mjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-checkout-completion.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/checkout-freight-refresh.test.mjs",
+      "exitCode": 0,
+      "tests": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-checkout-freight-refresh.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/checkout-identity.test.mjs",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-checkout-identity.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/checkout-payment-choice.test.mjs",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-checkout-payment-choice.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-account-entry.test.mjs",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-account-entry.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-account-styles.test.cjs",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-account-styles.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/customer-auth-errors.test.mjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-auth-errors.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-first-registration-return.test.mjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-first-registration-return.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-inline-login.test.mjs",
+      "exitCode": 0,
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-inline-login.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-phone-claim.test.mjs",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-phone-claim.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/customer-return-path.test.mjs",
+      "exitCode": 0,
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-customer-return-path.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/fiscal-eligibility-audit.test.cjs",
+      "exitCode": 0,
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-fiscal-eligibility-audit.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/friendly-menu-routes.test.mjs",
+      "exitCode": 0,
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-friendly-menu-routes.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/fulfillment-availability.test.cjs",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-fulfillment-availability.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/full-order-edit-form.test.cjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-full-order-edit-form.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/guest-checkout-payment.test.mjs",
+      "exitCode": 0,
+      "tests": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-guest-checkout-payment.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/guest-payment-attempt.test.mjs",
+      "exitCode": 0,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-guest-payment-attempt.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/hosting-cache.test.cjs",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-hosting-cache.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/legacy-address-save.test.mjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-legacy-address-save.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/legacy-address-trust.test.mjs",
+      "exitCode": 0,
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-legacy-address-trust.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/online-order-status-handler.test.cjs",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-online-order-status-handler.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/online-order-status.test.mjs",
+      "exitCode": 0,
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-online-order-status.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/order-details-total.test.cjs",
+      "exitCode": 0,
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-order-details-total.test.cjs.log"
+    },
+    {
+      "file": "crm/tests/public-auth-esm.test.mjs",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-public-auth-esm.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/sms-enterprise.test.mjs",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-sms-enterprise.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/staff-push-cross-tab.test.mjs",
+      "exitCode": 0,
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-staff-push-cross-tab.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/store-availability.test.mjs",
+      "exitCode": 0,
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-store-availability.test.mjs.log"
+    },
+    {
+      "file": "crm/tests/storefront.test.mjs",
+      "exitCode": 0,
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados\\dev-to-prod-20261108-662de0c2\\test-logs\\crm-tests-storefront.test.mjs.log"
+    },
+    {
+      "file": "functions/production-migration-compat.test.js",
+      "exitCode": 0,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": "_preservados/dev-to-prod-20261108-662de0c2/compat-final.log"
+    }
+  ]
+}

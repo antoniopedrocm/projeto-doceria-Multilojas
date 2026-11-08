@@ -14,11 +14,18 @@ const {onDocumentCreated, onDocumentUpdated, onDocumentWritten} = require("fireb
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const {FieldValue} = require('firebase-admin/firestore');
 const express = require("express");
 const cors = require("cors");
 const crypto = require('crypto');
+const {buildCheckoutWhatsApp} = require('./whatsapp-checkout');
+const {createWhatsAppWorker, createWhatsAppWorkerFunctions} = require('./whatsapp-worker');
+const {createWhatsAppAdminFunctions} = require('./whatsapp-admin');
+const {createWhatsAppWebhook} = require('./whatsapp-webhook');
 const {quoteFreight, totalWithFreight, validateFreightCoordinates,
-  loadStoreFreightConfig, orderFreightSnapshot} = require('./freight-core');
+  loadStoreFreightConfig, orderFreightSnapshot, assertFreightClaims} = require('./freight-core');
+const {resolveFreightDistance} = require('./freight-distance');
+const {createStoreResolver,mountStoreRoutes,assertFulfillment} = require('./store-config');
 const {createFiscalFunctions} = require('./fiscal');
 const {createCaixaFunctions} = require('./caixa');
 const {createEntreLojasFunctions} = require('./entre-lojas');
@@ -49,7 +56,78 @@ const {
 // Inicializa o Firebase Admin SDK
 admin.initializeApp();
 const db = admin.firestore();
+const whatsappWorker = createWhatsAppWorker({db, logger});
+Object.assign(exports, createWhatsAppWorkerFunctions({db, onDocumentCreated, onDocumentUpdated, onSchedule, logger, worker: whatsappWorker}));
+Object.assign(exports, createWhatsAppAdminFunctions({db, onCall, HttpsError}));
+exports.whatsappWebhook = onRequest({region: 'southamerica-east1', timeoutSeconds: 60, maxInstances: 2},
+    createWhatsAppWebhook({db, logger}));
 const auth = admin.auth();
+const {createCustomerAccount} = require('./checkout-auth');
+const {ownsCustomer,customerOwnerUids}=require('./customer-ownership');
+const {isClientStaffProfile,claimedClientPatch}=require('./crm-client-edit');
+const {normalizeCustomerPhone}=require('./customer-phone');
+const customerAccounts = createCustomerAccount({admin, db,getStoreAvailability:config=>getStoreAvailability(config), resolveStore:(...args)=>storeResolver.resolve(...args)});
+const customerRegistry=customerAccounts.registry;
+const {createAdminCustomerPreview,mountAdminCustomerPreview,previewDetails,assertNoPreviewMutation}=require('./admin-customer-preview');
+const {createCustomerPhoneClaim}=require('./customer-phone-claim');
+const {createCheckoutIdentity,MODES:CHECKOUT_MODES}=require('./checkout-identity');
+const {assertOnlinePaymentAccess}=require('./checkout-payment-access');
+const checkoutIdentities=createCheckoutIdentity({db});
+const {addressOptions,createCheckoutAddresses}=require('./checkout-addresses');
+const checkoutAddresses=createCheckoutAddresses({db,identities:checkoutIdentities});
+const {createAddressVerificationProvider}=require('./address-verification-provider');
+const {createAddressVerification,mountAddressVerification}=require('./address-verification');
+const addressProvider=createAddressVerificationProvider({db,admin});
+const addressVerification=createAddressVerification({db,identities:checkoutIdentities,provider:addressProvider});
+const {createLegacyCustomerSession,mountLegacyCustomerSession}=require('./legacy-customer-session');
+const legacyCustomerSession=createLegacyCustomerSession({db,verification:addressVerification});
+const customerPhoneClaim=createCustomerPhoneClaim({db,accounts:customerAccounts,provider:addressProvider});
+const {returnToken,returnAuthorization}=require('./payment-return-auth');
+const {createPaymentService, cents, paymentError} = require('./checkout-payment');
+const checkoutPayments = createPaymentService({db, admin});
+const {paymentPrefill}=require('./payment-prefill');
+const {RESERVATION_MS, shouldNotifyOrder} = require('./checkout-reservation');
+const {claimOnlineOrderNotification} = require('./checkout-notification');
+exports.expireCheckoutReservations = onSchedule({schedule:'every 5 minutes', region:'southamerica-east1'}, async () => {
+  const results = await checkoutPayments.expireDue();
+  for (const result of results) if (result.error) logger.error('checkout_reservation_expiry_failed', {paymentId:result.id});
+});
+async function checkoutToken(req) {
+  const token = String(req.headers.authorization || '').match(/^Bearer (.+)$/)?.[1];
+  if (!token) throw paymentError('Entre novamente para continuar.',401);
+  try {return await auth.verifyIdToken(token, true);} catch {throw paymentError('Sessão inválida.',401);}
+}
+const LOOKUP_CLIENT_ALLOWED_ORIGINS = [
+  'https://www.anaguimaraesdoceria.com.br',
+  'https://anaguimaraesdoceria.com.br',
+  'https://ana-guimaraes.web.app',
+  'https://ana-guimaraes.firebaseapp.com',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+];
+// Preview sessions are never credentials for Customer-self operations.
+const customerSelfCall=(handler,{readOnly=false}={})=>onCall({cors:LOOKUP_CLIENT_ALLOWED_ORIGINS},async request=>{
+  if(request.rawRequest?.headers?.['x-customer-preview'] || request.data?.previewSession || request.data?.mode==='ADMIN_CUSTOMER_PREVIEW') {
+    throw new HttpsError('permission-denied','Indisponível no modo administrativo.');
+  }
+  if(!readOnly) {
+    try {await assertNoPreviewMutation(db,request.auth?.uid);} catch {throw new HttpsError('permission-denied','Indisponível no modo administrativo.');}
+  }
+  return handler(request);
+});
+exports.customerAccount = customerSelfCall( customerAccounts.account,{readOnly:true});
+exports.customerCompleteProfile = customerSelfCall( customerAccounts.completeProfile);
+exports.customerPhoneClaimStatus=customerSelfCall(customerPhoneClaim.status,{readOnly:true});
+exports.customerPhoneClaimStart=customerSelfCall(customerPhoneClaim.start);
+exports.customerPhoneClaimConfirm=customerSelfCall(customerPhoneClaim.confirm);
+exports.customerUpdate = customerSelfCall( customerAccounts.update);
+exports.customerOrders = customerSelfCall( customerAccounts.orders,{readOnly:true});
+exports.customerOrderDetail = customerSelfCall( customerAccounts.orderDetail,{readOnly:true});
+exports.customerReorderPreview = customerSelfCall( customerAccounts.reorderPreview);
+exports.customerAddAddress = customerSelfCall( customerAccounts.addAddress);
+exports.customerDeleteAddress = customerSelfCall( customerAccounts.deleteAddress);
+exports.customerUpdateAddress = customerSelfCall( customerAccounts.updateAddress);
+exports.customerSetDefaultAddress = customerSelfCall( customerAccounts.setDefaultAddress);
 const STORE_INFO_DOC_ID = 'dados';
 const CONFIG_DOC_ID = 'config';
 const ROLE_OWNER = 'dono';
@@ -192,6 +270,7 @@ const getDefaultPermissionDetailsForRole = (role, permissionsInput = null) => {
   const permissions = permissionsInput || getDefaultPermissionsForRole(role);
   const normalizedRole = normalizeRole(role);
   return {
+    clientes: previewDetails(normalizedRole,permissions,null),
     'entre-lojas': {
       statuses: permissions?.['entre-lojas'] ? [...ENTRE_LOJAS_TRANSFER_STATUS_VALUES] : [],
       manageTransferDestinations: normalizedRole === ROLE_OWNER,
@@ -200,6 +279,7 @@ const getDefaultPermissionDetailsForRole = (role, permissionsInput = null) => {
       defaultCashPermissions(role) :
       defaultCashPermissions(ROLE_ACCOUNTANT),
     configuracoes: {
+      manage_payment_settings: normalizedRole === ROLE_OWNER,
       gerenciarStatusUsuarios: normalizedRole === ROLE_OWNER,
     },
   };
@@ -222,6 +302,7 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
   const normalizedRole = normalizeRole(role);
 
   return {
+    clientes: previewDetails(normalizedRole,permissions,details),
     'entre-lojas': {
       statuses,
       manageTransferDestinations: normalizedRole === ROLE_OWNER || (
@@ -233,6 +314,7 @@ const sanitizePermissionDetails = (permissionDetails, role, permissionsInput = n
       sanitizeCashPermissions(caixaDetails, role) :
       defaultCashPermissions(ROLE_ACCOUNTANT),
     configuracoes: {
+      manage_payment_settings: normalizedRole === ROLE_OWNER || (normalizedRole === ROLE_MANAGER && configuracoesDetails.manage_payment_settings === true),
       gerenciarStatusUsuarios: normalizedRole === ROLE_OWNER || (
         normalizedRole === ROLE_MANAGER &&
         configuracoesDetails.gerenciarStatusUsuarios === true
@@ -252,7 +334,7 @@ const ensureCustomProfile = async (uid, role, permissionsInput = null, permissio
     permissions,
     permissionDetails,
     role,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   }, {merge: true});
   return {permissions, permissionDetails};
 };
@@ -368,6 +450,20 @@ const verifyManagementAccess = async (uid) => {
   throw new HttpsError('permission-denied', 'Você não tem permissão para realizar esta ação.');
 };
 
+const {createAdminOrderEdit,createOrderAuthorizer} = require('./admin-order-edit');
+const adminOrderEdit = createAdminOrderEdit({db, admin, HttpsError, authorize:createOrderAuthorizer({db,HttpsError,assertActiveUser,sanitizePermissions,extractStoreIds})});
+exports.adminOrderSave = onCall({region:'us-central1',timeoutSeconds:60},adminOrderEdit.save);
+exports.adminOrderHistory = onCall({region:'us-central1',timeoutSeconds:60},adminOrderEdit.history);
+const {createStoreManagement}=require('./store-management');
+const {persistedStaffRole,assertOwnerAccountChange}=require('./store-owner-policy');
+const storeManagement=createStoreManagement({db,admin,HttpsError,assertActiveUser,extractStoreIds,normalizeRole,getAvailability:config=>getStoreAvailability(config)});
+exports.storeManagementRead=onCall({region:'us-central1',timeoutSeconds:60},storeManagement.read);
+exports.storeManagementWrite=onCall({region:'us-central1',timeoutSeconds:120},storeManagement.write);
+const {createFulfillmentAdmin,createFulfillmentAuthorizer}=require('./store-fulfillment-admin');
+const fulfillmentAdmin=createFulfillmentAdmin({db,admin,HttpsError,authorizeManage:storeManagement.owner,authorize:createFulfillmentAuthorizer({db,HttpsError,assertActiveUser,sanitizePermissions,extractStoreIds})});
+exports.staffGetFulfillment=onCall({region:'us-central1',timeoutSeconds:30},fulfillmentAdmin.get);
+exports.staffSaveFulfillment=onCall({region:'us-central1',timeoutSeconds:30},fulfillmentAdmin.save);
+
 const assertNotManagingSelf = (requesterUid, targetUid) => {
   if (targetUid && requesterUid === targetUid) {
     throw new HttpsError('permission-denied', 'Você não pode alterar o próprio perfil ou permissões.');
@@ -382,6 +478,7 @@ const grantsOwnerEquivalentPermissions = (role, permissionsInput, targetStores =
 };
 
 const assertManagerCannotGrantOwnerAccess = (requester, targetRole, permissionsInput, targetStores = []) => {
+  assertOwnerAccountChange(requester,normalizeRole(targetRole),null,HttpsError);
   if (requester.role !== ROLE_MANAGER) return;
   if (normalizeRole(targetRole) === ROLE_OWNER || grantsOwnerEquivalentPermissions(targetRole, permissionsInput, targetStores)) {
     throw new HttpsError('permission-denied', 'Gerentes não podem conceder perfil ou permissões de dono.');
@@ -491,6 +588,15 @@ const assertManagerCannotGrantUserStatusAccess = async (
     targetUid,
     requestedPermissionDetails,
 ) => {
+  const existingFinancialDetails = targetUid ?
+    (await db.collection('customProfiles').doc(targetUid).get()).data()?.permissionDetails : null;
+  assertFinancialPermissionGrant(requester, requestedPermissionDetails, existingFinancialDetails);
+  if(requester.role!==ROLE_OWNER &&
+      requestedPermissionDetails?.clientes?.view_customer_as_readonly===true &&
+      existingFinancialDetails?.clientes?.view_customer_as_readonly!==true) {
+    throw new HttpsError('permission-denied','Somente um Dono pode conceder a visualização de clientes.');
+  }
+
   if (
     requester.role !== ROLE_MANAGER ||
     !managerHasUserStatusPermission(requestedPermissionDetails)
@@ -534,6 +640,11 @@ const verifyStoreReadAccess = async (uid) => {
 
   throw new HttpsError('permission-denied', 'Você não tem permissão para consultar esta operação.');
 };
+
+const {createPaymentSettings,assertFinancialPermissionGrant}=require('./payment-settings');
+const paymentSettings=createPaymentSettings({db,admin,normalizeRole,extractStoreIds});
+exports.paymentSettingsGet=onCall({region:'us-central1'},paymentSettings.get);
+exports.paymentSettingsSave=onCall({region:'us-central1'},paymentSettings.save);
 
 const verifyPointStoreAccess = async (uid, lojaId) => {
   const profile = await assertActiveUser(uid);
@@ -1125,17 +1236,7 @@ const requireStoreId = (req, res) => {
   return lojaId;
 };
 
-const generateStoreId = (value) => {
-  if (!value) return '';
 
-  return String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50) || `loja-${Date.now()}`;
-};
 
 const getStoreRef = (storeId) => db.collection('lojas').doc(storeId);
 
@@ -1164,7 +1265,7 @@ const getNowInTimeZone = (timezone, now = new Date()) => {
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   });
   const parts = formatter.formatToParts(now);
   const weekdayRaw = parts.find((part) => part.type === 'weekday')?.value?.toLowerCase() || 'sun';
@@ -1175,30 +1276,101 @@ const getNowInTimeZone = (timezone, now = new Date()) => {
   return {weekday, minutes: (hour * 60) + minute};
 };
 
-const isStoreOpenNow = (storeConfig = {}, now = new Date()) => {
+const getStoreAvailability = (storeConfig, now = new Date()) => {
+  if (!storeConfig || typeof storeConfig !== 'object') return 'CONFIG_UNAVAILABLE';
   const overrideMode = storeConfig?.manualOverride?.mode || 'auto';
-  if (overrideMode === 'force_open') return true;
-  if (overrideMode === 'force_closed') return false;
+  if (overrideMode === 'force_open') return 'OPEN';
+  if (overrideMode === 'force_closed') return 'CLOSED';
+  if (overrideMode !== 'auto' || typeof storeConfig.timezone !== 'string' ||
+      !storeConfig.timezone.trim() || !storeConfig.schedule ||
+      typeof storeConfig.schedule !== 'object' || Array.isArray(storeConfig.schedule)) {
+    return 'CONFIG_UNAVAILABLE';
+  }
 
-  const timezone = storeConfig?.timezone || DEFAULT_STORE_TIMEZONE;
-  const schedule = storeConfig?.schedule || {};
-  const {weekday, minutes} = getNowInTimeZone(timezone, now);
+  let weekday;
+  let minutes;
+  try {
+    ({weekday, minutes} = getNowInTimeZone(storeConfig.timezone, now));
+  } catch (error) {
+    return 'CONFIG_UNAVAILABLE';
+  }
 
-  const todayConfig = schedule[weekday];
-  if (!todayConfig || !todayConfig.enabled) return false;
+  const todayConfig = storeConfig.schedule[weekday];
+  if (!todayConfig || typeof todayConfig.enabled !== 'boolean') return 'CONFIG_UNAVAILABLE';
+  if (!todayConfig.enabled) return 'CLOSED';
 
   const openMinutes = parseTimeToMinutes(todayConfig.open);
   const closeMinutes = parseTimeToMinutes(todayConfig.close);
-  if (openMinutes === null || closeMinutes === null) return false;
-  if (closeMinutes <= openMinutes) return false;
+  if (openMinutes === null || closeMinutes === null || closeMinutes <= openMinutes) return 'CONFIG_UNAVAILABLE';
 
-  return minutes >= openMinutes && minutes < closeMinutes;
+  return minutes >= openMinutes && minutes < closeMinutes ? 'OPEN' : 'CLOSED';
 };
 
 // API Express para o Cardápio Online
 const app = express();
 app.use(cors({origin: true})); // Habilita CORS para a API do cardápio
 app.use(express.json());
+const adminCustomerPreview=createAdminCustomerPreview({db,registry:customerRegistry,authorize:verifyManagementAccess});
+mountAdminCustomerPreview(app,adminCustomerPreview,checkoutToken);
+const storeResolver = createStoreResolver({db,getAvailability:getStoreAvailability,loadPaymentConfig:store=>checkoutPayments.config(store)});
+mountStoreRoutes(app,storeResolver);
+mountAddressVerification(app,addressVerification);
+mountLegacyCustomerSession(app,legacyCustomerSession);
+// Selection is explicit and independent of the browser's ambient Firebase session.
+app.post('/checkout/identity',async(req,res)=>{
+  try {
+    const storeId=String(req.body?.storeId || '');
+    if(!/^[\w-]{1,150}$/.test(storeId) || !(await db.doc(`lojas/${storeId}`).get()).exists) return res.status(404).json({code:'STORE_NOT_FOUND'});
+    const mode=req.body?.mode;
+    let uid=null,customerId=null;
+    if(mode===CHECKOUT_MODES.STRONG) {
+      const token=await checkoutToken(req);uid=token.uid;
+      const account=await customerAccounts.account({auth:{uid,token}});
+      customerId=account.customer?.id;
+    }
+    const ip=String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+    await enforcePhoneLookupRateLimit({callerKeyHash:hashForPrivacy('checkout-identity:'+ip),phoneHash:null});
+    return res.json(await checkoutIdentities.select({token:req.body?.checkoutIdentityToken,storeId,mode,uid,customerId}));
+  } catch(e) {return res.status(e.httpStatus || (e.code==='permission-denied'?429:403)).json({code:e.code || 'CHECKOUT_IDENTITY_REQUIRED',message:e.code==='permission-denied'?'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.':'Para pagar online, entre com Google ou e-mail.'});}
+});
+app.get('/checkout/config', async (req,res) => {
+  const store=String(req.query.lojaId || '');
+  if(!/^[\w-]+$/.test(store)) return res.status(400).json({enabled:false});
+  try {await checkoutPayments.config(store);return res.json({enabled:true});} catch {return res.json({enabled:false});}
+});
+app.post('/checkout/webhook', async(req,res)=>{
+  try {return res.json(await checkoutPayments.reconcile(req.body));}
+  catch(e){return res.status(e.httpStatus || 500).json({ok:false});}
+});
+app.post('/staff/payment-reconciliation/:method',async(req,res)=>{
+  res.set('Cache-Control','no-store');
+  try {
+    const token=await checkoutToken(req),profile=await verifyManagementAccess(token.uid);
+    const storeId=req.body?.storeId,method=req.params.method;
+    if(typeof storeId!=='string' || !/^[\w-]{1,150}$/.test(storeId) || profile.permissions.financeiro!==true || (!profile.allStores && !profile.stores.includes(storeId))) throw paymentError('Sem permissão financeira nesta loja.',403);
+    if(req.headers['x-customer-preview'] || req.body?.previewSession)throw paymentError('Indisponível em Admin Preview.',403);
+    if(method==='list')return res.json(await checkoutPayments.financialEvents.list(storeId,req.body?.cursor));
+    if(method==='payment')return res.json(await checkoutPayments.financialEvents.lookup(storeId,req.body?.paymentId));
+    await assertNoPreviewMutation(db,token.uid);
+    if(method==='register')return res.json(await checkoutPayments.financialEvents.register(req.body,{uid:token.uid,role:profile.role}));
+    if(method==='reconcile')return res.json(await checkoutPayments.financialEvents.reconcileEvent(storeId,req.body?.eventId));
+    if(method==='dismiss')return res.json(await checkoutPayments.financialEvents.dismiss(storeId,req.body?.eventId,req.body?.reason,{uid:token.uid,role:profile.role}));
+    return res.status(404).json({message:'Operação não encontrada.'});
+  }catch(e){return res.status(e.httpStatus || (e.code==='unauthenticated'?401:e.code==='permission-denied'?403:500)).json({message:e.httpStatus?e.message:'Não foi possível acessar a conciliação financeira.'});}
+});
+app.post('/checkout/payment-status', async(req,res)=>{
+  try {
+    res.set('Cache-Control','no-store');
+    const user=req.headers.authorization ? await checkoutToken(req) : null;
+    const paymentId=String(req.body?.paymentId || '');
+    const credential=req.body?.paymentReturnToken;
+    await checkoutPayments.status(paymentId,user?.uid,credential);
+    if(req.body.transaction_nsu && (req.body.slug || req.body.invoice_slug)) {
+      try {await checkoutPayments.reconcile({order_nsu:paymentId,transaction_nsu:req.body.transaction_nsu,slug:req.body.slug || req.body.invoice_slug});} catch(e) {if(e.httpStatus!==409) throw e;}
+    }
+    return res.json(await checkoutPayments.status(paymentId,user?.uid,credential));
+  } catch(e) {return res.status(e.httpStatus || 500).json({message:e.message});}
+});
 
 const CLIENTS_COLLECTION = 'clientes';
 const getClientsCollection = () => db.collection(CLIENTS_COLLECTION);
@@ -1223,6 +1395,7 @@ const sanitizeClientPayload = (input = {}) => {
     ...rest
   } = input || {};
 
+  for (const key of ['id', 'clientId', 'clienteId', 'authOwnerUid', 'authOwnerUids', 'identityRegistryVersion', 'canonicalCustomerId', 'canonicalStatus', 'legacyCustomerIds', 'legacyOrderPaths', 'normalizedPhone', 'phoneOwnership', 'phone_number', 'phone_verified_at', 'uid', 'authIdentities', 'customerId', 'phoneVerified', 'payment_status', 'order_status']) delete rest[key];
   delete rest.numeroDeComprasIncrement;
   delete rest.valorEmComprasIncrement;
 
@@ -1242,41 +1415,9 @@ const sanitizeClientPayload = (input = {}) => {
   };
 };
 
-const findClientByPhone = async (telefone) => {
-  if (!telefone) return null;
-  const snapshot = await admin.firestore().collection(CLIENTS_COLLECTION).where('telefone', '==', telefone).limit(1).get();
-  if (snapshot.empty) return null;
-  const docSnap = snapshot.docs[0];
-  return {id: docSnap.id, data: docSnap.data()};
-};
+const findClientByPhone = async phone=>findClientByNormalizedPhone(phone);
 
-const normalizePhoneNumber = (value) => {
-  if (typeof value !== 'string' && typeof value !== 'number') return '';
-
-  let digits = String(value).replace(/\D/g, '');
-
-  if (digits.startsWith('55') && digits.length > 11) {
-    digits = digits.slice(2);
-  }
-
-  if (digits.length < 10 || digits.length > 11) return '';
-  return digits;
-};
-
-const getPhoneLookupCandidates = (normalizedPhone) => {
-  if (!normalizedPhone) return [];
-
-  const candidates = [normalizedPhone];
-  if (normalizedPhone.length === 11 && normalizedPhone[2] === '9') {
-    candidates.push(`${normalizedPhone.slice(0, 2)}${normalizedPhone.slice(3)}`);
-  }
-
-  if (normalizedPhone.length === 10) {
-    candidates.push(`${normalizedPhone.slice(0, 2)}9${normalizedPhone.slice(2)}`);
-  }
-
-  return Array.from(new Set(candidates));
-};
+const normalizePhoneNumber=value=>{try{return normalizeCustomerPhone(value).national;}catch{return '';}};
 
 const abbreviateName = (name) => {
   if (typeof name !== 'string' || !name.trim()) return 'Cliente';
@@ -1307,20 +1448,11 @@ const buildSafeClientPayload = (clientData = {}) => ({
   nomeAbreviado: abbreviateName(clientData.nome),
 });
 
-const findClientByNormalizedPhone = async (normalizedPhone) => {
-  const candidates = getPhoneLookupCandidates(normalizedPhone);
-
-  for (const candidate of candidates) {
-    const existing = await findClientByPhone(candidate);
-    if (existing) {
-      return {
-        ...existing,
-        matchedPhone: candidate,
-      };
-    }
-  }
-
-  return null;
+const findClientByNormalizedPhone=async phone=>{
+  const result=await customerRegistry.resolvePhone(phone);
+  if(!result.customerId)return null;
+  const coupons=await customerRegistry.couponState(result.customerId);
+  return {id:result.customerId,data:{...result.customer.data(),cuponsUsados:coupons.used,cuponsReservados:coupons.reserved},matchedPhone:result.phone.national};
 };
 
 const hashForPrivacy = (value) => crypto.createHash('sha256').update(String(value || '')).digest('hex');
@@ -1352,7 +1484,7 @@ const enforcePhoneLookupRateLimit = async ({callerKeyHash, phoneHash}) => {
       windowStart: isSameWindow ? windowStart : now,
       lastAttemptAt: now,
       lastPhoneHash: phoneHash,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     if (nextCount > RATE_LIMIT_MAX_CALLS) {
@@ -1372,6 +1504,15 @@ const createHttpError = (status, message, code = null) => {
   return error;
 };
 
+const assertStoreOpen = (storeConfig) => {
+  const availability = getStoreAvailability(storeConfig);
+  if (availability === 'OPEN') return;
+  if (availability === 'CLOSED') {
+    throw createHttpError(403, 'A loja está fechada no momento. Volte em nosso horário de atendimento.', 'STORE_CLOSED');
+  }
+  throw createHttpError(503, 'Não foi possível verificar o horário da loja no momento.', 'CONFIG_UNAVAILABLE');
+};
+
 const normalizeCouponCode = (value) => (
   typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : ''
 );
@@ -1384,10 +1525,29 @@ const upsertClientDocument = async ({
   purchaseCountIncrement = 0,
   purchaseValueIncrement = 0,
   createdAt = null,
+  crmStaffUid = null,
 }) => {
-  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const timestamp = FieldValue.serverTimestamp();
   return db.runTransaction(async (transaction) => {
     const snap = await transaction.get(targetRef);
+    if(!snap.exists) throw createHttpError(404,'Cliente não encontrado.');
+    if(snap.data().canonicalStatus==='ALIAS') throw createHttpError(409,'Este cadastro foi consolidado. Reabra o cadastro principal.');
+    if(data.telefone) customerRegistry.assertPhoneUnchanged(snap.data(),data.telefone);
+    if (customerOwnerUids(snap.data()).length) {
+      if (!crmStaffUid) throw createHttpError(403, 'Use Minha Conta para alterar este cadastro.');
+      const [staffSnap, customSnap] = await Promise.all([
+        transaction.get(db.collection('users').doc(crmStaffUid)),
+        transaction.get(db.collection('customProfiles').doc(crmStaffUid)),
+      ]);
+      const patch = claimedClientPatch({customer: snap.data(), input: data, profile: staffSnap.data(), customProfile: customSnap.data(), lojaId});
+      if (Object.hasOwn(data, 'telefone')) customerRegistry.assertPhoneUnchanged(snap.data(), data.telefone);
+      transaction.update(targetRef, {...patch, atualizadoEm: timestamp});
+      transaction.create(db.collection('auditLogs').doc(), {
+        action: 'CRM_CLIENT_PROFILE_UPDATED', adminUid: crmStaffUid, storeId: lojaId,
+        customerId: targetRef.id, fields: Object.keys(patch), timestamp,
+      });
+      return {id: targetRef.id};
+    }
     const payload = {
       ...data,
       lojaId: data.lojaId || lojaId || data.lojaId,
@@ -1395,22 +1555,22 @@ const upsertClientDocument = async ({
     };
 
     if (lojaId) {
-      payload.lojasVisitadas = admin.firestore.FieldValue.arrayUnion(lojaId);
+      payload.lojasVisitadas = FieldValue.arrayUnion(lojaId);
     }
 
     if (Number.isFinite(purchaseCountIncrement) && purchaseCountIncrement !== 0) {
-      payload.numeroDeCompras = admin.firestore.FieldValue.increment(purchaseCountIncrement);
+      payload.numeroDeCompras = FieldValue.increment(purchaseCountIncrement);
     }
 
     if (Number.isFinite(purchaseValueIncrement) && purchaseValueIncrement !== 0) {
-      payload.valorEmCompras = admin.firestore.FieldValue.increment(purchaseValueIncrement);
+      payload.valorEmCompras = FieldValue.increment(purchaseValueIncrement);
     }
 
     if (!snap.exists && setCreatedIfMissing) {
       payload.criadoEm = createdAt || timestamp;
       payload.numeroDeCompras = payload.numeroDeCompras ?? 0;
       payload.valorEmCompras = payload.valorEmCompras ?? 0;
-      payload.lojasVisitadas = lojaId ? admin.firestore.FieldValue.arrayUnion(lojaId) : payload.lojasVisitadas;
+      payload.lojasVisitadas = lojaId ? FieldValue.arrayUnion(lojaId) : payload.lojasVisitadas;
     }
 
     transaction.set(targetRef, payload, {merge: true});
@@ -1433,6 +1593,15 @@ app.get("/produtos", async (req, res) => {
 });
 
 // Rota para buscar cliente por telefone
+async function isClientStaff(token,lojaId) {
+  const staff=(await db.collection('users').doc(token.uid).get()).data();
+  return isClientStaffProfile(staff,lojaId);
+}
+async function canManageClient(token,lojaId,clientId) {
+  if(await isClientStaff(token,lojaId)) return true;
+  try {return (await customerAccounts.account({auth:{uid:token.uid,token}})).customer?.id===clientId;}
+  catch {return false;}
+}
 app.get("/clientes/buscar", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
@@ -1443,17 +1612,12 @@ app.get("/clientes/buscar", async (req, res) => {
   }
 
   try {
+    const token=await checkoutToken(req);
+    if(!await isClientStaff(token,lojaId)) return res.status(403).json({message:'Utilize a identificação protegida por celular.'});
     const existing = await findClientByPhone(telefone);
     if (!existing) {
       return res.status(404).json({message: 'Cliente não encontrado.'});
     }
-
-    await upsertClientDocument({
-      targetRef: getClientsCollection().doc(existing.id),
-      data: existing.data,
-      lojaId,
-      setCreatedIfMissing: true,
-    });
 
     const refreshed = await getClientsCollection().doc(existing.id).get();
     return res.status(200).json({id: refreshed.id, ...refreshed.data()});
@@ -1468,8 +1632,12 @@ app.get("/clientes", async (req, res) => {
   const lojaId = requireStoreId(req, res);
   if (!lojaId) return;
   try {
+    const token = await checkoutToken(req);
+    const staff = (await db.collection('users').doc(token.uid).get()).data();
+    if (!staff || staff.ativo === false || staff.status === 'inativo' || !['dono', 'gerente', 'atendente'].includes(staff.role)) return res.status(403).json({message:'Acesso restrito à equipe.'});
+    if (staff.role !== 'dono' && staff.lojaId !== lojaId && !staff.lojaIds?.includes(lojaId)) return res.status(403).json({message:'Loja não autorizada.'});
     const snapshot = await getClientsCollection().where('lojasVisitadas', 'array-contains', lojaId).get();
-    const clients = snapshot.docs.map((doc) => ({id: doc.id, ...doc.data()}));
+    const clients = snapshot.docs.filter(doc=>doc.data().canonicalStatus!=='ALIAS').map((doc) => ({id: doc.id, ...doc.data()}));
     res.status(200).json(clients);
   } catch (error) {
     logger.error("Erro ao buscar clientes:", error);
@@ -1483,27 +1651,31 @@ app.post("/clientes", async (req, res) => {
   if (!lojaId) return;
 
   try {
-    const {data: newClient, purchaseCountIncrement, purchaseValueIncrement} = sanitizeClientPayload(req.body || {});
+    const {checkoutIdentityToken,checkoutIdentityRevision,...incoming}=req.body || {};
+    const {data: newClient, purchaseCountIncrement, purchaseValueIncrement} = sanitizeClientPayload(incoming);
     const telefone = typeof newClient.telefone === 'string' ? newClient.telefone.trim() : '';
 
-    const existing = await findClientByPhone(telefone);
-    const targetRef = existing ? getClientsCollection().doc(existing.id) : getClientsCollection().doc();
-
-    await upsertClientDocument({
-      targetRef,
-      data: newClient,
-      lojaId,
-      setCreatedIfMissing: !existing,
-      purchaseCountIncrement,
-      purchaseValueIncrement,
-    });
-
+    const existing = await findClientByNormalizedPhone(normalizePhoneNumber(telefone));
+    let staff=false;
+    try {staff=await isClientStaff(await checkoutToken(req),lojaId);} catch { /* Public creation is restricted below. */ }
+    if(!staff) {
+      const context=await checkoutIdentities.read(checkoutIdentityToken,lojaId);
+      if(context.mode!==CHECKOUT_MODES.PHONE || context.revision!==checkoutIdentityRevision || context.legacyCustomerId ||
+        context.phoneHash!==hashForPrivacy(normalizePhoneNumber(telefone)) || existing ||
+        Object.keys(incoming).some(k=>!['nome','aniversario','telefone','enderecos','lojasVisitadas','numeroDeCompras','valorEmCompras','lojaId'].includes(k)) ||
+        !Array.isArray(incoming.enderecos) || incoming.enderecos.length || purchaseCountIncrement || purchaseValueIncrement) {
+        return res.status(403).json({message:'Confirme novamente a identificação. Endereços exigem verificação do telefone.'});
+      }
+    }
+    const result=await customerRegistry.createOrGet({phone:telefone,data:{...newClient,lojasVisitadas:[lojaId],numeroDeCompras:0,valorEmCompras:0}});
+    const targetRef=getClientsCollection().doc(result.customerId);
+    if(staff && !result.created) await upsertClientDocument({targetRef,data:newClient,lojaId,purchaseCountIncrement,purchaseValueIncrement});
     const savedSnap = await targetRef.get();
-    const responseStatus = existing ? 200 : 201;
-    res.status(responseStatus).json({id: targetRef.id, ...savedSnap.data()});
+    const responseStatus = result.created ? 201 : 200;
+    res.status(responseStatus).json(staff?{id: targetRef.id, ...savedSnap.data()}:{id:targetRef.id});
   } catch (error) {
     logger.error("Erro ao criar cliente:", error);
-    res.status(500).send("Erro ao criar cliente.");
+    res.status(Number(error.httpStatus)||500).json({message:error.httpStatus?error.message:"Não foi possível salvar o cliente."});
   }
 });
 
@@ -1513,14 +1685,17 @@ app.put("/clientes/:id", async (req, res) => {
   if (!lojaId) return;
 
   try {
-    const {id} = req.params;
+    const id=await customerRegistry.resolveId(req.params.id);
+    const token = await checkoutToken(req);
+    const staff = await isClientStaff(token,lojaId);
+    if(!staff && !await canManageClient(token,lojaId,id)) return res.status(403).json({message:'Confirme seu telefone para gerenciar endereços.'});
     const {newAddress, ...rawData} = req.body || {};
     const {data: clientData, purchaseCountIncrement, purchaseValueIncrement} = sanitizeClientPayload(rawData);
     const clientRef = getClientsCollection().doc(id);
     const updates = {...clientData};
 
     if (newAddress) {
-      updates.enderecos = admin.firestore.FieldValue.arrayUnion(newAddress);
+      updates.enderecos = FieldValue.arrayUnion(newAddress);
     }
 
     await upsertClientDocument({
@@ -1528,6 +1703,7 @@ app.put("/clientes/:id", async (req, res) => {
       data: updates,
       lojaId,
       setCreatedIfMissing: true,
+      crmStaffUid: staff ? token.uid : null,
       purchaseCountIncrement,
       purchaseValueIncrement,
     });
@@ -1536,25 +1712,69 @@ app.put("/clientes/:id", async (req, res) => {
     res.status(200).json({id, ...updatedSnap.data()});
   } catch (error) {
     logger.error("Erro ao atualizar cliente:", error);
-    res.status(500).send("Erro ao atualizar cliente.");
+    res.status(Number(error.httpStatus)||500).json({message:error.httpStatus?error.message:"Não foi possível atualizar o cliente."});
   }
 });
 
-
-const quoteOrderFreight = async (transaction, storeId, primaryData, payload, pickup) => {
+// CRM deletion must not orphan the uniqueness index or erase identity/history.
+app.delete('/clientes/:id',async(req,res)=>{
+  const lojaId=requireStoreId(req,res);if(!lojaId)return;
   try {
+    if(!await isClientStaff(await checkoutToken(req),lojaId))throw createHttpError(403,'Acesso restrito à equipe.');
+    const id=await customerRegistry.resolveId(req.params.id);
+    if(id!==req.params.id)throw createHttpError(409,'Abra o cadastro principal para continuar.');
+    await db.runTransaction(async tx=>{
+      const ref=getClientsCollection().doc(id),customer=await tx.get(ref);
+      if(!customer.exists)throw createHttpError(404,'Cliente não encontrado.');
+      const data=customer.data(),phone=normalizeCustomerPhone(data.telefone || data.phone_number);
+      const [index,orders,identities]=await Promise.all([tx.get(customerRegistry.phoneRef(phone)),
+        tx.get(db.collectionGroup('pedidos').where('clienteId','==',id).limit(1)),tx.get(db.collection('customerAuthIdentities').where('customerId','==',id).limit(1))]);
+      if(data.authOwnerUid || data.authOwnerUids?.length || data.legacyCustomerIds?.length || data.enderecos?.length || !orders.empty || !identities.empty)
+        throw createHttpError(409,'Este cadastro possui vínculos ou histórico. Use o status Inativo para preservá-los.');
+      if(index.data()?.state!=='READY' || index.data()?.customerId!==id)throw createHttpError(409,'O cadastro precisa de conferência antes de excluir.');
+      tx.delete(ref);tx.delete(index.ref);
+    });
+    return res.json({ok:true});
+  }catch(e){return res.status(Number(e.httpStatus)||500).json({message:e.httpStatus?e.message:'Não foi possível excluir este cadastro.'});}
+});
+
+
+const quoteOrderFreight = async (transaction, storeId, primaryData, payload, pickup, address) => {
+  try {
+    await assertFulfillment({db,storeId,pickup,read:ref=>transaction.get(ref)});
     const config = pickup ? {} : await loadStoreFreightConfig({
       db, storeId, primaryData, read: (ref) => transaction.get(ref),
     });
+    // A concurrent configuration edit cannot make V1 inherit the legacy R$2 minimum.
+    if (!pickup && config.freteACombinar !== true) {
+      const [store, contract] = await Promise.all([
+        transaction.get(db.doc(`lojas/${storeId}`)),
+        transaction.get(db.doc(`lojas/${storeId}/configuracoes/storefront`)),
+      ]);
+      if ((store.data()?.storeConfigVersion === 1 || contract.exists) &&
+          (typeof config.valorMinimoFrete !== 'number' || !Number.isFinite(config.valorMinimoFrete) || config.valorMinimoFrete < 0)) {
+        throw new Error('Configure explicitamente o mínimo de frete desta loja.');
+      }
+    }
     if (!pickup && config.freteACombinar !== true) validateFreightCoordinates(config);
-    const quote = quoteFreight({config, pickup,
-      distanceKm: payload?.distanciaFreteKm,
-      requestedFreight: payload?.valorFrete ?? payload?.frete ?? 0});
-    return orderFreightSnapshot({config, quote, storeId, distanceKm: payload?.distanciaFreteKm});
+    const distanceKm = pickup || config.freteACombinar === true ? null : await resolveFreightDistance({
+      config, address,
+    });
+    const quote = quoteFreight({
+      config,
+      pickup,
+      distanceKm,
+    });
+    const freight = orderFreightSnapshot({config, quote, storeId, distanceKm});
+    assertFreightClaims(payload, freight, pickup);
+    return freight;
   } catch (error) {
+    if (error.httpStatus) throw error;
     throw createHttpError(400, error.message, 'FREIGHT_INVALID');
   }
 };
+
+
 
 // Rota para criar um novo pedido
 app.post("/pedidos", async (req, res) => {
@@ -1567,17 +1787,11 @@ app.post("/pedidos", async (req, res) => {
   }
 
   try {
+    const canonicalClientId=req.body?.clienteId?await customerRegistry.resolveId(String(req.body.clienteId)):null;
     const orderId = await db.runTransaction(async (transaction) => {
       const storeConfigSnap = await transaction.get(getStoreConfigDoc(lojaId));
-      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
-
-      if (!isStoreOpenNow(storeConfig)) {
-        throw createHttpError(
-          403,
-          'A loja está fechada no momento. Volte em nosso horário de atendimento.',
-          'STORE_CLOSED',
-        );
-      }
+      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : null;
+      assertStoreOpen(storeConfig);
 
       const validatedItems = [];
       let calculatedSubtotal = 0;
@@ -1630,20 +1844,27 @@ app.post("/pedidos", async (req, res) => {
 
       const subtotalFinal = Number(calculatedSubtotal.toFixed(2));
       const descontoFinal = Math.min(Math.max(Number(req.body?.desconto || 0), 0), subtotalFinal);
-      const freight = await quoteOrderFreight(transaction, lojaId, storeConfig, req.body,
-          req.body?.clienteEndereco === 'Retirar na Loja');
+      const freight = await quoteOrderFreight(
+        transaction,
+        lojaId,
+        storeConfig,
+        req.body,
+        req.body?.clienteEndereco === 'Retirar na Loja',
+        req.body?.clienteEndereco,
+      );
       const totalFinal = totalWithFreight(subtotalFinal - descontoFinal, freight);
 
       const orderRef = db.collection("lojas").doc(lojaId).collection("pedidos").doc();
       transaction.set(orderRef, {
         ...req.body,
+        clienteId:canonicalClientId,
         lojaId,
         itens: validatedItems,
         subtotal: subtotalFinal,
         desconto: descontoFinal,
         ...freight,
         total: totalFinal,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       return orderRef.id;
@@ -1670,7 +1891,10 @@ app.post("/checkout/confirmar", async (req, res) => {
   const subtotal = Number(req.body?.subtotal ?? 0);
   const descontoInformado = Number(req.body?.desconto ?? 0);
   const origem = typeof req.body?.origem === 'string' ? req.body.origem : 'Cardapio Online';
-  const status = typeof req.body?.status === 'string' ? req.body.status : 'Pendente';
+  const status = 'Pendente';
+  const paymentMode = pagamento.mode;
+  const explicitPaymentMode = paymentMode !== undefined;
+  const online = paymentMode === 'ONLINE_NOW' || (!explicitPaymentMode && pagamento.forma === 'Online');
 
   if (!itens.length) {
     return res.status(400).json({ok: false, message: 'Adicione ao menos um item ao pedido.'});
@@ -1681,32 +1905,122 @@ app.post("/checkout/confirmar", async (req, res) => {
   }
 
   try {
+    if (explicitPaymentMode && !['ONLINE_NOW', 'AGREED_LATER'].includes(paymentMode)) throw paymentError('Escolha de pagamento inválida.',400);
+    if (explicitPaymentMode && pagamento.forma !== (online ? 'Online' : 'A combinar')) throw paymentError('Escolha de pagamento inconsistente.',400);
+    const whatsappConfirmation = buildCheckoutWhatsApp({phone: cliente.telefone,
+      consent: req.body?.whatsappConsent, serverTimestamp: () => FieldValue.serverTimestamp()});
+    let paymentConfig, paymentId, orderRef, fingerprint, buyerEmail, checkoutCustomerId;
+    let ownerUid=null;
+    const identityToken=req.body?.checkoutIdentityToken;
+    let checkoutIdentity=identityToken ? await checkoutIdentities.read(identityToken,lojaId) : {mode:CHECKOUT_MODES.GUEST};
+    const checkoutIdentityRevision=checkoutIdentity.revision;
+    // A stale ID token is not a checkout selection, including for offline orders.
+    if(checkoutIdentity.mode===CHECKOUT_MODES.STRONG) {
+      ownerUid=(await checkoutToken(req)).uid;
+      checkoutIdentities.requireStrong(checkoutIdentity,ownerUid,cliente.id);
+    } else {
+      // Business association comes from the server context, never the browser.
+      // This business association grants neither Firebase Auth nor private reads.
+      cliente.id=checkoutIdentity.mode===CHECKOUT_MODES.PHONE?checkoutIdentity.legacyCustomerId:null;
+      if(checkoutIdentity.mode===CHECKOUT_MODES.PHONE && checkoutIdentity.phoneHash && hashForPrivacy(normalizePhoneNumber(cliente.telefone))!==checkoutIdentity.phoneHash) throw paymentError('Identifique novamente o celular deste checkout.',403);
+    }
+    const guest=checkoutIdentity.mode===CHECKOUT_MODES.GUEST;
+    if(online || explicitPaymentMode) {
+      if(checkoutIdentity.mode===CHECKOUT_MODES.STRONG) {
+      const token=await checkoutToken(req);ownerUid=token.uid;buyerEmail=token.email;
+      checkoutIdentities.requireStrong(checkoutIdentity,ownerUid,cliente.id);
+      let account;
+      try {account=await customerAccounts.account({auth:{uid:ownerUid,token}});}
+      catch(e) {
+        if(['unauthenticated','permission-denied','not-found'].includes(e.code)) throw paymentError('Entre em sua conta de cliente para pagar online.',403);
+        throw e;
+      }
+      checkoutCustomerId=account.customer?.id;
+      if(!checkoutCustomerId || cliente.id!==checkoutCustomerId) throw paymentError('Entre em sua conta de cliente para pagar online.',403);
+      } else if(guest) {
+        // A server-issued guest context authorizes only its own purchase. A
+        // typed phone is contact data, never proof of Customer ownership.
+        if(!identityToken || !explicitPaymentMode) throw paymentError('Selecione novamente como continuar.',403);
+        const phone=normalizeCustomerPhone(cliente.telefone).national;
+        cliente.telefone=phone;
+        cliente.nome=typeof cliente.nome==='string'?cliente.nome.trim():'';
+        if(!cliente.nome || cliente.nome.length>160) throw paymentError('Informe seu nome para o pedido.',400);
+        if(cupom?.codigo) throw paymentError('Remova o cupom para continuar como visitante. Cupons exigem identificação do cliente.',403);
+        checkoutCustomerId=null;
+      } else {
+        if(checkoutIdentity.mode!==CHECKOUT_MODES.PHONE || !checkoutIdentity.legacyCustomerId || !checkoutIdentity.phoneHash) throw paymentError('Identifique seu celular antes de continuar.',403);
+        checkoutCustomerId=await customerRegistry.resolveId(checkoutIdentity.legacyCustomerId);
+        cliente.id=checkoutCustomerId;
+      }
+      if(!/^[a-zA-Z0-9_-]{16,100}$/.test(req.body?.idempotencyKey || '')) throw paymentError('Identificador do pedido inválido.',400);
+      if(online) assertOnlinePaymentAccess(checkoutIdentity.mode);
+      if(online) paymentConfig=await checkoutPayments.config(lojaId);
+      paymentId=crypto.createHash('sha256').update((ownerUid || (guest?'guest:':'phone:')+checkoutIdentities.ref(identityToken).id)+':'+lojaId+':'+req.body.idempotencyKey).digest('hex');
+      fingerprint=crypto.createHash('sha256').update(JSON.stringify({cliente,itens,cupom,subtotal,delivery:req.body.delivery,descontoInformado,...(explicitPaymentMode ? {paymentMode} : {})})).digest('hex');
+      orderRef=db.collection('lojas').doc(lojaId).collection('pedidos').doc(paymentId);
+    }
     const orderId = await db.runTransaction(async (transaction) => {
+      if(identityToken) {
+        checkoutIdentity=await checkoutIdentities.read(identityToken,lojaId,transaction);
+        if(checkoutIdentity.revision!==checkoutIdentityRevision) throw paymentError('A identificação do checkout mudou. Selecione novamente como continuar.',403);
+        if(checkoutIdentity.mode===CHECKOUT_MODES.STRONG) checkoutIdentities.requireStrong(checkoutIdentity,ownerUid,cliente.id);
+        else if((online || explicitPaymentMode) && (ownerUid || (guest
+          ? checkoutIdentity.mode!==CHECKOUT_MODES.GUEST || checkoutIdentity.legacyCustomerId!=null || checkoutIdentity.customerId!=null || checkoutIdentity.ownerUid!=null
+          : checkoutIdentity.mode!==CHECKOUT_MODES.PHONE || checkoutIdentity.legacyCustomerId!==checkoutCustomerId))) throw paymentError('A identificação do checkout mudou. Selecione novamente como continuar.',403);
+        if(checkoutIdentity.mode===CHECKOUT_MODES.PHONE && checkoutIdentity.legacyCustomerId) cliente.id=await customerRegistry.resolveId(checkoutIdentity.legacyCustomerId,transaction);
+      }
+      if(explicitPaymentMode) {
+        const existing=await transaction.get(orderRef);
+        if(existing.exists && (existing.get('checkoutFingerprint')!==fingerprint || existing.get('ownerUid')!==ownerUid || existing.get('clienteId')!==checkoutCustomerId)) throw Object.assign(paymentError('O pedido já foi enviado com outros dados. Consulte o pedido existente.',409),{code:'CHECKOUT_ATTEMPT_CONFLICT'});
+        if(existing.exists && !online) {
+          const saved=existing.data();
+          assertFreightClaims(req.body,saved,cliente.endereco==='Retirar na Loja');
+          return {id:existing.id,subtotal:saved.subtotal,desconto:saved.desconto,valorFrete:saved.valorFrete,total:saved.total,tipoFrete:saved.tipoFrete,freteACombinar:saved.freteACombinar,whatsappPhoneStatus:saved.whatsappConfirmation?.phoneStatus};
+        }
+      }
+      if(online) {
+        const prior=await transaction.get(db.collection('checkoutPayments').doc(paymentId));
+        if(prior.exists) {
+          if(prior.data().fingerprint!==fingerprint) throw paymentError('O pedido já foi enviado com outros dados. Consulte o pagamento pendente.');
+          const savedOrder = await transaction.get(orderRef);
+          if (!savedOrder.exists) throw paymentError('Pedido indisponível. Consulte o pagamento pendente.');
+          assertFreightClaims(req.body, savedOrder.data(), cliente.endereco === 'Retirar na Loja');
+          if(prior.data().ownerUid!==ownerUid || prior.data().storeId!==lojaId || savedOrder.data().clienteId!==checkoutCustomerId) throw paymentError('Pedido não autorizado.',403);
+          transaction.update(prior.ref,{checkoutIdentity:{mode:checkoutIdentity.mode,contextPath:checkoutIdentities.ref(identityToken).path,revision:checkoutIdentity.revision,customerId:checkoutCustomerId},
+            ...(!prior.get('returnAuthorization')?{returnAuthorization:returnAuthorization(identityToken,paymentId)}:{})});
+          return prior.data().orderId;
+        }
+      }
       const storeConfigRef = getStoreConfigDoc(lojaId);
       const storeConfigSnap = await transaction.get(storeConfigRef);
-      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : {};
-
-      if (!isStoreOpenNow(storeConfig)) {
-        throw createHttpError(
-          403,
-          'A loja está fechada no momento. Volte em nosso horário de atendimento.',
-          'STORE_CLOSED',
-        );
+      const storeConfig = storeConfigSnap.exists ? (storeConfigSnap.data() || {}) : null;
+      assertStoreOpen(storeConfig);
+      if(req.body.checkoutAddressId) {
+        const savedAddress=await checkoutAddresses.resolve({token:identityToken,storeId:lojaId,
+          id:req.body.checkoutAddressId,revision:req.body.checkoutAddressRevision,transaction});
+        cliente.endereco=savedAddress.enderecoCompleto;
       }
-
-      const freight = await quoteOrderFreight(transaction, lojaId, storeConfig, req.body,
-          cliente.endereco === 'Retirar na Loja');
-      const stockUpdates = new Map();
+      const freight = await quoteOrderFreight(
+        transaction,
+        lojaId,
+        storeConfig,
+        req.body,
+        cliente.endereco === 'Retirar na Loja',
+        cliente.endereco,
+      );
+      const seenProducts=new Set();
+      const stockUpdates = [];
       const validatedItems = [];
       let calculatedSubtotal = 0;
 
       for (const item of itens) {
         const produtoId = item?.produtoId || item?.id;
         const quantity = Number(item?.quantity || 0);
-        if (!produtoId || !Number.isFinite(quantity) || quantity <= 0) {
+        if (!produtoId || !Number.isSafeInteger(quantity) || quantity <= 0 || seenProducts.has(String(produtoId))) {
           throw createHttpError(400, 'Item de pedido inválido.');
         }
 
+        seenProducts.add(String(produtoId));
         const productRef = db.collection('lojas').doc(lojaId).collection('produtos').doc(String(produtoId));
         const productSnap = await transaction.get(productRef);
 
@@ -1735,11 +2049,11 @@ app.post("/checkout/confirmar", async (req, res) => {
         }
 
         if (typeof productData.estoque === 'number') {
-          const newStock = (stockUpdates.get(String(produtoId))?.newStock ?? productData.estoque) - quantity;
+          const newStock = productData.estoque - quantity;
           if (newStock < 0) {
             throw createHttpError(409, `Estoque insuficiente para ${productData.nome || produtoId}.`);
           }
-          stockUpdates.set(String(produtoId), {ref: productRef, newStock, quantity: (stockUpdates.get(String(produtoId))?.quantity || 0) + quantity});
+          stockUpdates.push({ref: productRef, newStock, quantity});
         }
 
         calculatedSubtotal += currentPrice * quantity;
@@ -1800,7 +2114,7 @@ app.post("/checkout/confirmar", async (req, res) => {
 
         const usosAtuais = typeof cupomData.usos === 'number' ? cupomData.usos : 0;
         const limiteUso = Number(cupomData.limiteUso || 0);
-        if (limiteUso > 0 && usosAtuais >= limiteUso) {
+        if (limiteUso > 0 && usosAtuais + Number(cupomData.reservados || 0) >= limiteUso) {
           throw createHttpError(400, 'Este cupom atingiu o limite de usos.');
         }
 
@@ -1818,7 +2132,7 @@ app.post("/checkout/confirmar", async (req, res) => {
         throw createHttpError(400, 'Desconto informado sem cupom válido.');
       }
 
-      const descontoFinal = cupomDocRef ? valorDesconto : 0;
+      const descontoFinal = cupomDocRef ? Math.min(subtotalFinal, Math.max(0,valorDesconto)) : 0;
       const total = totalWithFreight(subtotalFinal - descontoFinal, freight);
       if (!Number.isFinite(total) || total < 0) {
         throw createHttpError(400, 'Totais do pedido inválidos.');
@@ -1831,24 +2145,47 @@ app.post("/checkout/confirmar", async (req, res) => {
         clienteSnap = await transaction.get(clienteRef);
       }
 
-      const orderRef = db.collection('lojas').doc(lojaId).collection('pedidos').doc();
+      if ((online || explicitPaymentMode) && !guest && (!clienteSnap?.exists || clienteRef.id!==checkoutCustomerId || (checkoutIdentity.mode===CHECKOUT_MODES.STRONG ? !ownsCustomer(clienteSnap.data(),ownerUid) : hashForPrivacy(normalizePhoneNumber(clienteSnap.data().telefone))!==checkoutIdentity.phoneRecordHash))) throw paymentError('Cadastro de cliente não autorizado para este checkout.',403);
+      if (checkoutIdentity.mode===CHECKOUT_MODES.STRONG && clienteSnap?.data()?.authOwnerUid && !ownsCustomer(clienteSnap.data(),ownerUid)) throw paymentError('Entre na conta vinculada ao cadastro.',403);
+      const customerCoupons=couponCode && clienteSnap?.exists?await customerRegistry.couponState(clienteRef.id,transaction):null;
+      if (online && customerCoupons?.used.includes(couponCode)) throw paymentError('Você já utilizou este cupom.');
+      if (couponCode && customerCoupons?.reserved.includes(couponCode)) throw paymentError('Este cupom está reservado em outro pedido.');
+      if (!orderRef) orderRef = db.collection('lojas').doc(lojaId).collection('pedidos').doc();
+      if(online) {
+        transaction.set(db.collection('checkoutPayments').doc(paymentId),{
+          orderId:orderRef.id,orderPath:orderRef.path,storeId:lojaId,ownerUid,fingerprint,
+          checkoutIdentity:{mode:checkoutIdentity.mode,contextPath:checkoutIdentities.ref(identityToken).path,revision:checkoutIdentity.revision,customerId:checkoutCustomerId},
+          payment_status:'PENDING',amount:cents(total),...paymentConfig,
+          returnAuthorization:returnAuthorization(identityToken,paymentId),
+          expiresAt:admin.firestore.Timestamp.fromMillis(Date.now()+RESERVATION_MS),
+          reservation:{state:'HELD',stock:stockUpdates.map(s=>({path:s.ref.path,quantity:s.quantity})),
+            couponPath:cupomDocRef?.path || null,couponCode,
+            customerPath:cupomDocRef && clienteSnap?.exists ? clienteRef.path : null},
+          ...paymentPrefill(paymentConfig,guest ? {nome:cliente.nome,telefone:cliente.telefone} : checkoutIdentity.mode===CHECKOUT_MODES.STRONG ? clienteSnap.data() : {nome:cliente.nome,telefone:clienteSnap.data().telefone,normalizedPhone:clienteSnap.data().normalizedPhone},req.body.delivery,buyerEmail),
+          createdAt:FieldValue.serverTimestamp()
+        });
+      }
       transaction.set(orderRef, {
         lojaId,
+        checkoutIdentity:{mode:checkoutIdentity.mode,...(checkoutIdentity.mode===CHECKOUT_MODES.PHONE && checkoutIdentity.legacyCustomerId ? {legacyClientId:checkoutIdentity.legacyCustomerId} : {})},
         clienteId: cliente.id || null,
         clienteNome: cliente.nome,
         clienteEndereco: cliente.endereco || '',
         telefone: cliente.telefone,
-        formaPagamento: pagamento.forma || pagamento.formaPagamento || '',
+        whatsappConfirmation,
+        formaPagamento: explicitPaymentMode ? (online ? 'Online' : 'A combinar') : pagamento.forma || pagamento.formaPagamento || '',
+        ...(explicitPaymentMode ? {paymentMode,paymentMethod:null,...(!online ? {paymentStatus:'PENDING'} : {}),ownerUid,checkoutFingerprint:fingerprint} : {}),
         itens: validatedItems,
-        estoqueAplicado: Object.fromEntries([...stockUpdates].map(([id, movement]) => [id, movement.quantity])),
+        estoqueAplicado: Object.fromEntries(stockUpdates.map(movement => [movement.ref.id, movement.quantity])),
         subtotal: subtotalFinal,
         desconto: descontoFinal,
         ...freight,
         total,
         cupom: cupomDocRef ? {codigo: couponCode, valorDesconto: descontoFinal} : null,
-        status,
+        status: online ? 'Aguardando pagamento' : status,
+        ...(online ? {order_status:'PENDING',payment_status:'PENDING',paymentId,ownerUid} : {}),
         origem,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       for (const stockUpdate of stockUpdates.values()) {
@@ -1856,22 +2193,27 @@ app.post("/checkout/confirmar", async (req, res) => {
       }
 
       if (cupomDocRef) {
-        transaction.set(cupomDocRef, {usos: admin.firestore.FieldValue.increment(1)}, {merge: true});
+        transaction.set(cupomDocRef, {[online ? 'reservados' : 'usos']: FieldValue.increment(1)}, {merge: true});
 
         if (clienteRef && clienteSnap?.exists) {
           transaction.set(clienteRef, {
-            cuponsUsados: admin.firestore.FieldValue.arrayUnion(couponCode),
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            [online ? 'cuponsReservados' : 'cuponsUsados']: FieldValue.arrayUnion(couponCode),
+            atualizadoEm: FieldValue.serverTimestamp(),
           }, {merge: true});
         }
       }
 
-      return {id: orderRef.id, subtotal: subtotalFinal, desconto: descontoFinal, ...freight, total};
+      return {id: orderRef.id, subtotal: subtotalFinal, desconto: descontoFinal, ...freight, total,
+        whatsappPhoneStatus: whatsappConfirmation.phoneStatus};
     });
 
+    if(online) {
+      res.set('Cache-Control','no-store');
+      return res.status(200).json({ok:true,...await checkoutPayments.start(paymentId,ownerUid,{token:identityToken,revision:checkoutIdentity.revision}),paymentReturnToken:returnToken(identityToken,paymentId),whatsappPhoneStatus:whatsappConfirmation.phoneStatus});
+    }
     return res.status(200).json({ok: true, ...orderId});
   } catch (error) {
-    logger.error('Erro ao confirmar checkout:', error);
+    if(!['CUSTOMER_PHONE_INVALID','GUEST_PIX_ONLY_UNAVAILABLE'].includes(error?.code))logger.error('Erro ao confirmar checkout:', error);
     const statusCode = Number(error?.httpStatus) || 500;
     const payload = {
       ok: false,
@@ -1888,12 +2230,18 @@ app.post("/frete/calcular", async (req, res) => {
     if (!lojaId) return;
     try {
         const { clienteLat, clienteLng } = req.body;
-
+        const savedAddress=req.body.checkoutAddressId ? await checkoutAddresses.resolve({
+            token:req.body.checkoutIdentityToken,storeId:lojaId,id:req.body.checkoutAddressId,
+            revision:req.body.checkoutAddressRevision,
+        }) : null;
         const freteConfig = await loadStoreFreightConfig({db, storeId: lojaId});
         if (freteConfig.freteACombinar === true) {
             return res.status(200).json({...quoteFreight({config: freteConfig}), distanciaKm: null});
         }
-
+        if (savedAddress || Object.prototype.hasOwnProperty.call(req.body, 'clienteEndereco')) {
+            const distanciaKm = await resolveFreightDistance({config: freteConfig, address: savedAddress?.enderecoCompleto || req.body.clienteEndereco});
+            return res.status(200).json({...quoteFreight({config: freteConfig, distanceKm: distanciaKm}), distanciaKm});
+        }
         const {lat: lojaLat, lng: lojaLng} = validateFreightCoordinates(freteConfig);
         if (req.body?.distanciaKm != null) {
             return res.status(200).json({
@@ -1901,14 +2249,13 @@ app.post("/frete/calcular", async (req, res) => {
                 distanciaKm: Number(req.body.distanciaKm),
             });
         }
-
-        // Preserve the existing legacy endpoint; the cardápios send Google Maps distance above.
         try {
             validateFreightCoordinates({lat: clienteLat, lng: clienteLng});
-        } catch (_) {
+        } catch (error) {
             return res.status(400).json({message: 'Confirme novamente o endereço para calcular o frete.'});
         }
 
+        // eslint-disable-next-line no-inner-declarations -- ES2015 block-scoped helper, supported by Node 22.
         function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; // Raio da Terra em km
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1922,14 +2269,14 @@ app.post("/frete/calcular", async (req, res) => {
         }
 
         const distanciaKm = getDistance(lojaLat, lojaLng, clienteLat, clienteLng);
-        res.status(200).json({
+        return res.status(200).json({
             ...quoteFreight({config: freteConfig, distanceKm: distanciaKm}),
             distanciaKm,
         });
 
     } catch (error) {
         logger.error("Erro ao calcular frete:", error);
-        res.status(400).json({message: error.message || 'Erro ao calcular frete.'});
+        return res.status(error.httpStatus || 400).json({message: req.body.checkoutAddressId ? 'Não foi possível validar este endereço. Selecione-o novamente.' : error.message || 'Erro ao calcular frete.'});
     }
 });
 
@@ -2024,12 +2371,7 @@ app.post("/cupons/verificar", async (req, res) => {
 });
 
 
-const LOOKUP_CLIENT_ALLOWED_ORIGINS = [
-  'https://www.anaguimaraesdoceria.com.br',
-  'https://anaguimaraesdoceria.com.br',
-  'http://localhost:5000',
-  'http://127.0.0.1:5000',
-];
+
 
 exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
   try {
@@ -2051,7 +2393,7 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
     }
 
     const rawIp = request.rawRequest?.headers?.['x-forwarded-for'] || request.rawRequest?.ip || 'unknown';
-    const callerIdentity = request.auth?.uid || `${rawIp}`.split(',')[0].trim() || 'anonymous';
+    const callerIdentity = `${rawIp}`.split(',')[0].trim() || 'anonymous';
     const callerKeyHash = hashForPrivacy(callerIdentity);
     const phoneHash = hashForPrivacy(normalizedPhone);
 
@@ -2065,23 +2407,19 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
       phoneHash,
       lojaId,
       found: Boolean(found),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     };
 
+    const checkoutIdentity=await checkoutIdentities.select({token:request.data?.checkoutIdentityToken,
+      storeId:lojaId,mode:CHECKOUT_MODES.PHONE,legacyCustomerId:found?.id || null,phone:normalizedPhone,
+      phoneRecordHash:found?hashForPrivacy(normalizePhoneNumber(found.data?.telefone)):null,expectedRevision:request.data?.checkoutIdentityRevision});
     if (!found) {
       await db.collection('auditLogs').add({
         ...auditPayload,
         outcome: 'not-found',
       });
-      throw new HttpsError('not-found', 'Cliente não encontrado.');
+      return {found:false,checkoutIdentity};
     }
-
-    await upsertClientDocument({
-      targetRef: getClientsCollection().doc(found.id),
-      data: found.data,
-      lojaId,
-      setCreatedIfMissing: true,
-    });
 
     await db.collection('auditLogs').add({
       ...auditPayload,
@@ -2090,9 +2428,11 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
     });
 
     return {
-      clientId: found.id,
-      phoneNormalized: normalizedPhone,
-      client: buildSafeClientPayload(found.data),
+      found:true,
+      checkoutIdentity,
+      clientId:'legacy_'+hashForPrivacy(checkoutIdentity.token),
+      client:{nome:abbreviateName(found.data?.nome),nomeAbreviado:abbreviateName(found.data?.nome),
+        enderecos:addressOptions(checkoutIdentity.token,found.id,found.data?.enderecos)},
     };
   } catch (error) {
     logger.error('lookupClientByPhone failed', {
@@ -2107,17 +2447,20 @@ exports.lookupClientByPhone = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
       throw error;
     }
 
+    if(error.httpStatus) throw new HttpsError(error.httpStatus===503?'unavailable':'failed-precondition',error.message);
     throw new HttpsError('internal', 'Não foi possível buscar o cliente agora. Tente novamente.');
   }
 });
 
 
-exports.updateClientProfile = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
+exports.updateClientProfile = customerSelfCall(async (request) => {
   try {
     const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
-    const clientId = typeof request.data?.clientId === 'string' ? request.data.clientId.trim() : '';
+    const clientId = typeof request.data?.clientId === 'string' && request.data.clientId.trim() ? await customerRegistry.resolveId(request.data.clientId.trim()) : '';
     const nome = typeof request.data?.nome === 'string' ? request.data.nome.trim() : '';
     const aniversario = typeof request.data?.aniversario === 'string' ? request.data.aniversario.trim() : '';
+
+    if(!request.auth?.uid || !await canManageClient({...request.auth.token,uid:request.auth.uid},lojaId,clientId)) throw new HttpsError('permission-denied','Entre na conta vinculada a este cadastro.');
 
     if (!lojaId) {
       throw new HttpsError('invalid-argument', 'lojaId é obrigatório.');
@@ -2138,6 +2481,7 @@ exports.updateClientProfile = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
     const clientRef = getClientsCollection().doc(clientId);
     const clientSnap = await clientRef.get();
 
+    if (clientSnap.data()?.authOwnerUid && !ownsCustomer(clientSnap.data(),request.auth?.uid)) throw new HttpsError('permission-denied', 'Entre na conta vinculada a este cadastro.');
     if (!clientSnap.exists) {
       throw new HttpsError('not-found', 'Cliente não encontrado.');
     }
@@ -2146,8 +2490,8 @@ exports.updateClientProfile = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
       nome,
       aniversario,
       lojaId,
-      lojasVisitadas: admin.firestore.FieldValue.arrayUnion(lojaId),
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      lojasVisitadas: FieldValue.arrayUnion(lojaId),
+      atualizadoEm: FieldValue.serverTimestamp(),
     });
 
     const updatedClientSnap = await clientRef.get();
@@ -2173,9 +2517,9 @@ exports.updateClientProfile = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, as
   }
 });
 
-exports.addClientAddress = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async (request) => {
+exports.addClientAddress = customerSelfCall(async (request) => {
   try {
-    const clientId = typeof request.data?.clientId === 'string' ? request.data.clientId.trim() : '';
+    const clientId = typeof request.data?.clientId === 'string' && request.data.clientId.trim() ? await customerRegistry.resolveId(request.data.clientId.trim()) : '';
     const lojaId = typeof request.data?.lojaId === 'string' ? request.data.lojaId.trim() : '';
     const incomingAddress = request.data?.address;
     const address = incomingAddress && typeof incomingAddress === 'object' ? incomingAddress : null;
@@ -2183,6 +2527,8 @@ exports.addClientAddress = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async
     if (!clientId || !lojaId || !address) {
       throw new HttpsError('invalid-argument', 'Parâmetros obrigatórios ausentes.');
     }
+
+    if(!request.auth?.uid || !await canManageClient({...request.auth.token,uid:request.auth.uid},lojaId,clientId)) throw new HttpsError('permission-denied','Confirme seu telefone para gerenciar endereços.');
 
     const storeDoc = await getStoreRef(lojaId).get();
     if (!storeDoc.exists) {
@@ -2211,15 +2557,16 @@ exports.addClientAddress = onCall({ cors: LOOKUP_CLIENT_ALLOWED_ORIGINS }, async
 
     const clientRef = getClientsCollection().doc(clientId);
     const clientSnap = await clientRef.get();
+    if (clientSnap.data()?.authOwnerUid && !ownsCustomer(clientSnap.data(),request.auth?.uid)) throw new HttpsError('permission-denied', 'Entre na conta vinculada a este cadastro.');
     if (!clientSnap.exists) {
       throw new HttpsError('not-found', 'Cliente não encontrado.');
     }
 
     await clientRef.update({
-      enderecos: admin.firestore.FieldValue.arrayUnion(allowedAddress),
-      lojasVisitadas: admin.firestore.FieldValue.arrayUnion(lojaId),
+      enderecos: FieldValue.arrayUnion(allowedAddress),
+      lojasVisitadas: FieldValue.arrayUnion(lojaId),
       lojaId,
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      atualizadoEm: FieldValue.serverTimestamp(),
     });
 
     return {success: true, address: allowedAddress};
@@ -2377,7 +2724,7 @@ exports.registerEmployeePoint = onCall({timeoutSeconds: 60}, async (request) => 
   const pontosRef = db.collection('lojas').doc(lojaId).collection('pontos');
   const punchAuditRef = db.collection('lojas').doc(lojaId).collection('pontosAuditoria').doc();
   const fallbackRecordRef = pontosRef.doc(`${uid}_${dayKey}`);
-  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const timestamp = FieldValue.serverTimestamp();
   const actionMap = {
     entrada: 'entrada',
     almoco_inicio: 'início do almoço',
@@ -2487,7 +2834,7 @@ exports.registerEmployeePoint = onCall({timeoutSeconds: 60}, async (request) => 
       almocoNaoRegistradoBancoHoras: statusPatch.inconsistente ? 0 : balanceDistribution.almocoNaoRegistradoBancoHoras,
       jornadaTrabalho: mergedRecord.jornadaTrabalho,
       updatedAt: timestamp,
-      historicoRegistros: admin.firestore.FieldValue.arrayUnion(pointEvent),
+      historicoRegistros: FieldValue.arrayUnion(pointEvent),
     };
     transaction.set(recordRef, updateData, {merge: true});
     transaction.set(punchAuditRef, {
@@ -2536,126 +2883,10 @@ exports.registerEmployeePoint = onCall({timeoutSeconds: 60}, async (request) => 
 });
 
 // Exporta o app Express como uma Cloud Function HTTP
-exports.api = onRequest(app);
+exports.api = onRequest({secrets: ["GOOGLE_MAPS_SERVER_API_KEY"]}, app);
 
-// Cria uma nova loja e garante que os dados fiquem isolados por loja
-exports.createStore = onCall(async (request) => {
-    const uid = request.auth?.uid;
-
-    if (!uid) {
-        throw new HttpsError('unauthenticated', 'Você precisa estar autenticado.');
-    }
-
-    const requester = await verifyManagementAccess(uid);
-
-    if (![ROLE_OWNER, ROLE_MANAGER].includes(requester.role)) {
-        throw new HttpsError('permission-denied', 'Apenas donos ou gerentes podem criar novas lojas.');
-    }
-
-    const rawName = typeof request.data?.nome === 'string' ? request.data.nome.trim() : '';
-    const rawId = typeof request.data?.storeId === 'string' ? request.data.storeId.trim() : '';
-
-    if (!rawName) {
-        throw new HttpsError('invalid-argument', 'Informe o nome da loja.');
-    }
-
-    const normalizedId = generateStoreId(rawId || rawName);
-
-    if (!normalizedId || normalizedId === STORE_ALL_KEY) {
-        throw new HttpsError('invalid-argument', 'Identificador inválido para a loja.');
-    }
-
-    const storeDocRef = db.collection('lojas').doc(normalizedId);
-    const timestamp = admin.firestore.FieldValue.serverTimestamp();
-
-    await db.runTransaction(async (transaction) => {
-        const existingDoc = await transaction.get(storeDocRef);
-
-        if (existingDoc.exists) {
-            throw new HttpsError('already-exists', 'Já existe uma loja com esse identificador.');
-        }
-
-        const storePayload = {
-            nome: rawName,
-            criadoEm: timestamp,
-            criadoPor: uid,
-        };
-
-        transaction.set(storeDocRef, storePayload, {merge: true});
-
-        transaction.set(storeDocRef.collection('info').doc(STORE_INFO_DOC_ID), {
-            nome: rawName,
-            criadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        transaction.set(storeDocRef.collection('meuEspaco').doc('empresa'), {
-            nomeFantasia: rawName,
-            documento: '',
-            contato: { telefone: '', email: '' },
-            endereco: {},
-            atualizadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        transaction.set(storeDocRef.collection('meuEspaco').doc('ponto'), {
-            nome: rawName,
-            endereco: {},
-            horarioFuncionamento: [],
-            atualizadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-
-        const configuracoesDoc = storeDocRef.collection('configuracoes').doc(CONFIG_DOC_ID);
-
-        transaction.set(configuracoesDoc, {
-            frete: {
-                ativo: false,
-                tipo: 'fixo',
-                valor: 0,
-                valorMinimo: 0,
-                atualizadoEm: timestamp,
-                criadoPor: uid,
-            },
-            iniciadoEm: timestamp,
-            criadoPor: uid,
-        }, {merge: true});
-    });
-
-    const profile = await getUserProfile(uid);
-    let assignedStoreIds = null;
-    let primaryStoreId = profile.lojaId || null;
-
-    if (!requester.allStores) {
-        const existingIds = extractStoreIds(profile);
-        const updatedStoreIds = Array.from(new Set([...existingIds, normalizedId]));
-        const userUpdate = {
-            lojaIds: updatedStoreIds,
-        };
-
-        if (!profile.lojaId) {
-            userUpdate.lojaId = normalizedId;
-            primaryStoreId = normalizedId;
-        }
-
-        await db.collection('users').doc(uid).set(userUpdate, {merge: true});
-        assignedStoreIds = updatedStoreIds;
-
-        if (!primaryStoreId) {
-            primaryStoreId = updatedStoreIds[0] || null;
-        }
-    }
-
-    return {
-        storeId: normalizedId,
-        storeData: {
-            nome: rawName,
-        },
-        assignedStoreIds,
-        primaryStoreId,
-        canAccessAllStores: requester.allStores,
-    };
-});
+// Existing callable name retained; all store writes now enforce strict OWNER.
+exports.createStore = onCall(request => storeManagement.write({...request,data:{...request.data,action:'CREATE'}}));
 
 // --- FUNÇÕES CHAMÁVEIS (CALLABLE FUNCTIONS) PARA GERENCIAMENTO DE USUÁRIOS ---
 
@@ -2830,7 +3061,7 @@ const persistUserStatusAndAudit = async ({
   reason,
   tokensRevoked,
 }) => {
-  const timestamp = admin.firestore.FieldValue.serverTimestamp();
+  const timestamp = FieldValue.serverTimestamp();
   const previousStatus = isUserActive(targetProfile) ?
     USER_STATUS_ACTIVE :
     USER_STATUS_INACTIVE;
@@ -3102,7 +3333,7 @@ exports.createUser = onCall(async (request) => {
         await db.collection("users").doc(userRecord.uid).set({
             email,
             nome,
-            role: normalizedRole,
+            role: persistedStaffRole(role,normalizedRole),
             lojaId: targetStores[0] || null,
             lojaIds: targetStores,
             permissions,
@@ -3111,8 +3342,8 @@ exports.createUser = onCall(async (request) => {
             status: USER_STATUS_ACTIVE,
             jornadaTrabalho: sanitizedWorkSchedule,
             dataInicioBancoHoras: sanitizedBankStartDate,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
         });
         return {uid: userRecord.uid, message: "Usuário criado com sucesso!"};
     } catch (error) {
@@ -3155,6 +3386,7 @@ exports.updateUser = onCall(async (request) => {
         const existingProfile = await getUserProfile(uid);
         const existingStores = extractStoreIds(existingProfile);
         const existingRole = normalizeRole(existingProfile.role);
+        assertOwnerAccountChange(requester,normalizedRole,existingProfile.role,HttpsError);
 
         let targetStores = [];
         if (normalizedRole === ROLE_OWNER) {
@@ -3243,7 +3475,7 @@ exports.updateUser = onCall(async (request) => {
         // caso o documento do usuário não exista no Firestore.
         await db.collection("users").doc(uid).set({
             nome: nome,
-            role: normalizedRole,
+            role: persistedStaffRole(role,normalizedRole,existingProfile),
             email: email,
             lojaId: targetStores[0] || null,
             lojaIds: targetStores,
@@ -3282,6 +3514,7 @@ exports.deleteUser = onCall(async (request) => {
 		const targetProfile = await getUserProfile(uid);
         const targetStores = extractStoreIds(targetProfile);
         const targetRole = normalizeRole(targetProfile.role);
+        assertOwnerAccountChange(requester,null,targetProfile.role,HttpsError);
 
         if (targetRole === ROLE_OWNER && requester.role !== ROLE_OWNER) {
             throw new HttpsError("permission-denied", "Somente donos podem remover outros donos.");
@@ -3321,6 +3554,7 @@ exports.updateUserPassword = onCall(async (request) => {
                 throw new HttpsError("permission-denied", "Você não pode alterar usuários de outra loja.");
             }
         }
+        assertOwnerAccountChange(requester,null,targetProfile.role,HttpsError);
         await auth.updateUser(uid, {password: newPassword});
         return {message: "Senha alterada com sucesso!"};
     } catch (error) {
@@ -3436,8 +3670,8 @@ const prepareRecurringExpensesForStores = async (storeIds, sourceMonth) => {
                 geradoPorRecorrencia: true,
                 recorrenciaOrigemId: expenseDoc.id,
                 recorrenciaOrigemCompetencia: sourceMonth,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
             };
 
             delete targetExpense.dataPagamento;
@@ -3618,7 +3852,7 @@ const syncConfirmedTransferFinancialRecords = async ({
         || admin.firestore.Timestamp.now()
     );
     const competence = getTransferFinancialMonth(transfer);
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const isNewEntry = (
         previousTransfer.status !== 'pagamento_confirmado'
         || previousOriginStoreId !== originStoreId
@@ -3919,12 +4153,9 @@ const sendNewOrderMulticast = async ({tokenDocs, data, orderId}) => {
 const NOTIFICATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
 const NOTIFICATION_EVENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-exports.notifyNewOrder = onDocumentCreated({
-    document: 'lojas/{lojaId}/pedidos/{pedidoId}',
-    region: 'southamerica-east1',
-    retry: true,
-}, async (event) => {
+const notifyNewOrderHandler = async (event) => {
     const order = event.data?.data();
+    if(order?.paymentId && order.payment_status!=='PAID')return;
     const orderId = String(event.params?.pedidoId || '').trim();
     const storeId = String(event.params?.lojaId || '').trim();
 
@@ -4006,6 +4237,17 @@ exports.notifyNewOrder = onDocumentCreated({
         logger.error('Erro ao enviar notificações de novo pedido.', {orderId, storeId, error});
         throw error;
     }
+};
+
+exports.notifyNewOrder = onDocumentCreated({document:'lojas/{lojaId}/pedidos/{pedidoId}',region:'southamerica-east1',retry:true},notifyNewOrderHandler);
+// Separate trigger preserves the deployed created-trigger contract. Both paths share the existing once-per-order delivery receipt.
+exports.notifyPaidOnlineOrder = onDocumentWritten({document:'lojas/{lojaId}/pedidos/{pedidoId}',region:'southamerica-east1',retry:true},async event=>{
+  let order=event.data?.after?.data();
+  if(!order?.paymentId || order.payment_status!=='PAID')return;
+  await checkoutPayments.syncOrderStatus(event.data.after.ref.path);
+  order=(await event.data.after.ref.get()).data();
+  if(!shouldNotifyOrder(event.data.before?.data(),order))return;
+  return notifyNewOrderHandler({...event,data:{data:()=>order}});
 });
 
 Object.assign(exports, createCaixaFunctions({

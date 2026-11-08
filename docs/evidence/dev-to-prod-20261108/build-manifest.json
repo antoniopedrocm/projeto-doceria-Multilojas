@@ -1,0 +1,244 @@
+{
+  "workspace": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja",
+  "project": "ana-guimaraes",
+  "localOnly": true,
+  "files": [
+    {
+      "path": "crm/build/.well-known/assetlinks.json",
+      "sha256": "dd4e2783217aa9e394b763f252cc1a7634aabe3f974199523be185b6ef9fed9d"
+    },
+    {
+      "path": "crm/build/address-management.mjs",
+      "sha256": "b1180d73ab61e599da70c892b2386ac0baa8027579b9151f6d16db2f367e2cfa"
+    },
+    {
+      "path": "crm/build/address-verification-firebase.mjs",
+      "sha256": "9e51a934dfc289dc2c344c233cee257e9bdf16dbde781377265c94c24ae29bc3"
+    },
+    {
+      "path": "crm/build/asset-manifest.json",
+      "sha256": "0812c36b0df43b1f24b0eb73bee6a26b40488be28425b9d227797d9dd7530836"
+    },
+    {
+      "path": "crm/build/audio/alarm.mp3",
+      "sha256": "2c4e76e82db26f9ad7f817c9463a97ecc4ffc309131e2f4449e218036d112dc9"
+    },
+    {
+      "path": "crm/build/audio/alarm_old.mp3",
+      "sha256": "1ab889a19998f0f0872fa7a8971dde5847b57e85be6ccad960e688f9d310a91a"
+    },
+    {
+      "path": "crm/build/audio/mixkit_vintage_warning_alarm_990.mp3",
+      "sha256": "1ab889a19998f0f0872fa7a8971dde5847b57e85be6ccad960e688f9d310a91a"
+    },
+    {
+      "path": "crm/build/canonical-auth.mjs",
+      "sha256": "de7e3c080f2189895cc4c8a25e84253653ca9f121c6748b5bc7b46fb2b198d60"
+    },
+    {
+      "path": "crm/build/canonical-session.mjs",
+      "sha256": "08615e2d82b9342309ea0e4d6771fba65b2b47badb0bf93c494ae5c0c7980e79"
+    },
+    {
+      "path": "crm/build/cardapio-festa.html",
+      "sha256": "0fb3937427dec16102e2f094eafc71cdec74368a5798ca99e846a6b0f4c9daa6"
+    },
+    {
+      "path": "crm/build/cardapio-garavelo.html",
+      "sha256": "0fb3937427dec16102e2f094eafc71cdec74368a5798ca99e846a6b0f4c9daa6"
+    },
+    {
+      "path": "crm/build/cardapio-matriz.html",
+      "sha256": "0fb3937427dec16102e2f094eafc71cdec74368a5798ca99e846a6b0f4c9daa6"
+    },
+    {
+      "path": "crm/build/cardapio.html",
+      "sha256": "0fb3937427dec16102e2f094eafc71cdec74368a5798ca99e846a6b0f4c9daa6"
+    },
+    {
+      "path": "crm/build/checkout-addresses.mjs",
+      "sha256": "0144b08620389b5363e36964da7320dfc48475e75fcf1580e27a1bd5096c6752"
+    },
+    {
+      "path": "crm/build/checkout-environment.js",
+      "sha256": "fbbc8a175c7711a9b861b8397c4d331d36987155521a6d3376ab2a978b2f5899"
+    },
+    {
+      "path": "crm/build/checkout-identity.mjs",
+      "sha256": "afb028eee588a278391a60719a95c11d8ee74c06b5d49817b9948f5fe0e4c58d"
+    },
+    {
+      "path": "crm/build/checkout-payment-choice.mjs",
+      "sha256": "cc8ea74a9252a7f69e15a71017ea351fc1330f91f72c558eff55e5d94671cd61"
+    },
+    {
+      "path": "crm/build/checkout-payment-client.js",
+      "sha256": "4d8f65d3a69a6377109d929d2f0651c4ab80163295cba6d7d14f84d928161b98"
+    },
+    {
+      "path": "crm/build/customer-account-core.mjs",
+      "sha256": "6d67ff1f0e2114e454096b7dd55974534254077a3d1a1db54c220336404e9c60"
+    },
+    {
+      "path": "crm/build/customer-account.js",
+      "sha256": "835befb4fd07c09283523d019c1d59615ff873994c893cdf41e7f6fa83f41b20"
+    },
+    {
+      "path": "crm/build/customer-area.css",
+      "sha256": "9c87eae22e8154efc9efc69cea7d2255ac5d4aff6b5b7b1fb674d4dc76510e31"
+    },
+    {
+      "path": "crm/build/customer-area.mjs",
+      "sha256": "fa11cca0a05adcf9319345802a5b6cf31adfefa5163a46601de6d844e853ec38"
+    },
+    {
+      "path": "crm/build/customer-auth-errors.mjs",
+      "sha256": "dd269af1acf6350557d5fa4a5e7c5dbd486872fceca5fb0c6ab528cda8a30293"
+    },
+    {
+      "path": "crm/build/customer-home.js",
+      "sha256": "c188b7a750d6da3eda8484b0cb4f229090955112cc690b87549257ba029a5efd"
+    },
+    {
+      "path": "crm/build/customer-orders-view.mjs",
+      "sha256": "743b5f4eb455fa474ea608587668db33c2e04bee004442a05e4b34f88067d9e2"
+    },
+    {
+      "path": "crm/build/customer-phone-claim.mjs",
+      "sha256": "face9da002fe17dba675c32839c3fcfdc029255279eccecbe6b18d5f29bd74cc"
+    },
+    {
+      "path": "crm/build/customer-profile.mjs",
+      "sha256": "dae5eb09cd84b8fedff67e11d45482b4a559f0eb09beaf84a937024982d3bf55"
+    },
+    {
+      "path": "crm/build/customer-reorder-view.mjs",
+      "sha256": "1b33d0283025c3167eecfefbd752688104f44b484ebbad9cf06fdca4b3a779a4"
+    },
+    {
+      "path": "crm/build/customer-session.mjs",
+      "sha256": "7662a5f71fa780acb101eca624e03c537fe6b823070938b83508be83cbf86f62"
+    },
+    {
+      "path": "crm/build/firebase-messaging-sw.js",
+      "sha256": "fdb685a5d017949237ea9e509ad63e7d940d910aced64a1795e868164a533ccc"
+    },
+    {
+      "path": "crm/build/firebaseClientConfig.js",
+      "sha256": "bb0bf2341afa894b44bfeb14ca68d3d6dbfd5563cc2045205e2b7408c2ca546b"
+    },
+    {
+      "path": "crm/build/fulfillment-availability.mjs",
+      "sha256": "b26f5cefe28c96844d530364ebcc287f7bc5c4944ac05b921e05176d4e54eaeb"
+    },
+    {
+      "path": "crm/build/guest-payment-attempt.mjs",
+      "sha256": "dcf1949077086c3f8d54dc144e27ef8292832f49a234055667ddc39ec4196782"
+    },
+    {
+      "path": "crm/build/ic_launcher.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/ic_launcher_foreground.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/ic_launcher_round.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/index.html",
+      "sha256": "86dc2f2104681f01a680728325b3baa555dde45fbf71873a1d5efe3981778c4a"
+    },
+    {
+      "path": "crm/build/legacy-address-save.mjs",
+      "sha256": "16a50455d8997b48c24eb19aee4418cb057d303550d2949754b29ae75ed5d6e3"
+    },
+    {
+      "path": "crm/build/logo.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/logo192.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/logo512.png",
+      "sha256": "edc186b79ef0aa78fa8727e77f17c752bf917e8ececc6fee86cd8fd3d9031227"
+    },
+    {
+      "path": "crm/build/logotipo.png",
+      "sha256": "a6df8f594b9a6370df209f465086f1bf0fe64be079b558cf595060e8ad5ff63c"
+    },
+    {
+      "path": "crm/build/logo_old.png",
+      "sha256": "fcc58c55add19249721ec0bbcc36f916ffdea5c53ab79837a230344a575dadd6"
+    },
+    {
+      "path": "crm/build/manifest.json",
+      "sha256": "77ceefbd5951f3e4747ef40e1d46838ab4f883ba01a5a4badd1f2e36e5404712"
+    },
+    {
+      "path": "crm/build/payment-return.html",
+      "sha256": "20aaca1ced610d3610963e687674ac7bd83e8b55fcd1f1e5e00e5ade411c34a0"
+    },
+    {
+      "path": "crm/build/payment-return.js",
+      "sha256": "c8c3fd58b108e170d84e0676e04dcc0db5dfac4d1abf7633fd213678a8289457"
+    },
+    {
+      "path": "crm/build/reorder-cart.mjs",
+      "sha256": "e911254d7a3b2db5d198e39d5dcaf4c66754a6ec1015ed166954a4f16808002d"
+    },
+    {
+      "path": "crm/build/slide/slide1.png",
+      "sha256": "06e61c2e860c70014d67d112863517f96f28bb40110aa120abc64372a7777b25"
+    },
+    {
+      "path": "crm/build/slide/slide2.png",
+      "sha256": "a996fa2fd945e672f7ab3f0b3ab0b55c490a72a474229291d1fcba2bcb41f7a7"
+    },
+    {
+      "path": "crm/build/slide/slide3.png",
+      "sha256": "fcc9c5358439ae82cded1c34f8fa9f883d0af4dae66af7934e01d05087f4f46f"
+    },
+    {
+      "path": "crm/build/sms-enterprise.mjs",
+      "sha256": "3b8b96eb7f8a3e2d8de7c9f6186e1bfdfcad62fce537384d1f6a34d8ad5f7430"
+    },
+    {
+      "path": "crm/build/staff-push-cleanup.mjs",
+      "sha256": "815801d78288d0de0151623179c70a2a18e1fab348551621e413a75cb3741db5"
+    },
+    {
+      "path": "crm/build/static/css/main.95884c12.css",
+      "sha256": "b3d7f9c746c1343530b8ace407b03a930454519641bc6a4928310f1bbd136009"
+    },
+    {
+      "path": "crm/build/static/js/400.39597353.chunk.js",
+      "sha256": "c8360c6bdb38cff9aa1e42c46d0b8608bf3f5d2772d0eb4a4c349b93c570fbef"
+    },
+    {
+      "path": "crm/build/static/js/main.f85cfd44.js",
+      "sha256": "72a305d30f3657977b177a7daa91a4e36813add9e2193e97d83e4ccd6b51264d"
+    },
+    {
+      "path": "crm/build/static/js/main.f85cfd44.js.LICENSE.txt",
+      "sha256": "46e8aff28341cc045ce07fda4f7a46453503286553a09f73ae78c7a688b473fc"
+    },
+    {
+      "path": "crm/build/store-availability.mjs",
+      "sha256": "954ef802f847a2a90fb09d8f82ed75d18f1543e8489ecd9ad7be8cad55fb481c"
+    },
+    {
+      "path": "crm/build/store-links.mjs",
+      "sha256": "93cd4881fe89b4fc8b2636dc0c8636506aa43b677fb1e2b69a50f916beafd673"
+    },
+    {
+      "path": "crm/build/store-public-config.mjs",
+      "sha256": "af19cd31fb63585f6f6ee3d4213e1c44b94eec1295ab27e082272193aac3c072"
+    }
+  ],
+  "devUrlViolations": []
+}

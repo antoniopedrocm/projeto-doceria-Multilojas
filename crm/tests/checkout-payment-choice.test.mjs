@@ -1,0 +1,66 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {PAYMENT_CHOICES, paymentSelection, syncPaymentChoices, resetPaymentChoice} from '../public/checkout-payment-choice.mjs';
+const require=createRequire(import.meta.url),{JSDOM}=require('../node_modules/jsdom');
+test('Strong: duas opções, padrão online, helper contextual; sincronização conserva escolha e weak restaura métodos antigos',()=>{
+  const dom=new JSDOM('<select id="payment-method-select"><option value="">Escolha...</option><option>Pix</option><option>Dinheiro</option></select><p id="payment-choice-help" hidden></p>');
+  const select=dom.window.document.querySelector('select'),original=select.innerHTML,helper=dom.window.document.querySelector('p');
+  syncPaymentChoices(select,true,true);
+  assert.deepEqual([...select.options].map(o=>o.textContent),['Pagar Agora — Pix ou Cartão','Combinar Pagamento']);
+  assert.equal(select.value,'ONLINE_NOW');assert.equal(helper.textContent,PAYMENT_CHOICES.ONLINE_NOW.helper);
+  select.value='AGREED_LATER';select.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(helper.textContent,PAYMENT_CHOICES.AGREED_LATER.helper);
+  syncPaymentChoices(select,true,true);assert.equal(select.value,'AGREED_LATER');
+  resetPaymentChoice(select);assert.equal(select.value,'ONLINE_NOW');assert.equal(helper.textContent,PAYMENT_CHOICES.ONLINE_NOW.helper);
+  syncPaymentChoices(select,false,true);assert.equal(select.innerHTML,original);assert.equal(helper.hidden,true);
+  syncPaymentChoices(select,true,false);assert.equal(select.value,'ONLINE_NOW');assert.equal(select.selectedOptions[0].disabled,true);
+});
+test('escolha separa momento/método; contexto elegível usa contrato, seleção sem contexto falha',()=>{
+  assert.deepEqual(paymentSelection('ONLINE_NOW',true),{forma:'Online',mode:'ONLINE_NOW'});
+  assert.deepEqual(paymentSelection('AGREED_LATER',true),{forma:'A combinar',mode:'AGREED_LATER'});
+  assert.throws(()=>paymentSelection('AGREED_LATER',false));
+  assert.throws(()=>paymentSelection('ONLINE_NOW',false));
+  assert.deepEqual(paymentSelection('Dinheiro',false),{forma:'Dinheiro'});
+});
+test('Guest exibe Pix sem cartão, falha fechado mesmo com loja online; reset não seleciona opção desabilitada',()=>{
+ const dom=new JSDOM('<select id="guest-payment-method"><option value="ONLINE_NOW">old</option></select><p id="payment-choice-help"></p>');
+ const select=dom.window.document.querySelector('select');
+ syncPaymentChoices(select,true,true,'guest-v1');
+ assert.deepEqual([...select.options].map(o=>o.textContent),['Pagar Agora — Pix','Combinar Pagamento']);
+ assert.equal(select.options[0].disabled,true);assert.equal(select.value,'AGREED_LATER');
+ select.value='ONLINE_NOW';resetPaymentChoice(select);assert.equal(select.value,'AGREED_LATER');
+ syncPaymentChoices(select,true,true,'guest-v1');assert.equal(select.options[0].disabled,true);
+ syncPaymentChoices(select,true,true);assert.equal(select.options[0].disabled,false);assert.equal(select.options[0].textContent,'Pagar Agora — Pix ou Cartão');
+ dom.window.close();
+});
+test('PHONE não envia Auth ambiente; retorno com capability funciona sem sessão e histórico mantém Auth explícito',async()=>{
+ const source=fs.readFileSync(new URL('../public/checkout-payment-client.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('export async function checkoutHeaders'),source.indexOf('export function paymentAttempt')).replaceAll('export ','');
+ let authCalls=0,tokenCalls=0;
+ const auth={authStateReady:async()=>{authCalls++;},currentUser:{isAnonymous:false,providerData:[{providerId:'password'}],getIdToken:async()=>{tokenCalls++;return 'fixture-only';}}};
+ const api=vm.runInNewContext(code+';({checkoutHeaders,paymentStatusHeaders})',{auth});
+ const phone={get:()=>({mode:'legacy_phone',token:'a'.repeat(64)}),isStrong:()=>false};
+ const headers=await api.checkoutHeaders(true,phone);assert.equal(headers.Authorization,undefined);assert.equal(tokenCalls,0);
+ await assert.rejects(()=>api.checkoutHeaders(true,{get:()=>({mode:'guest'}),isStrong:()=>false}));
+ const guest={get:()=>({mode:'guest',token:'b'.repeat(64)}),isStrong:()=>false};
+ const beforeGuest=authCalls;assert.equal((await api.checkoutHeaders(true,guest)).Authorization,undefined);
+ assert.equal(authCalls,beforeGuest);assert.equal(tokenCalls,0);
+ const before=authCalls;assert.equal((await api.paymentStatusHeaders(true)).Authorization,undefined);assert.equal(authCalls,before);
+ assert.equal((await api.paymentStatusHeaders()).Authorization,'Bearer fixture-only');
+ auth.currentUser=null;assert.equal((await api.paymentStatusHeaders(true)).Authorization,undefined);
+});
+test('redirecionamento online mantém allowlist e retorno de pagamento já confirmado',()=>{
+  const source=fs.readFileSync(new URL('../public/checkout-payment-client.js',import.meta.url),'utf8');
+  const expression=source.slice(source.indexOf('export function redirectToPayment')+7,source.indexOf('let onlineEnabled=false;'));
+  const assigned=[],location={assign:url=>assigned.push(url)},storage=new Map();
+  const redirect=vm.runInNewContext('('+expression+')',{window:{location},URL,key:'pending',sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)}});
+  redirect({paymentId:'test',checkoutUrl:'https://buy.infinitepay.io/test'});assert.deepEqual(assigned,['https://buy.infinitepay.io/test']);
+  redirect({paymentId:'test',checkoutUrl:'https://checkout.infinitepay.com.br/test'});assert.equal(assigned.at(-1),'https://checkout.infinitepay.com.br/test');
+  for(const checkoutUrl of ['https://checkout.infinitepay.com.br.evil.test','http://buy.infinitepay.io/test','https://user:secret@buy.infinitepay.io/test','https://buy.infinitepay.io:444/test','https://infinitepay.io.evil.test'])assert.throws(()=>redirect({checkoutUrl}),/inválido/);
+  assert.throws(()=>redirect({checkoutUrl:'https://example.test/not-provider'}),/inválido/);
+  assert.throws(()=>redirect({}),/aguardando/);
+  redirect({paymentId:'test',payment_status:'PAID'});assert.equal(location.href,'./payment-return.html?order_nsu=test');
+});

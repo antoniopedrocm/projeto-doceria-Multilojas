@@ -1,0 +1,1094 @@
+[
+  {
+    "file": "crm/src/caixa/caixaCore.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "ac81ff113c12075261be1a291e5ff2b8e87991e9f9d58f54369bc0a833b8b955"
+  },
+  {
+    "file": "crm/src/caixa/caixaCore.test.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "04bf770921f9ec2574786726016ceceef482f438a3b0316e7ad90dc9154526e1"
+  },
+  {
+    "file": "crm/src/caixa/caixaCore.test.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "ed36dcc588745336ed14d063f5e4ce636d26e67b636aa52b462aba5725e90932"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "cf86914b786bb6c10309ae16f36844eac7aa83d3fb372a314ee3ecb123c7c1e7"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "7140eced097133bec8b2a41c96ca9f18b36fa396077c649cd32eb913c18b326e"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 3,
+    "choice": "PROD",
+    "beforeSha256": "8ffe405356331e28f99c9718ebba7a91071bacf77bd1a4ac10b66b3231df1d23"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 4,
+    "choice": "PROD",
+    "beforeSha256": "a3ae97edfe42d61ce565b569651b17b0ada19b58dc2f2a7e3562cca8634c6db4"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 5,
+    "choice": "PROD",
+    "beforeSha256": "f71c869ce94a0a8e4123e5124eefc4f7d2d770b7a56c77a399df5f42903c879a"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 6,
+    "choice": "PROD",
+    "beforeSha256": "e6d82aab86063e11f0bf0a069d944eb082d7ba6df29ea5be1e74a46e52eb0f85"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 7,
+    "choice": "PROD",
+    "beforeSha256": "ebf6d22f2b6dca2c95fd9b14a0caa93e130460fa191ef02ee486deb4bf3f4da0"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 8,
+    "choice": "PROD",
+    "beforeSha256": "00678ef4770d41e326ca27ddf69c0dc86c9b36703569c5b341d28c675dd49da7"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 9,
+    "choice": "PROD",
+    "beforeSha256": "b9953eaa5dc9953d5d0a4e7e2f36f9be6b0925b504ca6a070c32a7ff0da50463"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 10,
+    "choice": "PROD",
+    "beforeSha256": "6eb22233e75df7e8f19f0baa2a53d9bf842b8b754e539dcb07949a33ea6536e7"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 11,
+    "choice": "PROD",
+    "beforeSha256": "cbcf23f26d061c43b16abd9de70f65f818ad105b326ebcbe5fcf51b341d4ec50"
+  },
+  {
+    "file": "crm/src/components/caixa/CaixaTab.js",
+    "hunk": 12,
+    "choice": "PROD",
+    "beforeSha256": "a22c71621a50c08d5231b9978b81e5d2b8ba07f8561dc2187c8206d904741700"
+  },
+  {
+    "file": "crm/src/components/caixa/PostClosingConfirmation.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "ace49417cbbfc7ea3ae4a237c07a3c981729630a33e82564f10b82375c3a4b43"
+  },
+  {
+    "file": "crm/src/components/caixa/PostClosingConfirmation.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "b4e6b3d0d27d7adafb21bf94d613b51c3ae021b03c93a697fc02b3dfcde6c360"
+  },
+  {
+    "file": "crm/src/components/orders/SearchableClientSelect.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "85e1f46716d36b7fb3d97b18755471b0f30e3a379e5753ecb6cbbe00d83458a5"
+  },
+  {
+    "file": "crm/src/components/orders/SearchableClientSelect.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "368224ecf36ec78a66aaa016d79732c9463e7d99ac9a5f556edb642afc6f6eef"
+  },
+  {
+    "file": "crm/src/components/orders/SearchableClientSelect.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "9f12b33766a60cc31a33463de154f9a448a8043b7554d86d1c8acac11de0d6c9"
+  },
+  {
+    "file": "crm/src/components/orders/SearchableClientSelect.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "9f12b33766a60cc31a33463de154f9a448a8043b7554d86d1c8acac11de0d6c9"
+  },
+  {
+    "file": "crm/src/components/orders/SearchableClientSelect.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "9788dbd96449c5374803c93de7bdaaf947f9a7a09cc62474753874d218647996"
+  },
+  {
+    "file": "crm/src/fiscalEmitHandlers.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "d5bcc8af3382c09bae13b9296fde6b63b294a41b5932378b2da7018e83180d07"
+  },
+  {
+    "file": "crm/src/fiscalOrderActions.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "3444b266e0fea686dda67f358be1c943e9217106c93abc6428130ab90505ce92"
+  },
+  {
+    "file": "crm/src/fiscalOrderActions.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "b8bbb0c530e4841c8f6b1b2db0c2c51350976a2efb35ba408bd3a23cb5ab2a55"
+  },
+  {
+    "file": "crm/src/fiscalOrderActions.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "a1cdb6571f3d0c37168f02c51c2a9388ac0c08ef794f2f43a4000dbbc15a06dd"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointCalculationCore.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "d212aa0ade9fd9d980b0528e453e6f9b8dafcf5f2c5f7c22b3acf1adb2ebb973"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointDayConsolidation.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "828e7b856b2549035fb1d0be9f8961e448fcaf164f5e7331cbb3afdd564c40cf"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointDayConsolidation.test.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "aecfd44861fed30cc239a082ab7d2ba5ffb89bc611893b8fd5c4e9a718200fa6"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "55be0b4d532c806a882305e81f221285b26995d28aef2417b17e2052b14fc95c"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "5356cc532b971479e082237faa969afb2259870357e1f66b562e991d83994311"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 3,
+    "choice": "PROD",
+    "beforeSha256": "ad4bafbac2145e02d70713df13905255ea3702dcb3242f5354ca6db17479c520"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 4,
+    "choice": "PROD",
+    "beforeSha256": "b23f95809d557c7dd6bf4abd7c60fc2243eb9d54272580b7dd9c325b7f54528a"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 5,
+    "choice": "PROD",
+    "beforeSha256": "41a477ee0bde619db6208d85da18ecf842a29ee3a76fccfe83ad82d8d0103622"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 6,
+    "choice": "PROD",
+    "beforeSha256": "4c27df0e372a4b73649e46417dfab0eff9f2dd186bd366ddedbbdc25b03ac8c2"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 7,
+    "choice": "PROD",
+    "beforeSha256": "86d375197e0045e7eefc1bcdabe2f3fd9385fd4a0fa7a0c701aab92ff9dad2f7"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 8,
+    "choice": "PROD",
+    "beforeSha256": "b6937c211336a23c8be0a5212dd38f7e3c4126c9be178f9310f5bb1c77eb7e9a"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 9,
+    "choice": "PROD",
+    "beforeSha256": "195c235ef6b293b0e8b793f7ed7def2e9ea6f4dcfb018b6d97e35272d0849018"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 10,
+    "choice": "PROD",
+    "beforeSha256": "a44b7f67ce6d279ef6bc4c6f3fc64b0877e94e8b7f72aeee84076e8395274b47"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 11,
+    "choice": "PROD",
+    "beforeSha256": "01f8117111c3a365dcf2ded4d0fe9aaf6b16e042082e6f5f5bdb3da18199d817"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointHourly.test.js",
+    "hunk": 12,
+    "choice": "PROD",
+    "beforeSha256": "ab811963ece55c382b7b943c1d376ac5c780989aa9e3c17adf9eb00638e7607e"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "94a1397a53e04838d23f1b3f0baef0319d80d32586223296dcc24131c389d525"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "5f33845c181314a3f69b5b2231cc38ac2eda4e3fada5f2b92b3248db73734583"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 3,
+    "choice": "PROD",
+    "beforeSha256": "97c84af1d3b7f33b64c206995ea3e8bed613a2b76056b34640b060a79741a9a8"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 4,
+    "choice": "PROD",
+    "beforeSha256": "c9e297d2d1f6c99f9c1d03da8c65ce84b0affd84481070851147e75ddfd5ea10"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 5,
+    "choice": "PROD",
+    "beforeSha256": "1aa1e8cc3c38af5a23b4486d9737541e2164a95dedd840be1db8aa4d89db9010"
+  },
+  {
+    "file": "crm/src/meuEspaco/pointScheduleCore.js",
+    "hunk": 6,
+    "choice": "PROD",
+    "beforeSha256": "4d897677dfb90788ca3b1562b4f7a3190537a3e15a4c293b6a8cc68c9c5fa38a"
+  },
+  {
+    "file": "crm/src/utils/notifications.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "aa2968bde711beca812858ec60896ab9c3e51abcd876bf3cda48ca996364f2ef"
+  },
+  {
+    "file": "crm/src/utils/notifications.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "a688428433b7ac0eb21a91a5a5560404a0c331928eb1498d3e3123839e312c2c"
+  },
+  {
+    "file": "crm/src/utils/notifications.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "bc8e145185af13831347b750d76f221f7c56aa73fff281a4f4113e4bbd21d26e"
+  },
+  {
+    "file": "crm/src/utils/notifications.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "8ee56b851547f8c6a22942004c5882eb4dbe9b562e5c3be732b7a61d4cdd2b41"
+  },
+  {
+    "file": "crm/src/utils/notifications.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "8c6fb35737553bc877e63967b0c375f556eb3d6b104af36d162e0eab811ed3ba"
+  },
+  {
+    "file": "crm/src/utils/orderFreight.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "d2c1695131b8eb590e4cb1b661f1ab8469e674a5bbadc8e3695d0fcf99ed9195"
+  },
+  {
+    "file": "crm/src/utils/orderFreight.test.js",
+    "hunk": 1,
+    "choice": "COMBINED",
+    "beforeSha256": "0151b12ee5e963f04899c1ad667bcf23f394d843ac2a9996f9c225e6b066fcff"
+  },
+  {
+    "file": "crm/src/utils/transferStatusVisibility.test.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "282b9e5ea3c26c3a37378a5750a6afddea232706d3b63b9c8bdec12d69dc08e3"
+  },
+  {
+    "file": "fiscal-service/Dockerfile",
+    "hunk": 1,
+    "choice": "COMBINED",
+    "beforeSha256": "20465420c84737553bff23ecc855d432dfff4fd6e9d0992759886fdd60431d5b"
+  },
+  {
+    "file": "fiscal-service/tests/PayloadValidatorTest.php",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "01d89e307f310799f27702dbfd43f3967f0e4dc6c211e529fdb7e2907ccae7b0"
+  },
+  {
+    "file": "functions/fiscal-clone.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "bd8f219d778e44479f906865ec74772220a738e83df6318a351300b723945e67"
+  },
+  {
+    "file": "functions/fiscal-flow.integration.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "bbaca6e5d9c2fbed3c68ac2f402a57de12efa81d2eee644856a8b520f641b564"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "26e0296d203a5f5039a502e33d24fca27abf60fe674dbf098d64b8fc1fa07b8b"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "c74102de641ae76a7a6381dbda062687aae33c4ee48ca8e82ad999e6014d917c"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "33bae476ba2a98f86d3f02f9f5f74fa034618adff5025c07bf764f3a98a0796e"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "c006a0404826137dfc575050c2620e75ed18037e3bdc75a00b3231a9755342f9"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "31a3d35f9f85a3c613a35b1ad31aa02812aeb0edda5e669d9bad0cfd6f8755e1"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 6,
+    "choice": "DEV",
+    "beforeSha256": "77c1b50dba3c5c5e599f296605700876a1dc8b2ad7bb245cb7e4b432877a0317"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 7,
+    "choice": "DEV",
+    "beforeSha256": "4f1f813c2b4d5baf6d1ad6647ad27e79e1016b72433b00cb0ab2866a1966e62d"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 8,
+    "choice": "DEV",
+    "beforeSha256": "7d2be377c8314113d51bb65187cd0712a89dfbb07d4f60f331c789892a8ea5c2"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 9,
+    "choice": "DEV",
+    "beforeSha256": "3e922186695d0727d233935677a7dbe7e9fd4b3b1ee44c0fd9531d1e3b4c6ddb"
+  },
+  {
+    "file": "functions/fiscal-flow.test.js",
+    "hunk": 10,
+    "choice": "DEV",
+    "beforeSha256": "0805c0448688645a790782a27ec2095a2abb7e4284ff9b7bad97a764bcec3535"
+  },
+  {
+    "file": "functions/fiscal-ncm-options.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "910c02a238258c2ed8a3a6ba165f9e1d4b07c18b0bbb7c3550bea5595e42a965"
+  },
+  {
+    "file": "functions/fiscal-ncm-options.test.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "68229a43f154434aba86c356a55de1cf59e5452a1e0dd5f2c5ab0daa7e48ed9c"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "542140ee4c1b8bceff59fa5bbc9948c2cbeba4704e4bb0f9eee3a48920c30551"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "d7da7395f0e9746b156fc3a3eed058a4fec45edcf60f2ea63c3bc50a4879a4c2"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "9d89579226f0a1ecc38948246326a8c8fb075555f6d5db85fa596da127093cff"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "e7341756a3ceccd9fdf978e661d0b2bc6644a2e8b77a09eab5e68b40cdc3610f"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "5b66c4e1cce88cb8f55b37bccb97f100077662d1d796eb331029785afca9b8df"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 6,
+    "choice": "DEV",
+    "beforeSha256": "1095fb3ee0d15f3ac50bef705bebee835e08474bf2e27f9657fb273e8b30fc9f"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 7,
+    "choice": "DEV",
+    "beforeSha256": "d9001fc167ee4d083cec424eaf3884b3e9cd4e719c7bf7d046da9a85672942a2"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 8,
+    "choice": "DEV",
+    "beforeSha256": "3e13795961e87ad1eedd25571fde8b339fd8cb60e7ae0a9199f8dee3c397b706"
+  },
+  {
+    "file": "functions/fiscal.js",
+    "hunk": 9,
+    "choice": "DEV",
+    "beforeSha256": "3dec15c2eb77c95226e2fb531849e76d203325145c35e7114d360b4c584c336e"
+  },
+  {
+    "file": "functions/fixtures/fiscal-clone.xml",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "4278e1ece9abc73de0c3bb7dd822ba78cf4f90653e5f0482f83e12e2ce59d088"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "83b8afcbdde9b89f485ea0dcd7397f6a33d3464f42ad62cda21062331ee22beb"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "3478cb5c12ee382449bdbab7cffb2b6b03c5efeb02c74bf79b08d7b605496164"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "cead89108c699b7202d35b57626e59a23aad83796cdad70c786598565d309e69"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "c7921f5bb3e62392169233c99daf030b6c4a3708e6f9e2b61b5ef8094e41ab2e"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "a22f2f7c75a27bc050785f813e8df9a20c64c3e1e2f7b42d7fbffbbf606d5e67"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 6,
+    "choice": "DEV",
+    "beforeSha256": "37663ad399c43c362a62544bf23dae840a9d00bc6e959234a0a491015ab2fdf9"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 7,
+    "choice": "DEV",
+    "beforeSha256": "500425e4bee53585732ad49165a4df8406556aa75cd4f6d316c0123671e44666"
+  },
+  {
+    "file": "functions/freight-checkout.test.js",
+    "hunk": 8,
+    "choice": "DEV",
+    "beforeSha256": "50e6c73985d65fa9db42fae5ff31a33058aad4bdc51e1d448f277389b9262131"
+  },
+  {
+    "file": "functions/freight-core.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "ca8b1ed9995493f1d520f2d3c43eeb2a9c4f80f4d3e26006ee33ec449c3c153a"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "69703b1f13fd4bc57b40ff1e208d5d129c12c5f3f46d9d554e2d368ea25b7b77"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 2,
+    "choice": "DEV",
+    "beforeSha256": "6247eca9c965ade14d1a83f8f47b77ae1fd7dbcd2fe05e35b84ff1f2ca2a25ac"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "45dc27759ec8bf295845bf94b8836e100202f4b4704a9e8099d81b5f05f5d3c8"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "b96eff6307fa85bda6536798effd508d14473ac761af5046cb7223919451f0c9"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "4b8856394c1b0471ef71928c56925edfb21d1e906bd0fdb2c48a6049dbc4e392"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 6,
+    "choice": "DEV",
+    "beforeSha256": "4b8856394c1b0471ef71928c56925edfb21d1e906bd0fdb2c48a6049dbc4e392"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 7,
+    "choice": "DEV",
+    "beforeSha256": "9cb50d1cc62662aad807c2f8b3a4c07cec2e9fbf37be72b65c3bcdf7affd473b"
+  },
+  {
+    "file": "functions/freight-pages.test.js",
+    "hunk": 8,
+    "choice": "DEV",
+    "beforeSha256": "ea7198c9158bccb2e89cffe5df66d11e6e1ad734ccfdde2ba79347aad6b73045"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "6990fa1ff4592d828a63d4006ba8c2409f3646b7ee4ccc852454c6a50f363945"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 2,
+    "choice": "COMBINED",
+    "beforeSha256": "f274b1d1b911f195eaf520a7edb4fed4c2ad9da35b5572c6ffa89ba99f69c125"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 3,
+    "choice": "DEV",
+    "beforeSha256": "0fc978c94d2115c939a5d1588d82fdcf91853710e4160745773ee76aacd86e30"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 4,
+    "choice": "DEV",
+    "beforeSha256": "8f6a3f337d60b6d447b01c8d6e3b510b08b8aa7aea5fab6f6cb6a2aec4963bb6"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 5,
+    "choice": "DEV",
+    "beforeSha256": "af89d5f3e59c4033895fbac4354cbd8c834e36dad1f605a0375762cc5c8a18a2"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 6,
+    "choice": "DEV",
+    "beforeSha256": "a1f3cd33f1f70947156444c98fa51025532059397dbfb8a2e88792c12c752a42"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 7,
+    "choice": "DEV",
+    "beforeSha256": "78a90577014c3d3ab126889427334ad0e8a6d1cdf8f1ca915b70490175330e86"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 8,
+    "choice": "DEV",
+    "beforeSha256": "f52f7dfea21e9f7e31d811ecd58c1e4535d4a2f70a570112518ee23cb5b7918e"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 9,
+    "choice": "DEV",
+    "beforeSha256": "3639cf442b46c7fbe6302665f87ec05ed35268765a828e9c48a6b2b49c21ad67"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 10,
+    "choice": "DEV",
+    "beforeSha256": "57f57eaf17044fb8a124aae9355c8eb15e6c22cd8045e021fbd553570451bc56"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 11,
+    "choice": "DEV",
+    "beforeSha256": "05acb9f05104f536f8995ab1cd35e114937f7357a5ce38a3a2cb02e74d53e826"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 12,
+    "choice": "PROD",
+    "beforeSha256": "94a45e92de66c8d2cf6266366c9ff96283d7144e1724c21f35ad70a18c124306"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 13,
+    "choice": "PROD",
+    "beforeSha256": "c9d73885790a1b1f17b1849aa026bcca7060fdd2c18b15e9829000e666bf7e13"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 14,
+    "choice": "PROD",
+    "beforeSha256": "7b7065e56a92c8204c7c91d914e77b8562443f916943f9ee999ba02ecd843920"
+  },
+  {
+    "file": "functions/index.js",
+    "hunk": 15,
+    "choice": "PROD",
+    "beforeSha256": "1de1624923fb71f49d95802c1a5cc15bc57aefa25198e227e314e8e906534579"
+  },
+  {
+    "file": "firestore.rules",
+    "hunk": 1,
+    "choice": "DEV",
+    "beforeSha256": "f160b464bf1e6486310b49e5666cc65916d2b3df32aa1f6ecb2feba7aa1daa56"
+  },
+  {
+    "file": "firestore.rules",
+    "hunk": 2,
+    "choice": "COMBINED",
+    "beforeSha256": "010a5f1578b14e144b1b9cbcc24c42a3f5cc163d012fcb5b5af8d99ddf28ee0e"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 1,
+    "choice": "PROD",
+    "beforeSha256": "90d60ed1e9161dca5a29a2497e465ddac449772e8cd18df2c8a2002f2d6ef82c"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 2,
+    "choice": "PROD",
+    "beforeSha256": "d7991affaa2506934dcba7bb21d9331aabdfeaf8413c69df83b97a3417ebcfe8"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 3,
+    "choice": "PROD",
+    "beforeSha256": "546f4640f4662eba31f20242f022d0c258d88bd0f65f142a299bea514ed0facb"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 4,
+    "choice": "PROD",
+    "beforeSha256": "050c188a3751ac16ca13ab6456e52164e3fa87af922155eff1f93e422a36eed3"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 5,
+    "choice": "PROD",
+    "beforeSha256": "bc555c512641d04c6eb4096aae313a255fd1586727794f661b1d21f08999d95c"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 6,
+    "choice": "PROD",
+    "beforeSha256": "788dc8f5e7f1674952e6b88e3f160adf8757b582a2e212845aed5dce205e605a"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 7,
+    "choice": "PROD",
+    "beforeSha256": "ff812544bf3bf5d1de26304a484c28bdee646577396c337d8b350a08952a042f"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 8,
+    "choice": "PROD",
+    "beforeSha256": "908ba985b87b312746bf29274e0467aac514333b58492764948a954801f803ec"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 9,
+    "choice": "PROD",
+    "beforeSha256": "04123a5f49d955ffaaa27875c46f97ae3844d0f5232aef7092ed73eb9860196c"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 10,
+    "choice": "PROD",
+    "beforeSha256": "923040cca7f428fa636f40025bc0ff6ed5dd4be8ae67e4379e261765e4bd818b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 11,
+    "choice": "PROD",
+    "beforeSha256": "b0cc64c2bb05f5fad0eb06a7945191451c869f3437bfc6a4f85239341c0e14e8"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 12,
+    "choice": "PROD",
+    "beforeSha256": "f324a16160e784940e6e4a2083af752d0b84788f410c49280bbe27544c33427e"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 13,
+    "choice": "PROD",
+    "beforeSha256": "eace8849dbc83e068838a0c97472174e2a77bb6d407c79ab5b66e8956c99040d"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 14,
+    "choice": "PROD",
+    "beforeSha256": "36b63b3eb09219bf85f00aaf1ab36ca6acb5a7f7db78702ac8a7da336c2947cd"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 15,
+    "choice": "PROD",
+    "beforeSha256": "102eb0b15389f765affe982bb29ebc44e7c8e61ffbc2748971eeb1e641a7d331"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 16,
+    "choice": "PROD",
+    "beforeSha256": "7bb4b0ff6185c2f411d78c0abeb1468b7d3ea1c9f7aafb77a18d0d9950738162"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 17,
+    "choice": "PROD",
+    "beforeSha256": "6caaaa0b50e2d736d72217e9453fe7975877a0603ca5bbf5028922cff53764dc"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 18,
+    "choice": "DEV",
+    "beforeSha256": "2480736afbd3a7a410d3c009a07c27271782532ee3726c9f7b4a39811e6c0e8c"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 19,
+    "choice": "PROD",
+    "beforeSha256": "c5ee2630487b0f611c5aa03b2077937bafdcb4c024b1ece9d520a68f6ad36036"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 20,
+    "choice": "PROD",
+    "beforeSha256": "13eb77977547038e065d8eb6ec1fd8f4b272eaf9aa79356da513cc2a60c2a7a0"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 21,
+    "choice": "PROD",
+    "beforeSha256": "5d644dad687e5899b05437a2fd6bdba0264f9b3e678b29fe24f7b32a32cdc454"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 22,
+    "choice": "PROD",
+    "beforeSha256": "13eb77977547038e065d8eb6ec1fd8f4b272eaf9aa79356da513cc2a60c2a7a0"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 23,
+    "choice": "DEV",
+    "beforeSha256": "2a0099c973ad7a80a207524593289cc721618775eab19ad855506e0494426aff"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 24,
+    "choice": "DEV",
+    "beforeSha256": "eae4c2db8325a223a794eb0e763a2f83c5be3faa832d62dd07c7502067bc66ad"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 25,
+    "choice": "DEV",
+    "beforeSha256": "f856893e2741e771760b09964141c124b99420ff5c64e59874f320a0282e44ac"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 26,
+    "choice": "PROD",
+    "beforeSha256": "13eb77977547038e065d8eb6ec1fd8f4b272eaf9aa79356da513cc2a60c2a7a0"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 27,
+    "choice": "PROD",
+    "beforeSha256": "6f69027d771bb5bd5c17f376e4e126af6108565394e499d28242203f26e49e0d"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 28,
+    "choice": "PROD",
+    "beforeSha256": "b561d3b96e0c154f83bf415c7089f03005005e9f8e1d15af29449a9ece7e3a57"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 29,
+    "choice": "DEV",
+    "beforeSha256": "b0fe816780b27ca387d3d07d1514f77815541c673f4c798d56b6d894af12c851"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 30,
+    "choice": "COMBINED",
+    "beforeSha256": "84b2a7a52fdf880f6eed09ca256d834b2a211cb4748047eac05564dac1a988b9"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 31,
+    "choice": "COMBINED",
+    "beforeSha256": "56bd7be2136f903052d0a53e988455cbb10e3544d23ba4ca43dbdab1feab13d4"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 32,
+    "choice": "PROD",
+    "beforeSha256": "68bf7d1ff60b00a870191d508613fcbe08cbabf38defd2e81c40c06f8d4b0c8b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 33,
+    "choice": "PROD",
+    "beforeSha256": "5b73e622df4c97c2599288f4df6334427a86f37306b75f0d1a749889f3ada518"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 34,
+    "choice": "COMBINED",
+    "beforeSha256": "82062829292cc479726ef6ea78badfcf21d3cddb09fab061a2c8db1e5ffeacc9"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 35,
+    "choice": "PROD",
+    "beforeSha256": "130c06871312125c383cf77cb7d40e83d3f6b17baf03fe0d999b59aeab6e7f37"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 36,
+    "choice": "PROD",
+    "beforeSha256": "923040cca7f428fa636f40025bc0ff6ed5dd4be8ae67e4379e261765e4bd818b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 37,
+    "choice": "PROD",
+    "beforeSha256": "923040cca7f428fa636f40025bc0ff6ed5dd4be8ae67e4379e261765e4bd818b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 38,
+    "choice": "PROD",
+    "beforeSha256": "01f8a265060759399df5d97563c51ad346691b47bb17870cd153c9eb5ecaf34f"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 39,
+    "choice": "PROD",
+    "beforeSha256": "e400c9c9132981108c8003abd3a8f9b9f3de72480678c1cee6510093896e2f0b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 40,
+    "choice": "COMBINED",
+    "beforeSha256": "95282d7a12c22a6d705b68a483e8d4bf9da12b30b6a190a0fe7b9cb088b261a1"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 41,
+    "choice": "PROD",
+    "beforeSha256": "c202cd0f48e9563bde30cc0413808fc511db02460cba2246493deff4e12b31c5"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 42,
+    "choice": "PROD",
+    "beforeSha256": "5c6621a63cfefbec9103f8c69bf22dfc63b9351c7e32a0c2e08aacf33867e339"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 43,
+    "choice": "PROD",
+    "beforeSha256": "bcf77baa1a3751fb224b46b2871bc4d603253b4f7bb7e2e067fbed79ace7b87a"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 44,
+    "choice": "PROD",
+    "beforeSha256": "5c192c3c92ee74de13b28e733ebea9b1f57f5ba785b772e4f527c269c933f5c8"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 45,
+    "choice": "PROD",
+    "beforeSha256": "923040cca7f428fa636f40025bc0ff6ed5dd4be8ae67e4379e261765e4bd818b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 46,
+    "choice": "PROD",
+    "beforeSha256": "7b871cb025d74734fb784cfb768688bc084bc88fd96d0813b794e210690a19dd"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 47,
+    "choice": "DEV",
+    "beforeSha256": "3fc410ddea34e928fd3626a319d308a321b210857c4f9f974c3eb90a3328409e"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 48,
+    "choice": "PROD",
+    "beforeSha256": "47e10fcc178e9747b0ddd530805c5df4ddee02de96ca097ae30d75af104399d2"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 49,
+    "choice": "PROD",
+    "beforeSha256": "9bbbb8cce9705923242610b8d4aa8faaad260baa45b745b07a63dbeed9edd4fe"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 50,
+    "choice": "DEV",
+    "beforeSha256": "2ee3a6a1b54d6bea1742e127b3ec3108f120cbcee1b2998831b0bb45dd7b561b"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 51,
+    "choice": "DEV",
+    "beforeSha256": "641c3b364773226ba2859dd8d532ace54c057afbc731042a923e8b3b4ccc06ee"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 52,
+    "choice": "DEV",
+    "beforeSha256": "be76bdb0ee1b1d0d51adc780ec483861d4bb57da3dbc9daab41a8178e12d207d"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 53,
+    "choice": "DEV",
+    "beforeSha256": "8df54e9bb363e53b3159e1971700d4fda62d681323405c7cec3403702cf02025"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 54,
+    "choice": "DEV",
+    "beforeSha256": "693737968244d8b71f70cb950ace5f1d07e082aa85a7aede351cafbb05f91b3e"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 55,
+    "choice": "PROD",
+    "beforeSha256": "af5a343e0dc1e3d381dd603d30e60970f2e8bb535f190d69ceba2a6ce01006c4"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 56,
+    "choice": "PROD",
+    "beforeSha256": "09534512ab89696f447928c448ea15da26cb9a31eebe6ac508629716405b715a"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 57,
+    "choice": "PROD",
+    "beforeSha256": "5ef8bb47674b833e884b2bd4903217dfd7130286f39ca5d95cca5696b9b87c25"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 58,
+    "choice": "PROD",
+    "beforeSha256": "870ed1cf047dfcf9c78fbf8877e04594854f3d42d21f9728607043baacc113ab"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 59,
+    "choice": "DEV",
+    "beforeSha256": "295c8e82851651d9330984fe23d4b174ccef1dbceae47a0fc0c6a831e8c083df"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 60,
+    "choice": "PROD",
+    "beforeSha256": "42b0ef9a886871f4e7e78592566716f50ab92783e09b615128dc2811344158d5"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 61,
+    "choice": "PROD",
+    "beforeSha256": "463b73e7914434820cd3b2762e5fe6be104e629f56ac24d4ec503b185e898854"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 62,
+    "choice": "DEV",
+    "beforeSha256": "5c9bee80d6875d7a55c680c1896b0ef07e017b6a547cab4dd6b5725313883161"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 63,
+    "choice": "DEV",
+    "beforeSha256": "7dfd64c13e50f419298fe1f732bf46bc47fe1480a6b86985153aed17f99cbe20"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 64,
+    "choice": "DEV",
+    "beforeSha256": "a1ed409d77b43836d24d7a0550e13017043872c877cfc083ffddf4b340ca13c1"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 65,
+    "choice": "COMBINED",
+    "beforeSha256": "6318ad5277e82ba95f08d35204f8acb21dc801fe663ffb4461aba77423434dba"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 66,
+    "choice": "COMBINED",
+    "beforeSha256": "f7085012d2377a2b322451854f8ee044303a6883d779fa7e493643f26e98f1db"
+  },
+  {
+    "file": "crm/src/App.js",
+    "hunk": 67,
+    "choice": "COMBINED",
+    "beforeSha256": "7045523d4e8e5579b86cc03451feb98e2e0716ecbe3d44b4e4702595f26af60b"
+  }
+]

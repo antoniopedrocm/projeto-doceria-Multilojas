@@ -1,0 +1,156 @@
+// Dedicated demo project; this suite cannot target live Firestore.
+process.env.FIRESTORE_EMULATOR_HOST='127.0.0.1:8080';
+process.env.GCLOUD_PROJECT='demo-doceria-checkout';
+const {test,after}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const admin=require('firebase-admin');
+const {initializeTestEnvironment,assertFails,assertSucceeds}=require('@firebase/rules-unit-testing');
+const {doc,getDoc,setDoc}=require('firebase/firestore');
+const {createPaymentService}=require('./checkout-payment');
+const {claimOnlineOrderNotification}=require('./checkout-notification');
+const {createCustomerAccount}=require('./checkout-auth');
+const {seedRegistry}=require('./customer-registry.test-fixture');
+const app=admin.initializeApp({projectId:'demo-doceria-checkout'},'checkout-tests');
+const db=app.firestore();
+const stamp=admin.firestore.Timestamp.now();
+after(()=>app.delete());
+test('cliente Google não lê CRM nem assume papel de funcionário',async()=>{
+  const env=await initializeTestEnvironment({projectId:'demo-doceria-checkout',firestore:{host:'127.0.0.1',port:8080,rules:fs.readFileSync(path.join(__dirname,'../firestore.rules'),'utf8')}});
+  try {
+    await db.doc('users/test-staff').set({role:'gerente',ativo:true,lojaIds:['test-store']});
+    await db.doc('lojas/test-store/pedidos/private').set({total:10});
+    await db.doc('clientes/private').set({nome:'Privado'});
+    const client=env.authenticatedContext('google-customer',{firebase:{sign_in_provider:'google.com'}}).firestore();
+    await assertFails(getDoc(doc(client,'clientes/private')));
+    await assertFails(getDoc(doc(client,'lojas/test-store/pedidos/private')));
+    await assertFails(setDoc(doc(client,'users/google-customer'),{role:'gerente'}));
+    await assertFails(setDoc(doc(client,'customerAuthIdentities/anything'),{customerId:'private'}));
+    await assertFails(setDoc(doc(client,'checkoutNotificationAttempts/anything'),{state:'SENT'}));
+    const staff=env.authenticatedContext('test-staff').firestore();
+    await assertFails(setDoc(doc(staff,'checkoutNotificationAttempts/anything'),{state:'SENT'}));
+    await assertSucceeds(getDoc(doc(staff,'lojas/test-store/pedidos/private')));
+  } finally {await env.cleanup();}
+});
+test('cobrança verificada com divergência fica em conferência sem confirmar pedido',async()=>{
+  const id='d'.repeat(64),orderPath=`lojas/payment-test/pedidos/${id}`;
+  await db.doc(orderPath).set({order_status:'PENDING',payment_status:'PENDING',total:10,paymentId:id});
+  await db.doc(`checkoutPayments/${id}`).set({orderId:id,orderPath,ownerUid:'owner',handle:'merchant-a',amount:1000,payment_status:'PENDING',checkoutUrl:'https://buy.infinitepay.io/test'});
+  const service=createPaymentService({db,admin,provider:{check:async()=>({success:true,paid:true,amount:900,paid_amount:900,capture_method:'pix'})}});
+  const payload={order_nsu:id,transaction_nsu:'short-payment',invoice_slug:'invoice-short'};
+  const first=await service.reconcile(payload),second=await service.reconcile(payload);
+  assert.deepEqual(first,second);
+  assert.equal(first.requiresReview,true);
+  assert.equal((await db.doc(orderPath).get()).data().order_status,'PENDING');
+  assert.equal((await service.status(id,'owner')).checkoutUrl,null);
+  await assert.rejects(()=>service.start(id,'owner'));
+  await db.doc(`checkoutPayments/${id}`).update({reservation:{state:'HELD',stock:[]},expiresAt:admin.firestore.Timestamp.fromMillis(1)});
+  assert.equal(await service.expire(id),false);
+  assert.equal((await service.status(id,'owner')).requiresReview,true);
+  assert.equal((await db.collection('checkoutReceipts').where('paymentId','==',id).get()).size,1);
+  const corrected=createPaymentService({db,admin,provider:{check:async()=>({success:true,paid:true,amount:1000,paid_amount:1000,capture_method:'pix'})}});
+  const later=await corrected.reconcile({...payload,transaction_nsu:'another-charge'});
+  assert.equal(later.requiresReview,true);
+  assert.equal((await db.doc(orderPath).get()).data().order_status,'CANCELLED');
+});
+test('segunda cobrança verificada não repete confirmação e sinaliza revisão',async()=>{
+  const id='e'.repeat(64),orderPath=`lojas/payment-test/pedidos/${id}`;
+  await db.doc(orderPath).set({order_status:'PENDING',payment_status:'PENDING',total:10,paymentId:id});
+  await db.doc(`checkoutPayments/${id}`).set({orderId:id,orderPath,ownerUid:'owner',handle:'merchant-a',amount:1000,payment_status:'PENDING'});
+  const service=createPaymentService({db,admin,provider:{check:async()=>({success:true,paid:true,amount:1000,paid_amount:1000,capture_method:'pix'})}});
+  await service.reconcile({order_nsu:id,transaction_nsu:'first-charge',invoice_slug:'first-invoice'});
+  const result=await service.reconcile({order_nsu:id,transaction_nsu:'second-charge',invoice_slug:'second-invoice'});
+  assert.equal(result.requiresReview,true);
+  assert.equal((await db.doc(`checkoutPayments/${id}`).get()).data().transactionNsu,'first-charge');
+  assert.equal((await db.doc(orderPath).get()).data().requiresReview,true);
+  assert.equal((await db.collection('checkoutReceipts').where('paymentId','==',id).get()).size,2);
+});
+test('notificação online reivindicada uma vez e apenas para pedido confirmado',async()=>{
+  const id='f'.repeat(64),orderRef=db.doc(`lojas/payment-test/pedidos/${id}`);
+  await db.doc(`checkoutNotificationAttempts/${id}`).delete();
+  await orderRef.set({paymentId:id,payment_status:'PAID',order_status:'CONFIRMED'});
+  await db.doc(`checkoutPayments/${id}`).set({orderPath:orderRef.path,payment_status:'PAID'});
+  const args={db,admin,orderRef,paymentId:id};
+  assert.deepEqual(await Promise.all([claimOnlineOrderNotification(args),claimOnlineOrderNotification(args)]).then(v=>v.sort()),[false,true]);
+  assert.equal((await db.doc(`checkoutNotificationAttempts/${id}`).get()).data().state,'ATTEMPTED');
+  await orderRef.update({requiresReview:true});
+  await db.doc(`checkoutNotificationAttempts/${id}`).delete();
+  assert.equal(await claimOnlineOrderNotification(args),false);
+});
+test('paid false não inventa FAILED nem REFUNDED e preserva reserva',async()=>{
+  const id='1'.repeat(64),orderPath=`lojas/payment-test/pedidos/${id}`;
+  await db.doc(orderPath).set({order_status:'PENDING',payment_status:'PENDING',total:10,paymentId:id});
+  await db.doc(`checkoutPayments/${id}`).set({orderId:id,orderPath,ownerUid:'owner',handle:'merchant-a',amount:1000,payment_status:'PENDING'});
+  const service=createPaymentService({db,admin,provider:{check:async()=>({success:true,paid:false})}});
+  await assert.rejects(()=>service.reconcile({order_nsu:id,transaction_nsu:'not-paid',invoice_slug:'not-paid'}));
+  assert.equal((await db.doc(`checkoutPayments/${id}`).get()).data().payment_status,'PENDING');
+  assert.equal((await db.collection('checkoutReceipts').where('paymentId','==',id).get()).empty,true);
+});
+test('webhooks concorrentes são idempotentes e não cruzam contas/pedidos',async()=>{
+  const id='a'.repeat(64),id2='b'.repeat(64);
+  let count=0;
+  const provider={check:async payload=>{count++;assert.equal(payload.handle,'merchant-a');return {success:true,paid:true,amount:1000,paid_amount:1000,capture_method:'pix'};}};
+  const service=createPaymentService({db,admin,provider});
+  for(const paymentId of [id,id2]) {
+    const orderPath=`lojas/payment-test/pedidos/${paymentId}`;
+    await db.doc(orderPath).set({order_status:'PENDING',payment_status:'PENDING',total:10});
+    await db.doc(`checkoutPayments/${paymentId}`).set({orderId:paymentId,orderPath,ownerUid:'owner',handle:'merchant-a',amount:1000,payment_status:'PENDING'});
+  }
+  await db.collection('checkoutReceipts').get().then(s=>Promise.all(s.docs.map(d=>d.ref.delete())));
+  const payload={order_nsu:id,transaction_nsu:'transaction-1',invoice_slug:'invoice-1',amount:1,handle:'attacker'};
+  await Promise.all([service.reconcile(payload),service.reconcile(payload)]);
+  assert.equal((await db.doc(`lojas/payment-test/pedidos/${id}`).get()).data().payment_status,'PAID');
+  assert.equal((await db.collection('checkoutReceipts').get()).size,1);
+  // Verification coalesces concurrent requests; a receipt may also short-circuit
+  // the second caller. Require verification, without demanding duplicate IO.
+  assert.ok(count>=1 && count<=2);
+  const checked=count;
+  await service.reconcile(payload);
+  assert.equal(count,checked);
+  await assert.rejects(()=>service.reconcile({...payload,order_nsu:id2}));
+  await assert.rejects(()=>service.status(id,'stranger'));
+});
+test('criação concorrente do link chama provedor uma vez; falha ambígua não cria outra cobrança',async()=>{
+  const id='c'.repeat(64);const ref=db.doc(`checkoutPayments/${id}`);
+  const seed={ownerUid:'owner',orderId:'order',storeId:'store',amount:1000,handle:'merchant',customer:{name:'Teste'},payment_status:'PENDING',redirectUrl:'https://example.com/return',webhookUrl:'https://example.com/webhook'};
+  await ref.set(seed);
+  let calls=0;
+  const service=createPaymentService({db,admin,provider:{create:async()=>{calls++;return {url:'https://buy.infinitepay.io/test'};}}});
+  await Promise.allSettled([service.start(id,'owner'),service.start(id,'owner')]);
+  assert.equal(calls,1);assert.equal((await service.start(id,'owner')).checkoutUrl,'https://buy.infinitepay.io/test');
+  await ref.set(seed);
+  const failing=createPaymentService({db,admin,provider:{create:async()=>{calls++;throw new Error('timeout');}}});
+  await assert.rejects(()=>failing.start(id,'owner'));const before=calls;
+  await assert.rejects(()=>failing.start(id,'owner'));assert.equal(calls,before);
+});
+test('Google com telefone legado exige prova sem criar Customer concorrente',async()=>{
+  const uid='link-test',phone='+5562999997654',sub='test-google-sub';
+  const user={uid,displayName:'Teste',providerData:[{providerId:'google.com',uid:sub}]};
+  const service=createCustomerAccount({db,admin:{auth:()=>({getUser:async()=>user})}});
+  const request={auth:{uid,token:{uid,firebase:{identities:{'google.com':[sub]}}}},data:{phone}};
+  await db.doc('clientes/link-existing').set({nome:'Cliente antigo',telefone:phone.slice(3),enderecos:[],createdAt:stamp});await seedRegistry(db);
+  const results=await Promise.all([service.completeProfile(request),service.completeProfile(request)]);assert.ok(results.every(r=>r.claimRequired));
+  assert.equal((await service.account(request)).needsPhone,true);assert.equal((await db.doc('clientes/link-existing').get()).data().authOwnerUid,undefined);
+  assert.equal((await db.collection('customerAuthIdentities').where('uid','==',uid).get()).empty,true);
+});
+
+test('primeiro cadastro por e-mail em telefone livre não exige SMS e mantém endereços próprios',async()=>{
+  const uid='email-user-test', email='cliente@example.com', phone='+5562999994321';
+  const user={uid,email,emailVerified:false,displayName:'Cliente e-mail',providerData:[{providerId:'password',uid:email}]};
+  const wrapper={firestore:admin.firestore,auth:()=>({getUser:async()=>user})};
+  const service=createCustomerAccount({db,admin:wrapper});
+  const request={auth:{uid,token:{uid,email,firebase:{sign_in_provider:'password',identities:{email:[email]}}}},data:{phone,nome:'Cliente e-mail'}};
+  await seedRegistry(db);
+  await service.completeProfile(request);
+  const account=(await service.account(request)).customer;
+  assert.ok(account.id);
+  assert.equal(account.authProvider,'email_password');
+  assert.equal(account.emailVerified,false);
+  assert.equal((await db.doc('clientes/'+account.id).get()).data().phone_verified_at,null);
+  const address={enderecoCompleto:'Rua Teste, 10',nickname:'Casa',lat:-16.67,lng:-49.27,isDefault:true};
+  request.data={address};
+  assert.equal((await service.addAddress(request)).customer.enderecos.length,1);
+  request.data={index:0,expectedAddress:address.enderecoCompleto};
+  assert.equal((await service.deleteAddress(request)).customer.enderecos.length,0);
+});

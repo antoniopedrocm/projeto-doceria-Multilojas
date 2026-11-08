@@ -12,6 +12,8 @@ const modalStart = source.indexOf('title="Detalhes do Pedido"');
 const start = source.indexOf('(() => {', modalStart);
 const end = source.indexOf('})()}', start) + '})()'.length;
 assert.ok(modalStart >= 0 && start > modalStart && end > start);
+const freight=fs.readFileSync(path.join(__dirname,'../src/utils/orderFreight.js'),'utf8').replace(/export /g,'');
+const {getOrderFreight,getSavedOrderTotal}=new Function(freight+';return {getOrderFreight,getSavedOrderTotal};')();
 const { code } = transformSync(`const renderDetails = ${source.slice(start, end)};`, {
   configFile: false,
   babelrc: false,
@@ -19,7 +21,7 @@ const { code } = transformSync(`const renderDetails = ${source.slice(start, end)
 });
 const render = new Function('React', 'viewingOrder', 'data', 'window',
   'Button', 'Printer', 'MessageCircle', 'Truck', 'getStatusClass',
-  'canSendToDeliverer', `${code}\nreturn renderDetails;`);
+  'canSendToDeliverer','getOrderFreight','getSavedOrderTotal', 'const effectiveStoreId="matriz",functions={},auth={},rideFeedback="",rideRequest=null,rideBusy=false;const OrderStatusBadge=()=>null,OrderPaymentStatus=()=>null,OrderPaymentAdjustment=()=>null,WhatsAppOrderStatus=()=>null,OrderAdminHistory=()=>null;const getRideAddressesForOrder=()=>({}),isDeliveryOrder=()=>false,getOrderStatusLabel=o=>o.status;'+`${code}\nreturn renderDetails;`);
 
 const children = node => React.Children.toArray(node?.props?.children);
 const textOf = node => typeof node === 'string' || typeof node === 'number'
@@ -27,11 +29,11 @@ const textOf = node => typeof node === 'string' || typeof node === 'number'
 const flatten = node => [node, ...children(node).flatMap(flatten)];
 
 const cases = [
-  ['sem desconto + frete', { total: 66, valorFrete: 4.52 }, '70.52'],
-  ['cupom + frete (exemplo)', { total: 59.4, valorFrete: 4.52, cupom: { codigo: 'BRIG10', valorDesconto: 6.6 } }, '63.92'],
+  ['sem desconto + frete', { total: 66, valorFrete: 4.52 }, '66.00'],
+  ['cupom + frete (exemplo)', { total: 59.4, valorFrete: 4.52, cupom: { codigo: 'BRIG10', valorDesconto: 6.6 } }, '59.40'],
   ['frete zero', { total: 59.4, valorFrete: 0, cupom: { codigo: 'BRIG10', valorDesconto: 6.6 } }, '59.40'],
-  ['desconto manual sem cupom', { total: 59.4, valorFrete: 4.52, desconto: 6.6 }, '63.92'],
-  ['campo legado frete', { total: 66, frete: 4.52 }, '70.52'],
+  ['desconto manual sem cupom', { total: 59.4, valorFrete: 4.52, desconto: 6.6 }, '59.40'],
+  ['campo legado frete', { total: 66, frete: 4.52 }, '66.00'],
   ['frete ausente', { total: 66 }, '66.00'],
   ['frete zero prevalece sobre legado', { total: 66, valorFrete: 0, frete: 4.52 }, '66.00'],
 ];
@@ -47,11 +49,11 @@ for (const [label, values, expected] of cases) {
     const opened = [];
     const tree = render(React, order, { clientes: [] },
       { open: (...args) => opened.push(args) }, 'button', 'i', 'i', 'i',
-      () => '', () => false);
+      () => '', () => false,getOrderFreight,getSavedOrderTotal);
     const nodes = flatten(tree);
     const total = nodes.find(node => node?.type === 'p' && textOf(node).startsWith('Total:'));
     assert.equal(textOf(total), `Total: R$ ${expected}`);
-    const button = nodes.find(node => node?.type === 'button' && textOf(node).includes('Enviar Resumo Cliente'));
+    const button = nodes.find(node => node?.type === 'button' && textOf(node).includes('Abrir resumo no WhatsApp'));
     assert.equal(button.props.disabled, false);
     button.props.onClick();
     assert.equal(opened.length, 1);

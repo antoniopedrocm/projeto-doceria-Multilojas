@@ -1,0 +1,17 @@
+{
+  "mode": "npm ls --depth=0 --offline",
+  "results": [
+    {
+      "package": "crm",
+      "declaredInstalled": true,
+      "dependencyCount": 17,
+      "problems": []
+    },
+    {
+      "package": "functions",
+      "declaredInstalled": true,
+      "dependencyCount": 11,
+      "problems": []
+    }
+  ]
+}

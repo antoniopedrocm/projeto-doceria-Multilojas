@@ -30,7 +30,7 @@ const loadBackend = (initialUsers = {}) => {
     }}),
   });
   const context = vm.createContext({
-    ...policy, Date, Intl, console, exports: {}, HttpsError,
+    ...policy,...require('./store-owner-policy'), Date, Intl, console, exports: {}, HttpsError,
     POINT_DEFAULT_EXPECTED_MINUTES: 480, POINT_DAILY_BANK_LIMIT_MINUTES: 15,
     POINT_SATURDAY_BANK_LIMIT_MINUTES: 300, POINT_MISSING_LUNCH_BANK_MINUTES: 60,
     ROLE_OWNER: 'dono', ROLE_MANAGER: 'gerente', ROLE_CLIENT: 'cliente',
@@ -60,6 +60,7 @@ const loadBackend = (initialUsers = {}) => {
       listUsers: async () => ({users: Object.values(authUsers)}),
     },
   });
+  context.FieldValue=context.admin.firestore.FieldValue;
   const calculations = source.slice(source.indexOf('const pointTimeToMinutes ='), source.indexOf('const requireStoreId ='));
   vm.runInContext(calculations + '\nexports.calculate = (record) => ({summary: calculatePointSummary(record), balance: calculatePointBalanceDistribution(record), status: pointStatusPatch(record)});', context);
   const handlers = [

@@ -1,12 +1,16 @@
+import {retireLegacySession,createCanonicalLogout,syncPrivateCart} from './canonical-session.mjs?v=20261015-fcm-delete';
+import {cleanupStaffDevice,existingBrowserPushToken,removeStaffTokenAssociation} from './staff-push-cleanup.mjs?v=20261015-fcm-delete';
+import {localCheckout, getCheckoutFirebaseConfig} from './checkout-environment.js';
+import {getCanonicalAuth} from './canonical-auth.mjs?v=20261015-persistence';
 // Firebase configuration and setup for the public/cardápio pages.
-// This file initialises a named Firebase app instance to avoid
-// interfering with the main CRM session.  It also ensures that
-// anonymous authentication is persisted between reloads so each
-// visitor retains a consistent session.
+// CRM and authenticated public pages share DEFAULT. The named legacy app is
+// initialized only to retire its old persistence without copying credentials.
 
 import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {
   getFirestore,
+  deleteDoc,
+  connectFirestoreEmulator,
   collection,
   getDocs,
   getDoc,
@@ -20,12 +24,16 @@ import {
   arrayUnion,
   onSnapshot,
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js';
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js';
 import {
   getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
+  signOut,
+  connectAuthEmulator,
   signInAnonymously,
   onAuthStateChanged,
-  setPersistence,
   browserLocalPersistence,
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
@@ -33,29 +41,53 @@ import {
 // These credentials correspond to the Ana Guimarães project hosted on
 // Firebase.  Replace them only if you migrate the project to a new
 // Firebase account.
-const GOOGLE_API_KEY = 'AIzaSyAIdbF2EgdbZSPqBaQhi1pnNb4t5xauwEc';
+const firebaseConfig = await getCheckoutFirebaseConfig();
 
-const firebaseConfig = {
-  apiKey: GOOGLE_API_KEY,
-  authDomain: 'ana-guimaraes.firebaseapp.com',
-  projectId: 'ana-guimaraes',
-  storageBucket: 'ana-guimaraes.firebasestorage.app',
-  messagingSenderId: '847824537421',
-  appId: '1:847824537421:web:75861057fd6f998ee49904',
-  measurementId: 'G-F8BVTNLEW7',
-};
-
-// Create or retrieve a named app instance.  Using a distinct name
-// prevents interference with other Firebase initialisations on the page.
-const appName = 'cardapioPublic';
+// Every authenticated entry uses the same Firebase Auth instance.
+const appName = '[DEFAULT]'; // accountContext is never an identity selector.
 const app = getApps().find((a) => a.name === appName) || initializeApp(firebaseConfig, appName);
 
 // Firestore service for data operations.
 const db = getFirestore(app);
 
 // Authentication service.
-const auth = getAuth(app);
+const auth = getCanonicalAuth(app, {initializeAuth, indexedDBLocalPersistence,
+  browserLocalPersistence, browserPopupRedirectResolver});
 const functions = getFunctions(app, 'us-central1');
+if (localCheckout) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', {disableWarnings: true});
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}
+
+// Read the old persistence only to retire it, never to copy its credentials.
+const legacyApp=getApps().find(a=>a.name==='cardapioPublic') || initializeApp(firebaseConfig,'cardapioPublic');
+const legacyAuth=getAuth(legacyApp);
+if(localCheckout) connectAuthEmulator(legacyAuth,'http://127.0.0.1:9099',{disableWarnings:true});
+const logout=createCanonicalLogout({auth,legacyAuth,signOut,storage:window.sessionStorage,
+  onCleanupError:code=>console.warn('[Auth] Logout cleanup incomplete:',code),
+  beforeSignOut:async(uid,token,signal)=>{
+    try {window.localStorage.removeItem('auth-profile-cache-v1:'+uid);} catch {}
+    await cleanupStaffDevice({auth,uid,fallbackToken:token,signal,
+      warn:code=>console.warn('[Auth] Push cleanup incomplete:',code),
+      resolveToken:()=>existingBrowserPushToken({app,isCurrent:()=>!signal?.aborted && auth.currentUser?.uid===uid,loadMessaging:async()=>{
+        const sdk=await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js');
+        return await sdk.isSupported()?{instance:sdk.getMessaging(app),getToken:sdk.getToken}:null;
+      }}),
+      removeAssociation:(currentToken,current)=>removeStaffTokenAssociation({db,token:currentToken,current,doc,deleteDoc}),
+    });
+  }});
+const retirePublicLegacy=()=>retireLegacySession({auth,legacyAuth,signOut,beforeConflict:()=>logout()});
+const sessionTransition=await retirePublicLegacy();
+if(sessionTransition!=='READY') syncPrivateCart(window.sessionStorage,null,{force:true});
+onAuthStateChanged(auth,user=>syncPrivateCart(window.sessionStorage,user && !user.isAnonymous ? user.uid : null));
+let retirement=null;
+onAuthStateChanged(legacyAuth,user=>{
+  if(!user || retirement) return;
+  retirement=retirePublicLegacy().then(status=>{
+    if(status!=='READY') syncPrivateCart(window.sessionStorage,null,{force:true});
+  }).finally(()=>{retirement=null;});
+});
 
 const normalizeCallableError = (error) => {
   const rawCode = typeof error?.code === 'string' ? error.code : '';
@@ -118,9 +150,7 @@ if (!ANONYMOUS_AUTH_ENABLED) {
   // Persist anonymous login so that returning visitors keep the same
   // anonymous user ID.  This prevents duplication of carts or orders
   // across reloads.
-  setPersistence(auth, browserLocalPersistence)
-    .then(() => {
-      onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, (user) => {
         // If no user is signed in yet, sign in anonymously.  This should
         // only happen once per browser session.
         if (!user && !window.firebaseAnonAuthUnavailable) {
@@ -130,12 +160,7 @@ if (!ANONYMOUS_AUTH_ENABLED) {
         } else {
           console.log('Sessão anônima ativa:', user.uid);
         }
-      });
-    })
-    .catch((error) => {
-      console.error('Erro ao definir persistência de autenticação:', error);
-      handleAnonAuthError(error);
-    });
+  }, handleAnonAuthError);
 }
 
 // --- Exports ---
@@ -146,6 +171,8 @@ export {
   app,
   db,
   auth,
+  logout,
+  sessionTransition,
   functions,
   httpsCallable,
   lookupClientByPhone,

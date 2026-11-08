@@ -1,0 +1,112 @@
+{
+  "files": [
+    {
+      "path": "STOCK_FIX.md",
+      "unchanged": true
+    },
+    {
+      "path": "crm/android/app/google-services.json",
+      "unchanged": true
+    },
+    {
+      "path": "crm/android/app/src/main/java/br/com/anaguimaraes/doceria/AlarmPausePlugin.java",
+      "unchanged": true
+    },
+    {
+      "path": "crm/android/app/src/main/java/br/com/anaguimaraes/doceria/OrderAlertDedupeStore.java",
+      "unchanged": true
+    },
+    {
+      "path": "crm/android/app/src/main/java/br/com/anaguimaraes/doceria/OrderPushPlugin.java",
+      "unchanged": true
+    },
+    {
+      "path": "crm/src/fiscalProductionFlow.test.js",
+      "unchanged": false
+    },
+    {
+      "path": "crm/src/services/orderStock.js",
+      "unchanged": true
+    },
+    {
+      "path": "crm/src/services/orderStock.test.js",
+      "unchanged": false
+    },
+    {
+      "path": "crm/src/utils/clientDocument.js",
+      "unchanged": true
+    },
+    {
+      "path": "crm/src/utils/clientDocument.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "crm/tests/order-details-total.test.cjs",
+      "unchanged": false
+    },
+    {
+      "path": "docs/checkpoint-nota-fiscal-producao.md",
+      "unchanged": true
+    },
+    {
+      "path": "docs/ponto-horista-historico-producao.md",
+      "unchanged": true
+    },
+    {
+      "path": "docs/ponto-horista-producao.md",
+      "unchanged": true
+    },
+    {
+      "path": "docs/ponto-vigencia-jornada-producao.md",
+      "unchanged": true
+    },
+    {
+      "path": "docs/remessas-status-allowlist.md",
+      "unchanged": true
+    },
+    {
+      "path": "functions/customer-purchase-metrics-core.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/customer-purchase-metrics-core.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/customer-purchase-metrics.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/entre-lojas-report.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/entre-lojas-report.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/fiscal-clone.rules.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/new-order-audio-contract.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/point-hourly.test.js",
+      "unchanged": false
+    },
+    {
+      "path": "functions/point-schedule-core.js",
+      "unchanged": true
+    },
+    {
+      "path": "functions/transfer-status.rules.test.js",
+      "unchanged": true
+    },
+    {
+      "path": "scripts/sync-point-schedule.cjs",
+      "unchanged": true
+    }
+  ]
+}

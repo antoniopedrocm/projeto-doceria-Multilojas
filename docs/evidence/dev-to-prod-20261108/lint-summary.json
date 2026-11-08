@@ -1,0 +1,12 @@
+{
+  "frontend": {
+    "files": 161,
+    "errors": 0,
+    "warnings": 87
+  },
+  "backend": {
+    "files": 163,
+    "errors": 0,
+    "warnings": 0
+  }
+}

@@ -1,0 +1,158 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
+import {createPhoneAddressManager} from '../public/address-management.mjs';
+const {JSDOM}=createRequire(import.meta.url)('jsdom');
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+const option={id:'opaque-address',nickname:'Casa',summary:'Rua ••, nº •• · Bueno',saved:true};
+function fixture({channels=['sms'],sendError,privateSession=false}={}){
+  const dom=new JSDOM('<main>Checkout preservado</main>',{url:'https://dev.example.test'});let state={mode:'legacy_phone',token:'context-a',revision:2},time=1000,verified=false;
+  const watchers=new Set(),intervals=new Map(),timeouts=new Map();let timerId=0;
+  const identity={get:()=>state,subscribe:listener=>{watchers.add(listener);return()=>watchers.delete(listener);}};
+  const calls=[],changes=[],profiles=[];
+  const request=async(method,data,scope)=>{
+    calls.push({method,data,scope});
+    if(method==='status')return {channels,phoneMasked:'••••0001',resendSeconds:45,firebase:{projectId:'doceria-sms-dev-fixture'}};
+    if(method==='start'){if(sendError)throw sendError;return {challengeId:'challenge',expiresAt:time+300000,resendAt:time+45000};}
+    if(method==='verify'){if(data.code!=='123456')throw Error('Código incorreto.');verified=true;return {addressSessionToken:'limited-proof',expiresAt:time+600000,purpose:'ADDRESS_MANAGEMENT',...(privateSession?{customerSession:{purpose:'CUSTOMER_PRIVATE_SESSION',checkoutIdentityToken:state.token,expiresAt:time+600000}}:{})};}
+    if(method==='manage'){
+      assert.equal(verified,true);assert.equal(data.addressSessionToken,'limited-proof');
+      if(data.operation==='read')return {address:{id:data.addressId,nickname:data.addressId==='other-opaque'?'Trabalho':'Casa',street:'Rua privada',number:'10',city:'Goiânia',neighborhood:'Bueno',cep:'74230000',complement:'Apto privado'}};
+      return {addresses:[option]};
+    }
+    if(method==='profile'){assert.equal(verified,true);assert.equal(data.addressSessionToken,'limited-proof');return {profile:data.profile || {nome:'Nome completo privado',aniversario:'1990-01-02'},phoneMasked:'••••0001',publicName:'Nome P.'};}
+    return {ok:true};
+  };
+  const clock={setInterval:fn=>{const id=++timerId;intervals.set(id,fn);return id;},clearInterval:id=>intervals.delete(id),
+    setTimeout:(fn,ms)=>{const id=++timerId;timeouts.set(id,{fn,at:time+ms});return id;},clearTimeout:id=>timeouts.delete(id)};
+  const manager=createPhoneAddressManager({document:dom.window.document,identity,storeId:'loja-futura-teste',request,onAddresses:value=>changes.push(value),onProfile:value=>profiles.push(value),recaptcha:async()=>({token:'captcha',dispose:()=>{}}),now:()=>time,clock});
+  const click=async text=>{const b=[...dom.window.document.querySelectorAll('button')].find(b=>b.textContent===text);assert.ok(b,'missing '+text);b.click();await tick();await tick();};
+  const confirm=async(code='123456')=>{const input=dom.window.document.querySelector('input[autocomplete="one-time-code"]');input.value=code;input.form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await tick();await tick();};
+  return {manager,dom,calls,changes,profiles,click,confirm,watchers,intervals,timeouts,change:s=>{state=s;watchers.forEach(fn=>fn());},advance:ms=>{time+=ms;intervals.forEach(fn=>fn());for(const [id,t] of timeouts)if(t.at<=time){timeouts.delete(id);t.fn();}},close:()=>{manager.destroy();dom.window.close();}};
+}
+test('ver/editar/promover/excluir/padrão exigem OTP antes de ler endereço completo ou escrever',async()=>{
+  for(const operation of ['view','update','create','delete','default']){
+    const f=fixture();try{await f.manager.perform(operation,option);assert.match(f.dom.window.document.body.textContent,/Confirme que este número é seu/);
+      assert.equal(f.calls.some(c=>c.method==='manage'),false);assert.equal(f.dom.window.document.querySelectorAll('input').length,1);assert.doesNotMatch(f.dom.window.document.body.textContent,/Rua privada/);
+    }finally{f.close();}
+  }
+});
+test('Ver após SMS libera somente o registro alvo, mantém modo financeiro e expira com o grant',async()=>{
+  const f=fixture();try{
+    assert.equal(f.manager.getTrustState(),'legacy_phone_unverified');
+    await f.manager.perform('view',option);assert.doesNotMatch(f.dom.window.document.body.textContent,/Rua privada/);
+    await f.click('Enviar código por SMS');await f.confirm();
+    assert.match(f.dom.window.document.body.textContent,/Seu endereço|Rua privada/);
+    assert.equal(f.manager.getTrustState(),'legacy_phone_verified');
+    assert.equal(f.calls.find(c=>c.method==='manage').data.addressId,option.id);
+    f.advance(600001);assert.equal(f.manager.getTrustState(),'legacy_phone_unverified');assert.doesNotMatch(f.dom.window.document.body.textContent,/Rua privada/);
+  }finally{f.close();}
+});
+test('promover rascunho exige SMS e preenche formulário sem herdar padrão ou pagamento',async()=>{
+  const f=fixture(),draft={checkoutOnly:true,id:'draft-a',nickname:'Trabalho',street:'Rua digitada',number:'20',city:'Goiânia',neighborhood:'Bueno'};
+  try{await f.manager.perform('create',draft);assert.equal(f.calls.some(c=>c.method==='manage'),false);await f.click('Enviar código por SMS');await f.confirm();
+    assert.equal(f.dom.window.document.querySelector('input').value,'Trabalho');assert.equal(f.dom.window.document.querySelector('input[type="checkbox"]').checked,false);
+    f.dom.window.document.querySelector('form').dispatchEvent(new f.dom.window.Event('submit',{bubbles:true,cancelable:true}));await tick();await tick();
+    const call=f.calls.find(c=>c.method==='manage');assert.equal(call.data.operation,'create');assert.equal(call.data.addressId,undefined);assert.equal(call.data.address.isDefault,false);
+  }finally{f.close();}
+});
+test('SMS aprovado abre editor completo; código não fica no input e nova gravação atualiza lista',async()=>{
+  const f=fixture();try{
+    await f.manager.perform('update',option);await f.click('Enviar código por SMS');await f.confirm();
+    assert.match(f.dom.window.document.body.textContent,/Editar endereço/);assert.equal(f.dom.window.document.querySelector('[autocomplete="one-time-code"]'),null);
+    assert.equal(f.dom.window.document.querySelector('input').value,'Casa');
+    const form=f.dom.window.document.querySelector('form');form.dispatchEvent(new f.dom.window.Event('submit',{cancelable:true,bubbles:true}));await tick();await tick();
+    assert.equal(f.changes.length,1);assert.equal(f.calls.find(c=>c.method==='manage'&&c.data.operation==='update').data.addressId,option.id);
+    assert.equal(f.dom.window.document.querySelector('[role="dialog"]'),null);
+  }finally{f.close();}
+});
+test('código errado não abre editor; reenvio fica desabilitado pelo intervalo e permite depois',async()=>{
+  const f=fixture();try{
+    await f.manager.perform('create');await f.click('Enviar código por SMS');
+    let send=[...f.dom.window.document.querySelectorAll('button')].find(b=>b.textContent.includes('Reenviar'));assert.equal(send.disabled,true);
+    await f.confirm('000000');assert.match(f.dom.window.document.body.textContent,/Código incorreto/);assert.equal(f.calls.some(c=>c.method==='manage'),false);
+    f.advance(45000);send=[...f.dom.window.document.querySelectorAll('button')].find(b=>b.textContent==='Enviar código por SMS');assert.equal(send.disabled,false);
+  }finally{f.close();}
+});
+test('canal WhatsApp configurado é separado de SMS; indisponibilidade nunca finge envio',async()=>{
+  const f=fixture({channels:['whatsapp']});try{await f.manager.perform('default',option);await f.click('Enviar código pelo WhatsApp');await f.confirm();assert.equal(f.changes.length,1);assert.equal(f.calls.find(c=>c.method==='start').data.channel,'whatsapp');}finally{f.close();}
+  const empty=fixture({channels:[]});try{await empty.manager.perform('create');assert.match(empty.dom.window.document.body.textContent,/Verificação indisponível/);assert.equal(empty.calls.some(c=>c.method==='start'),false);}finally{empty.close();}
+});
+test('exclusão pede confirmação adicional; Cancelar é no-op e grant temporário pode ser reutilizado',async()=>{
+  const f=fixture();try{
+    await f.manager.perform('delete',option);await f.click('Enviar código por SMS');await f.confirm();assert.match(f.dom.window.document.body.textContent,/Excluir este endereço/);
+    await f.click('Cancelar');assert.equal(f.calls.some(c=>c.method==='manage'&&c.data.operation==='delete'),false);
+    await f.manager.perform('default',option);assert.equal(f.changes.length,1);assert.equal(f.calls.filter(c=>c.method==='verify').length,1);
+  }finally{f.close();}
+});
+test('trocar identidade ou expirar remove detalhe privado, revoga prova e nunca herda para Guest',async()=>{
+  const f=fixture();try{
+    await f.manager.perform('update',option);await f.click('Enviar código por SMS');await f.confirm();
+    f.change({mode:'guest',token:'other-context',revision:3});await tick();
+    assert.equal(f.dom.window.document.querySelector('[role="dialog"]'),null);assert.ok(f.calls.some(c=>c.method==='revoke'&&c.scope.checkoutIdentityToken==='context-a'));
+    await assert.rejects(()=>f.manager.perform('create'),/Identifique/);
+  }finally{f.close();}
+  const g=fixture();try{await g.manager.perform('update',option);await g.click('Enviar código por SMS');await g.confirm();g.advance(600001);assert.equal(g.dom.window.document.querySelector('[role="dialog"]'),null);}finally{g.close();}
+});
+test('abrir/fechar não duplica observadores ou timers e preserva conteúdo/carrinho',async()=>{
+  const f=fixture();try{for(let i=0;i<3;i++){await f.manager.perform('create');await f.click('Cancelar');}assert.equal(f.watchers.size,1);assert.equal(f.intervals.size,0);assert.equal(f.dom.window.document.querySelector('main').textContent,'Checkout preservado');}finally{f.close();}assert.equal(f.watchers.size,0);
+});
+
+test('bloqueio antifraude e rate limit não expõem erro técnico, score ou provider',async()=>{
+  for(const error of [Error('auth/captcha-check-failed score threshold private'),Object.assign(Error('internal quota'),{code:'OTP_LIMITED'})]){
+    const f=fixture({sendError:error});try{await f.manager.perform('view',option);await f.click('Enviar código por SMS');const text=f.dom.window.document.querySelector('[role="status"]').textContent;assert.doesNotMatch(text,/captcha|score|threshold|internal|quota|auth\//i);assert.match(text,error.code==='OTP_LIMITED'?/Aguarde antes/:/Não foi possível enviar/);assert.equal(f.calls.some(c=>c.method==='manage'),false);}finally{f.close();}
+  }
+});
+
+test('Editar Perfil pede SMS só na ação, mostra telefone fixo e abre perfil apenas após confirmação',async()=>{
+  const f=fixture();try{
+    assert.equal(f.calls.length,0);await f.manager.perform('profile');
+    assert.match(f.dom.window.document.body.textContent,/Confirme que este número é seu|••••0001/);
+    assert.equal(f.dom.window.document.querySelector('input[name="nome"]'),null);assert.equal(f.calls.some(c=>c.method==='start'||c.method==='profile'),false);
+    assert.equal(f.dom.window.document.querySelector('input[type="tel"]'),null);
+    await f.click('Enviar código por SMS');await f.confirm('000000');assert.equal(f.dom.window.document.querySelector('input[name="nome"]'),null);
+    await f.confirm();assert.equal(f.dom.window.document.querySelector('input[name="nome"]').value,'Nome completo privado');
+    const form=f.dom.window.document.querySelector('form');form.dispatchEvent(new f.dom.window.Event('submit',{cancelable:true,bubbles:true}));await tick();await tick();
+    assert.deepEqual(f.profiles,['Nome P.']);assert.equal(f.manager.getTrustState(),'legacy_phone_verified');
+    const update=f.calls.find(c=>c.method==='profile'&&c.data.operation==='update');assert.deepEqual(Object.keys(update.data.profile).sort(),['aniversario','nome']);
+    assert.equal(update.data.customerId,undefined);assert.equal(update.data.phone,undefined);
+  }finally{f.close();}
+});
+
+test('grant reutilizado entre endereços/perfil sem novo SMS e expiração volta a exigir prova',async()=>{
+  const f=fixture();try{
+    await f.manager.perform('update',option);await f.click('Enviar código por SMS');await f.confirm();
+    await f.manager.perform('update',{...option,id:'other-opaque'});assert.equal(f.dom.window.document.querySelector('input').value,'Trabalho');
+    assert.equal(f.calls.filter(c=>c.method==='start').length,1);assert.equal(f.calls.filter(c=>c.method==='verify').length,1);
+    assert.equal(f.calls.filter(c=>c.method==='manage').at(-1).data.addressId,'other-opaque');
+    await f.manager.perform('profile');assert.equal(f.dom.window.document.querySelector('input[name="nome"]').value,'Nome completo privado');
+    assert.equal(f.calls.filter(c=>c.method==='start').length,1);
+    f.advance(600001);assert.equal(f.dom.window.document.querySelector('input[name="nome"]'),null);
+    await f.manager.perform('profile');assert.match(f.dom.window.document.body.textContent,/Confirme que este número é seu/);
+  }finally{f.close();}
+});
+
+test('SMS private proof survives page navigation without remote revoke; BFCache re-arms expiry without extending TTL',async()=>{
+  const f=fixture({privateSession:true});try{
+    await f.manager.perform('profile');await f.click('Enviar código por SMS');await f.confirm();
+    const key='customerPhoneSession_v1',proof=f.dom.window.sessionStorage.getItem(key);assert.ok(proof);
+    f.manager.pageHide();await tick();
+    assert.equal(f.dom.window.sessionStorage.getItem(key),proof);assert.equal(f.calls.some(c=>c.method==='revoke'),false);
+    assert.equal(f.dom.window.document.querySelector('[role="dialog"]'),null);assert.equal(f.timeouts.size,0);
+    f.advance(100000);f.manager.pageShow();assert.equal(f.timeouts.size,1);
+    assert.equal(f.dom.window.sessionStorage.getItem(key),proof);
+    f.advance(500001);await tick();assert.equal(f.dom.window.sessionStorage.getItem(key),null);
+    assert.equal(f.calls.filter(c=>c.method==='start').length,1);assert.equal(f.calls.filter(c=>c.method==='revoke').length,1);
+  }finally{f.close();}
+});
+
+test('address-only proof and expired private proof are revoked when leaving; identity change still invalidates handoff',async()=>{
+  const old=fixture();try{await old.manager.perform('profile');await old.click('Enviar código por SMS');await old.confirm();old.manager.pageHide();await tick();assert.equal(old.calls.filter(c=>c.method==='revoke').length,1);}finally{old.close();}
+  for(const transition of ['expired','identity']){
+    const f=fixture({privateSession:true});try{
+      await f.manager.perform('profile');await f.click('Enviar código por SMS');await f.confirm();f.manager.pageHide();
+      if(transition==='expired'){f.advance(600001);f.manager.pageShow();}else f.change({mode:'guest',token:'new-context',revision:3});
+      await tick();assert.equal(f.dom.window.sessionStorage.getItem('customerPhoneSession_v1'),null);
+      assert.equal(f.manager.getTrustState(),transition==='identity'?'guest':'legacy_phone_unverified');
+      assert.ok(f.calls.some(c=>c.method==='revoke'));
+    }finally{f.close();}
+  }
+});

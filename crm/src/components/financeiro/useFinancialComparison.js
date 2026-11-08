@@ -1,3 +1,4 @@
+import {isRecognizedOrderReceipt,recognizedOrderTotal} from '../../orderFinancialRecognition';
 import { useMemo } from 'react';
 import {
   expenseNeedsInvoice,
@@ -31,7 +32,8 @@ export const useFinancialComparison = ({ data, selectedMonth, selectedCenter }) 
 
   const expenses = (data.contas_a_pagar || []).filter((item) => matchesCostCenter(item, selectedCenter));
   const receivables = (data.contas_a_receber || []).filter((item) => matchesCostCenter(item, selectedCenter));
-  const orders = (data.pedidos || []).filter((item) => matchesCostCenter(item, selectedCenter));
+  const orders = (data.pedidos || []).filter((item) => matchesCostCenter(item, selectedCenter))
+    .filter(isRecognizedOrderReceipt).map(item=>({...item,total:recognizedOrderTotal(item)}));
 
   const currentExpenses = expenses.filter((item) => resolveExpenseMonth(item) === selectedMonth);
   const priorExpenses = expenses.filter((item) => resolveExpenseMonth(item) === previousMonth);

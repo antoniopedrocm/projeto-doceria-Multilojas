@@ -1,0 +1,32 @@
+{
+  "project": "ana-guimaraes",
+  "affected": [
+    "functions/address-verification-provider.js",
+    "functions/address-verification.js",
+    "functions/whatsapp-admin.js",
+    "functions/whatsapp-admin.test.js",
+    "functions/whatsapp-config.js",
+    "functions/whatsapp-order-summary.js",
+    "functions/whatsapp-order-summary.test.js",
+    "functions/whatsapp-webhook.js",
+    "functions/whatsapp-webhook.test.js",
+    "functions/whatsapp-worker.js",
+    "functions/whatsapp-worker.test.js",
+    "functions/whatsapp.js",
+    "functions/whatsapp.test.js",
+    "functions/address-verification-emulator.test.js",
+    "functions/address-verification-provider.test.js",
+    "functions/recaptcha-enterprise.test.js",
+    "functions/whatsapp-admin.test.js",
+    "functions/whatsapp-checkout.test.js",
+    "functions/whatsapp-history.test.js",
+    "functions/whatsapp-order-summary.test.js",
+    "functions/whatsapp-webhook.test.js",
+    "functions/whatsapp-worker.test.js",
+    "functions/whatsapp.test.js"
+  ],
+  "credentialsProvisioned": false,
+  "remoteConfigChanged": false,
+  "requiresProdIntegrationConfig": true,
+  "automaticCloudWhatsAppEnabled": false
+}

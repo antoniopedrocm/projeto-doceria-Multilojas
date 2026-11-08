@@ -10,7 +10,7 @@ WORKDIR /var/www/html
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libxml2-dev libzip-dev zlib1g-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg \
-  && docker-php-ext-install soap zip gd \
+  && docker-php-ext-install soap zip gd bcmath \
   && a2enmod rewrite headers \
   && printf '%s\n' \
     'openssl_conf = openssl_init' \
@@ -36,7 +36,8 @@ COPY src /var/www/html/src
 COPY config /var/www/html/config
 COPY tests /var/www/html/tests
 RUN find public src tests -name '*.php' -exec php -l {} \; \
-  && php tests/PayloadValidatorTest.php
+  && php tests/PayloadValidatorTest.php \
+  && php tests/FreightXmlTest.php
 
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 ENV OPENSSL_CONF=/etc/ssl/openssl-legacy.cnf

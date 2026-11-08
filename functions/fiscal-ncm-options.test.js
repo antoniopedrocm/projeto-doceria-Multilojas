@@ -97,14 +97,13 @@ for (const catalog of [
     await assert.rejects(api[catalog.save]({data: {lojaId: 'loja-a', ...input}}), /autenticado/);
     await assert.rejects(call(catalog.save, input, 'manager'), /não tem acesso fiscal/);
     await assert.rejects(call(catalog.list, {}, 'manager'), /não tem acesso fiscal/);
-    assert.deepEqual((await call(catalog.list, {}, 'accountant'))[catalog.result], []);
-    // Produção já permite administração fiscal ao Contador autorizado.
-    await call(catalog.save, input, 'accountant');
-    assert.equal(records.get('lojas/loja-a/fiscalConfig/settings')[catalog.field][0].code, catalog.code);
+    const accountant = createHarness();
+    await accountant.call(catalog.save, input, 'accountant');
+    assert.equal((await accountant.call(catalog.list, {}, 'accountant'))[catalog.result].length, 1);
     await assert.rejects(call(catalog.save, {...input, lojaId: '__all__'}), /loja específica/);
     records.set('users/owner', {permissions: {'nota-fiscal': false}});
     await assert.rejects(call(catalog.save, input), /não está habilitado/);
     if (catalog.kind === 'CFOP') await assert.rejects(call(catalog.list), /não está habilitado/);
-    assert.deepEqual([...records.keys()].sort(), ['lojas/loja-a/fiscalConfig/settings', 'users/owner']);
+    assert.deepEqual([...records.keys()], ['users/owner']);
   });
 }

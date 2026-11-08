@@ -1,0 +1,141 @@
+import {clearStaffUiState} from './staffUiState';
+import {storePerfMark} from '../performance/storeBootstrapPerf';
+import React,{useCallback,useEffect,useRef,useState} from 'react';
+import {onIdTokenChanged} from 'firebase/auth';
+import {auth} from '../firebaseConfig';
+import {legacyAuth,prepareCanonicalSession,logoutCanonicalSession,endPhoneSession,syncSessionCart} from './customerRuntime';
+import {isCustomerPath,customerEntryDestination} from './customerContext';
+import {permittedContext} from './userCapabilities';
+import CustomerShell from './CustomerShell';
+import LegacyCustomerShell from './LegacyCustomerShell';
+import {readPhoneSession} from './legacyPhoneSession';
+import {customerApiBase} from './customerRuntime';
+
+export default function ApplicationGate({StaffApplication,resolveCapabilities}) {
+  const [view,setView]=useState({kind:'loading'});
+  const control=useRef({generation:0,contextGeneration:0,uid:null,activeContext:null,requestedContext:null,resolve:null});
+  useEffect(()=>{
+    let active=true;
+    const state=control.current;
+    const resolve=async({requested,transition=false}={})=>{
+      const target=requested || (isCustomerPath(window.location.pathname)?'customer':'staff');
+      const generation=++state.generation;
+      const uid=auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser.uid : null;
+      if(transition || uid!==state.uid) {state.contextGeneration++;clearStaffUiState();setView({kind:'loading'});}
+      if(uid!==state.uid) state.requestedContext=null;
+      state.uid=uid;
+      if(requested) state.requestedContext=requested;
+      const current=()=>active && generation===state.generation && (auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser.uid : null)===uid;
+      // Remove private UI on null Auth before any async cleanup/import.
+      if(!uid) {
+        state.activeContext=null;state.requestedContext=null;
+        setView({kind:isCustomerPath(window.location.pathname)?'customer-login':'public'});
+      }
+      const phoneSession=isCustomerPath(window.location.pathname) && readPhoneSession();
+      if(phoneSession && target==='customer') {
+        state.activeContext='customer';state.requestedContext='customer';
+        setView({kind:'customer-phone',session:phoneSession});return;
+      }
+      try {
+        const preparation=await prepareCanonicalSession();
+        if(!active || generation!==state.generation) return;
+        if(preparation!=='READY') {
+          state.activeContext=null;
+          await syncSessionCart(null,{force:true});
+          if(active && generation===state.generation) setView({kind:isCustomerPath(window.location.pathname)?'customer-login':'public',
+            message:preparation==='CONFLICT'?'Sessões diferentes detectadas. Entre novamente com a conta desejada.':'Entre novamente para continuar com a sessão única.'});
+          return;
+        }
+        if(!current()) return;
+        await syncSessionCart(uid);
+        if(!current()) return;
+        if(!uid) {
+          state.activeContext=null;
+          setView({kind:isCustomerPath(window.location.pathname)?'customer-login':'public'});
+          return;
+        }
+        const applyCapabilities=capabilities=>{
+        if(!current() || capabilities.uid!==uid) return;
+        storePerfMark('T3');
+        if(window.location.pathname.startsWith('/admin/customer-preview/') && !capabilities.isStaff) {
+          state.activeContext=null;setView({kind:'admin-denied'});return;
+        }
+        const context=permittedContext(capabilities,target);
+        state.activeContext=context;state.requestedContext=context;
+        if(!context) {
+          setView({kind:capabilities.customerState==='NEEDS_PHONE'?'onboarding':'blocked',uid,capabilities});
+          return;
+        }
+        if(context==='customer' && !isCustomerPath(window.location.pathname)) window.history.replaceState(null,'',customerEntryDestination(window.sessionStorage,window.location.search));
+        if(context==='staff' && isCustomerPath(window.location.pathname)) window.history.replaceState(null,'','/');
+        setView({kind:context,uid,capabilities,contextGeneration:state.contextGeneration,
+          message:requested && requested!==context?'Este contexto não está autorizado para sua conta.':''});
+        };
+        const capabilities=await resolveCapabilities(auth.currentUser,{onStaffResolved:capabilities=>{
+          if(target==='staff') applyCapabilities(capabilities);
+        }});
+        applyCapabilities(capabilities);
+      } catch {
+        if(current()) {state.activeContext=null;setView({kind:'blocked'});}
+      }
+    };
+    state.resolve=resolve;
+    const stops=[onIdTokenChanged(auth,user=>{storePerfMark('T2');return resolve({requested:user?.uid===state.uid ? state.requestedContext || state.activeContext : undefined});}),onIdTokenChanged(legacyAuth,user=>{if(user) resolve({transition:true});})];
+    const pop=()=>resolve({requested:isCustomerPath(window.location.pathname)?'customer':'staff',transition:true});
+    window.addEventListener('popstate',pop);
+    return()=>{active=false;state.generation++;state.resolve=null;stops.forEach(stop=>stop());window.removeEventListener('popstate',pop);};
+  },[resolveCapabilities]);
+  const changeContext=useCallback(context=>control.current.resolve?.({requested:context,transition:true}),[]);
+  const openCustomer=useCallback(()=>changeContext('customer'),[changeContext]);
+  const openStaff=useCallback(()=>changeContext('staff'),[changeContext]);
+  const revalidateStaff=useCallback(()=>changeContext('staff'),[changeContext]);
+  const logoutFlight=useRef(null);
+  const phoneLogoutFlight=useRef(null);
+  const endTemporaryAccess=useCallback(()=>{
+    if(phoneLogoutFlight.current)return phoneLogoutFlight.current;
+    const returnEntry=customerEntryDestination(window.sessionStorage,window.location.search);
+    const state=control.current;state.generation++;state.contextGeneration++;state.activeContext=null;state.requestedContext=null;
+    setView({kind:'loading'});
+    phoneLogoutFlight.current=(async()=>{
+      try {await endPhoneSession();}catch{ /* Local proof was removed before remote cleanup. */ }
+      if(auth.currentUser && !auth.currentUser.isAnonymous) {
+        await state.resolve?.({requested:'staff'});return;
+      }
+      state.generation++;state.uid=null;
+      window.history.replaceState(null,'',returnEntry);setView({kind:'customer-login'});
+    })().finally(()=>{phoneLogoutFlight.current=null;});
+    return phoneLogoutFlight.current;
+  },[]);
+  const logout=useCallback(()=>{
+    if(logoutFlight.current) return logoutFlight.current;
+    const returnEntry=customerEntryDestination(window.sessionStorage,window.location.search);
+    const state=control.current;state.generation++;state.contextGeneration++;state.activeContext=null;state.requestedContext=null;
+    clearStaffUiState();
+    setView({kind:'loading'});
+    logoutFlight.current=(async()=>{
+      try {await logoutCanonicalSession();}
+      catch {
+        if(auth.currentUser && !auth.currentUser.isAnonymous) {
+          setView({kind:'blocked',message:'Não foi possível sair da conta. Tente novamente.'});return;
+        }
+      }
+      // Ending logout does not require Customer or legacy-session hydration.
+      if(auth.currentUser && !auth.currentUser.isAnonymous) {
+        setView({kind:'blocked',message:'Não foi possível sair da conta. Tente novamente.'});return;
+      }
+      state.generation++;state.uid=null;
+      window.history.replaceState(null,'',returnEntry);
+      setView({kind:'customer-login'});
+    })().finally(()=>{logoutFlight.current=null;});
+    return logoutFlight.current;
+  },[]);
+  if(view.kind==='loading') return <p role="status" className="p-8">Carregando acesso…</p>;
+  if(view.kind==='blocked') return <main className="p-8"><p role="alert">{view.message || 'Não foi possível autorizar o acesso. Recarregue ou entre novamente.'}</p><button onClick={logout}>Sair</button></main>;
+  if(view.kind==='admin-denied') return <main className="p-8"><p role="alert">Acesso administrativo não autorizado.</p></main>;
+  if(view.kind==='staff') return <StaffApplication key={`${view.uid}:staff:${view.contextGeneration}`} staffUid={view.uid}
+    staffProfile={view.capabilities.staff} canOpenCustomer={view.capabilities.isCustomer} onCustomerContext={openCustomer} onLogout={logout} onStaffAccessLost={revalidateStaff}/>;
+  if(view.kind==='customer-phone') return <LegacyCustomerShell session={view.session} apiBase={customerApiBase} onLogout={endTemporaryAccess}/>;
+  if(['customer','customer-login','onboarding'].includes(view.kind)) return <CustomerShell key={`${view.uid || 'login'}:customer:${view.contextGeneration || 0}`}
+    onCustomerResolved={view.kind==='onboarding'?openCustomer:undefined} sessionAuth={auth} uid={view.uid || null} canOpenStaff={view.capabilities?.isStaff===true} onStaffContext={openStaff} onLogout={logout} sessionMessage={view.message}/>;
+  return <>{view.message && <p role="alert">{view.message}</p>}<StaffApplication onLogout={logout}/></>;
+}

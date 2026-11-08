@@ -28,6 +28,7 @@ final class PayloadValidator
         $customer = $payload['customer'];
         $items = $payload['items'];
         $totals = $payload['totals'];
+        $items = ItemCharges::prepare($payload)['items'];
 
         foreach (['model', 'series', 'number', 'operationNature', 'issueDate'] as $field) {
             if (!isset($invoice[$field]) || $invoice[$field] === '') {
@@ -99,6 +100,27 @@ final class PayloadValidator
             if (!isset($totals[$field]) || !is_numeric($totals[$field])) {
                 $errors[] = "totals.{$field} numerico obrigatorio.";
             }
+            elseif (!is_finite((float)$totals[$field]) || (float)$totals[$field] < 0) $errors[] = "totals.{$field} deve ser finito e nao negativo.";
+        }
+        foreach (['freight', 'insurance', 'other'] as $field) {
+            $sum = 0;
+            foreach ($items as $index => $item) {
+                if (!is_numeric($item[$field] ?? null) || !is_finite((float)$item[$field]) || (float)$item[$field] < 0) {
+                    $errors[] = 'Item ' . ($index + 1) . ": {$field} invalido.";
+                }
+                $sum += ItemCharges::cents($item[$field] ?? 0);
+            }
+            if ($sum !== ItemCharges::cents($totals[$field] ?? 0)) $errors[] = "Totais: {$field} da nota difere do somatorio dos itens.";
+        }
+        $freightMode = (string)($payload['transport']['freightMode'] ?? '9');
+        if (!in_array($freightMode, ['0', '1', '2', '3', '4', '9'], true)) $errors[] = 'Transporte: modalidade de frete invalida.';
+        if (is_array($items) && is_numeric($totals['products'] ?? null)) {
+            $itemProducts = round(array_sum(array_map(static fn (array $item): float => (float)($item['total'] ?? 0), $items)), 2);
+            if ($itemProducts !== round((float)$totals['products'], 2)) $errors[] = 'Totais: subtotal diverge dos itens.';
+            $itemDiscount = round(array_sum(array_map(static fn (array $item): float => (float)($item['discount'] ?? 0), $items)), 2);
+            if ($itemDiscount !== round((float)($totals['discount'] ?? 0), 2)) $errors[] = 'Totais: desconto diverge dos itens.';
+            $calculatedTotal = round((float)$totals['products'] - (float)$totals['discount'] + (float)($totals['freight'] ?? 0) + (float)($totals['insurance'] ?? 0) + (float)($totals['other'] ?? 0), 2);
+            if ($calculatedTotal !== round((float)($totals['invoice'] ?? 0), 2)) $errors[] = 'Totais: valor da nota inconsistente.';
         }
         if (is_array($items) && is_numeric($totals['products'] ?? null)) {
             $itemProducts = round(array_sum(array_map(static fn (array $item): float => (float)($item['total'] ?? 0), $items)), 2);
@@ -162,6 +184,9 @@ final class PayloadValidator
     public function warnings(array $payload): array
     {
         $warnings = [];
+        if ((float)($payload['totals']['freight'] ?? 0) > 0 && (string)($payload['transport']['freightMode'] ?? '9') === '9') {
+            $warnings[] = 'Modalidade 9 significa sem ocorrencia de transporte. Ha frete cobrado; revise a modalidade com o responsavel fiscal. Ela nao foi alterada automaticamente.';
+        }
         if ((int)($payload['invoice']['model'] ?? 0) === 65 && empty(getenv('NFCE_CSC')) && empty(getenv('NFCE_CSC_ID'))) {
             $warnings[] = 'NFC-e pode exigir CSC conforme leiaute/ambiente; configure NFCE_CSC_ID e NFCE_CSC se necessario.';
         }

@@ -160,7 +160,7 @@ test.each([true, false])('actual profile submit sends the selected date only whe
 test('production login and actual profile cache retain Horista and its effective history after reload', () => {
   const source = fs.readFileSync(path.join(__dirname, '../App.js'), 'utf8');
   const from = source.indexOf('const buildUserDataFromProfile =');
-  const to = source.indexOf('const buildFallbackAuthenticatedUserData =', from);
+  const to = source.indexOf('const loadCurrentStaffProfile =', from);
   const storage = new Map();
   const dependencies = {
     normalizeRole: (role) => role, extractStoreIdsFromProfile: (profile) => profile.lojaIds || [],
@@ -171,11 +171,13 @@ test('production login and actual profile cache retain Horista and its effective
     isUserAccountActive: () => true, sanitizeEmployeeWorkSchedule,
     getAuthProfileCacheKey: (uid) => `profile:${uid}`,
     safeStorageSet: (_, key, value) => storage.set(key, value),
-    safeStorageGet: (_, key) => storage.get(key), Date
+    safeStorageGet: (_, key) => storage.get(key), storage, Date
   };
   const loadSession = () => {
+    const cache=source.slice(source.indexOf('const cacheAuthenticatedProfile ='),source.indexOf('const buildUserDataFromProfile ='));
     // eslint-disable-next-line no-new-func
-    return new Function(...Object.keys(dependencies), `${source.slice(from, to)}\nreturn {buildUserDataFromProfile, cacheAuthenticatedProfile, getCachedAuthenticatedProfile, buildUserDataFromCache};`)(...Object.values(dependencies));
+    const api=new Function(...Object.keys(dependencies), cache+source.slice(from,to)+'\nreturn {buildUserDataFromProfile,cacheAuthenticatedProfile};')(...Object.values(dependencies));
+    return {...api,getCachedAuthenticatedProfile: auth=>{const raw=storage.get('profile:'+auth.uid);return raw?JSON.parse(raw):null;},buildUserDataFromCache:api.buildUserDataFromProfile};
   };
   const auth = {uid: 'employee', email: 'employee@example.test'};
   const schedule = buildPointScheduleUpdate({tipoEscala: 'seg-sex'}, hourly, '2026-10-06');
@@ -197,8 +199,8 @@ test('production login and actual profile cache retain Horista and its effective
 
 test('actual production profile listener applies a saved hourly schedule without resetting it on listener errors', () => {
   const source = fs.readFileSync(path.join(__dirname, '../App.js'), 'utf8');
-  const from = source.indexOf('        const applyTransferProfile =');
-  const to = source.indexOf('        return onSnapshot(', from);
+  const from = source.indexOf('      const applyTransferProfile =');
+  const to = source.indexOf('      return onSnapshot(', from);
   let session = {auth: {uid: 'employee'}, permissions: {}, permissionDetails: {}, jornadaTrabalho: {tipoEscala: 'seg-sex'}};
   const dependencies = {
     uid: 'employee', setUser: (update) => {session = update(session);}, sanitizeEmployeeWorkSchedule,

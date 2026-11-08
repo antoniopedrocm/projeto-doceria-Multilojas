@@ -1,0 +1,14 @@
+{
+  "files": [
+    {
+      "path": "crm/.env",
+      "devReferenceKeys": []
+    },
+    {
+      "path": "functions/.env",
+      "devReferenceKeys": []
+    }
+  ],
+  "credentialsPrinted": false,
+  "credentialsModified": false
+}

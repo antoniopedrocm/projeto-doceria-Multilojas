@@ -1,0 +1,57 @@
+{
+  "download": "official php.net",
+  "php": "8.3.36",
+  "xmlTest": "PENDING: exact NFePHP production dependencies unavailable locally",
+  "validatorExitCode": 0,
+  "syntax": [
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Http\\JsonResponse.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Security\\RequestGuard.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\FiscalService.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\ItemCharges.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\PayloadValidator.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\Google\\SecretManagerClient.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\NFe\\DanfeRenderer.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\NFe\\InvoiceXmlBuilder.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\src\\Service\\NFe\\NFePhpGateway.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\public\\index.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\tests\\FreightXmlTest.php"
+    },
+    {
+      "exitCode": 0,
+      "file": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja\\fiscal-service\\tests\\PayloadValidatorTest.php"
+    }
+  ],
+  "sha256": "1a097d52b7a68622cdc723073b61cc70caf79c941218ff65b2d8441dbc6b10d4"
+}

@@ -4,9 +4,35 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {quoteFreight} = require('./freight-core');
+function freightBindings(window) {
+  const source=fs.readFileSync(path.join(__dirname,'../crm/public/cardapio.html'),'utf8');
+  const start=source.indexOf('        const invalidateCheckoutFreight ='),end=source.indexOf('        function persistCheckoutState()',start);
+  const ctx={window};vm.runInNewContext(source.slice(start,end)+';window.invalidateCheckoutFreight=invalidateCheckoutFreight;window.applyCheckoutFreight=applyCheckoutFreight;',ctx);return {invalidateCheckoutFreight:window.invalidateCheckoutFreight,applyCheckoutFreight:window.applyCheckoutFreight};
+}
+
 
 for (const page of ['matriz', 'garavelo', 'festa']) {
   const html = fs.readFileSync(path.join(__dirname, `../crm/public/cardapio-${page}.html`), 'utf8');
+  test(`${page}: revalidação final usa endereço do pedido e atualiza distância/valor oficiais`, async () => {
+    const start = html.indexOf('async function revalidateCheckoutBeforeFinalSubmit(clientInfo)');
+    const end = html.indexOf('function persistCheckoutState()', start);
+    const calls = [];
+    const context = {window: {distanciaFreteKm: 0, valorFrete: 0},
+      savedAddressFields:()=>({}),checkoutIdentity:{get:()=>({token:undefined})},API_BASE_URL: 'https://example.test', STORE_ID: `${page}-store`, appliedCupom: null,
+      ensureCheckoutNotBlocked: () => {}, updateAllSummaries: () => {},
+      revalidateCartProductsBeforeSubmit: async () => {},
+      fetch: async (url, options) => {calls.push({url, data: JSON.parse(options.body)});
+        return {ok: true, json: async () => ({valorFrete: 4, distanciaKm: 2, freteACombinar: false})};},
+    };
+    Object.assign(context,{savedAddressFields:()=>({}),checkoutIdentity:{get:()=>({mode:'strong_auth'})},CHECKOUT_MODES:{PHONE:'legacy_phone'},addressSelectionGeneration:0});
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
+    await context.revalidateCheckoutBeforeFinalSubmit({clienteEndereco: 'Rua teste'});
+    assert.deepEqual(calls[0].data, {clienteEndereco: 'Rua teste'});
+    assert.ok(calls[0].url.includes(`lojaId=${page}-store`));
+    assert.equal(context.window.valorFrete, 4);
+    assert.equal(context.window.distanciaFreteKm, 2);
+  });
   test(`${page}: scripts clássicos permanecem válidos`, () => {
     for (const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)) {
       if (/\bsrc=|\btype="module"/.test(match[1]) || !match[2].trim()) continue;
@@ -21,9 +47,11 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
     const calls = [];
     const config = {lat: -16.6, lng: -49.3, valorPorKm: 2, valorMinimoFrete: 8};
     const context = {
+      publicStore: {pickup:{enabled:true},delivery:{available:true}},
       window: {
         dadosFrete: config, freteACombinar: false,
         API_BASE_URL: 'https://example.invalid', STORE_ID: `${page}-store`,
+        aguardarGoogleMaps: async () => undefined,
       },
       google: {maps: {
         DistanceMatrixService: class {getDistanceMatrix(_options, callback) {
@@ -33,11 +61,14 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
       }},
       fetch: async (url, options) => {
         calls.push({url, body: JSON.parse(options.body)});
-        return {ok: true, json: async () => quoteFreight({config, distanceKm: JSON.parse(options.body).distanciaKm})};
+        return {ok: true, json: async () => ({
+          ...quoteFreight({config, distanceKm: JSON.parse(options.body).distanciaKm}),
+          distanciaKm: JSON.parse(options.body).distanciaKm,
+        })};
       },
     };
     context.window.google = context.google;
-    vm.runInNewContext(html.slice(start, end), context);
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
     const result = await context.calcularFreteParaEndereco({lat: -16.7, lng: -49.4});
     assert.equal(result.distanciaKm, 2.5);
     assert.equal(result.valorFrete, 8);
@@ -46,15 +77,46 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
     assert.ok(html.includes('window.API_BASE_URL = API_BASE_URL;'));
   });
 
+  test(`${page}: ausência da configuração no navegador usa cotação isolada no backend`, async () => {
+    const start = html.indexOf('async function calcularFreteParaEndereco(destinoLatLng)');
+    const end = html.indexOf('window.calcularFreteParaEndereco = calcularFreteParaEndereco;', start);
+    const calls = [];
+    const context = {
+      publicStore: {pickup:{enabled:true},delivery:{available:true}},
+      window: {
+        dadosFrete: null,
+        freteACombinar: false,
+        API_BASE_URL: 'https://example.invalid',
+        STORE_ID: `${page}-store`,
+      },
+      fetch: async (url, options) => {
+        calls.push({url, body: JSON.parse(options.body)});
+        return {ok: true, json: async () => ({
+          valorFrete: 12.38,
+          freteACombinar: false,
+          tipoFrete: 'calculado',
+          distanciaKm: 6.191,
+        })};
+      },
+    };
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
+    const result = await context.calcularFreteParaEndereco({lat: -16.68, lng: -49.28});
+    assert.equal(result.valorFrete, 12.38);
+    assert.equal(result.distanciaKm, 6.191);
+    assert.deepEqual(calls[0].body, {clienteLat: -16.68, clienteLng: -49.28});
+    assert.ok(calls[0].url.includes(`lojaId=${page}-store`));
+  });
+
   test(`${page}: bloqueia origem inválida antes da chamada ao Google`, async () => {
     const start = html.indexOf('async function calcularFreteParaEndereco(destinoLatLng)');
     const end = html.indexOf('window.calcularFreteParaEndereco = calcularFreteParaEndereco;', start);
     const context = {
+      publicStore: {pickup:{enabled:true},delivery:{available:true}},
       window: {dadosFrete: {lat: '-16.64464130924753', lng: '-4932489499913069'}, freteACombinar: false},
       google: {maps: {}},
     };
     context.window.google = context.google;
-    vm.runInNewContext(html.slice(start, end), context);
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
     await assert.rejects(context.calcularFreteParaEndereco({lat: -16.64, lng: -49.32}),
       /Coordenadas da loja inválidas/);
   });
@@ -69,17 +131,19 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
       calcularFreteParaEndereco: async () => ({valorFrete: 8, freteACombinar: false, distanciaKm: 2.5}),
       persistCheckoutState: () => undefined,
       updateGuestSummary: () => undefined,
+      updateAllSummaries:()=>{},
       freightDisplayValue: () => 'R$ 8.00',
       showToast: (message) => messages.push(message),
       clearCheckoutBlockingIssue: () => undefined,
     };
     const context = {
+      publicStore: {pickup:{enabled:true},delivery:{available:true}},
       window,
       normalizeGuestLatLng: (value) => value,
       document: {getElementById: () => ({textContent: ''})},
       console,
     };
-    vm.runInNewContext(html.slice(start, end), context);
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
     await context.updateGuestShippingAndSummary({lat: -16.64, lng: -49.32});
     assert.equal(window.valorFrete, 8);
     assert.equal(window.distanciaFreteKm, 2.5);
@@ -91,7 +155,7 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
     const start = html.indexOf('async function calcularFreteParaEndereco(destinoLatLng)');
     const end = html.indexOf('window.calcularFreteParaEndereco = calcularFreteParaEndereco;', start);
     const context = {window: {dadosFrete: {freteACombinar: true}, freteACombinar: true}};
-    vm.runInNewContext(html.slice(start, end), context);
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
     assert.equal((await context.calcularFreteParaEndereco(null)).freteACombinar, true);
     assert.ok(html.includes("cartShipping.textContent = 'A Combinar'"));
     assert.ok(html.includes("shippingValuePayment.textContent = 'A Combinar'"));
@@ -108,11 +172,12 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
       calcularFreteParaEndereco: async () => ({valorFrete: 8, distanciaKm: 2.5, freteACombinar: false}),
     };
     const modal = {classList: {add() {}, remove() {}}};
-    const ctx = {window, currentClient: {id: 'test', nome: 'Teste', telefone: '62999999999'},
+    const ctx = {publicStore:{delivery:{available:true}},window, currentClient: {id: 'test', nome: 'Teste', telefone: '62999999999'},
       selectedAddressText: {}, addressManagementModal: modal, paymentModal: modal,
       updateAllSummaries() {}, persistCheckoutState() {}, clearCheckoutBlockingIssue() {},
       showToast: (m) => messages.push(m), freightDisplayValue: () => 'R$ 8,00', console,
     };
+    Object.assign(ctx,{checkoutIdentity:{get:()=>({mode:'strong_auth'})},CHECKOUT_MODES:{PHONE:'legacy_phone'},addressSelectionGeneration:0},freightBindings(window));
     vm.runInNewContext(html.slice(start, end), ctx);
     await ctx.useExistingAddress('Rua teste', {lat: -16.6, lng: -49.3});
     assert.equal(window.valorFrete, 8);
@@ -122,11 +187,73 @@ for (const page of ['matriz', 'garavelo', 'festa']) {
     assert.equal(window.distanciaFreteKm, null);
   });
 
+  test(`${page}: retirada limpa falha anterior de frete e não depende da configuração de entrega`, () => {
+    const pickupStart = html.indexOf('function usePickupAddress()');
+    const pickupEnd = html.indexOf('async function useExistingAddress(addressText, addressData)', pickupStart);
+    const cleared = [];
+    const window = {
+      valorFrete: 12,
+      distanciaFreteKm: 3,
+      freteACombinar: true,
+      checkoutDeliveryAddress: {street: 'Rua teste'},
+      currentLatLng: {lat: -16.6, lng: -49.3},
+    };
+    const modal = {classList: {add() {}, remove() {}}};
+    const pickupContext = {
+      publicStore:{pickup:{enabled:true}},
+      window,
+      currentClient: {id: 'cliente', nome: 'Cliente', telefone: '62999999999'},
+      pendingOrderDetails: {},
+      selectedAddressText: {},
+      addressManagementModal: modal,
+      paymentModal: modal,
+      clearCheckoutBlockingIssue: (type) => cleared.push(type),
+      updateAllSummaries() {},
+      persistCheckoutState() {},
+    };
+    Object.assign(pickupContext,{checkoutIdentity:{get:()=>({mode:'strong_auth'})},CHECKOUT_MODES:{PHONE:'legacy_phone'},addressSelectionGeneration:0},freightBindings(window));
+    vm.runInNewContext(html.slice(pickupStart, pickupEnd), pickupContext);
+    pickupContext.usePickupAddress();
+    assert.equal(window.valorFrete, 0);
+    assert.equal(window.distanciaFreteKm, null);
+    assert.equal(window.freteACombinar, false);
+    assert.equal(window.checkoutDeliveryAddress, null);
+    assert.equal(window.currentLatLng, null);
+    assert.deepEqual(cleared, ['frete']);
+    assert.equal(pickupContext.pendingOrderDetails.clienteEndereco, 'Retirar na Loja');
+
+    const guardStart = html.indexOf('function ensureCheckoutNotBlocked(');
+    const guardEnd = html.indexOf('async function revalidateCheckoutBeforeFinalSubmit', guardStart);
+    const guardContext = {
+      checkoutBlockingIssue: {type: 'frete', message: 'Configurações de frete não carregadas'},
+      pendingOrderDetails: {},
+      clearCheckoutBlockingIssue: (type) => {
+        assert.equal(type, 'frete');
+        guardContext.checkoutBlockingIssue = null;
+      },
+      showToast() {},
+      paymentError: null,
+    };
+    vm.runInNewContext(html.slice(guardStart, guardEnd), guardContext);
+    assert.throws(
+      () => guardContext.ensureCheckoutNotBlocked({clienteEndereco: 'Rua teste'}),
+      /Configurações de frete não carregadas/
+    );
+    guardContext.checkoutBlockingIssue = {type: 'session', message: 'Sessão expirada'};
+    assert.throws(
+      () => guardContext.ensureCheckoutNotBlocked({clienteEndereco: 'Retirar na Loja'}),
+      /Sessão expirada/
+    );
+    guardContext.checkoutBlockingIssue = {type: 'frete', message: 'Configurações de frete não carregadas'};
+    assert.doesNotThrow(() => guardContext.ensureCheckoutNotBlocked({clienteEndereco: 'Retirar na Loja'}));
+    assert.equal(guardContext.checkoutBlockingIssue, null);
+  });
+
   test(`${page}: todos os resumos usam o frete cobrado, incluindo retirada`, () => {
     const start = html.indexOf('function chargedFreight(');
     const end = html.indexOf('window.freightDisplayValue =', start);
     const context = {window: {freteACombinar: true, valorFrete: 0}};
-    vm.runInNewContext(html.slice(start, end), context);
+    if(context.window && !context.window.invalidateCheckoutFreight)Object.assign(context,freightBindings(context.window));vm.runInNewContext(html.slice(start, end), context);
     assert.equal(context.checkoutTotal(59.4, 0), 59.4);
     assert.equal(context.freightDisplayValue(), 'A Combinar');
     context.window.freteACombinar = false;

@@ -6,14 +6,18 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import {
   getFirestore,
+  connectFirestoreEmulator,
   onSnapshot as firestoreOnSnapshot,
   getDoc as firestoreGetDoc,
   getDocs as firestoreGetDocs,
   deleteDoc as firestoreDeleteDoc,
 } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver,connectAuthEmulator } from 'firebase/auth';
+import {getCanonicalAuth} from './canonicalAuth.mjs';
+import {shouldUseFirebaseEmulators} from './firebaseRuntime';
+import {Capacitor} from '@capacitor/core';
 import { getStorage } from 'firebase/storage';
-import { getFunctions } from 'firebase/functions';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 import {
   getMessaging,
   isSupported as messagingIsSupported,
@@ -39,7 +43,7 @@ const normalizeStorageBucket = (bucket) => {
   return normalizedBucket;
 };
 
-const firebaseConfig = {
+const persistedFirebaseConfig = {
   apiKey: envVar('REACT_APP_FIREBASE_API_KEY') || GOOGLE_API_KEY,
   // Keep the default OAuth handler unless a deployment explicitly configures
   // another handler and authorizes its /__/auth/handler redirect URI.
@@ -63,6 +67,10 @@ const runtimeEnv =
   '';
 const isDev = runtimeEnv !== 'production';
 
+const localPreview = shouldUseFirebaseEmulators({hostname:typeof window==='undefined'?'':window.location.hostname,isNativePlatform:Capacitor.isNativePlatform()});
+const firebaseConfig = localPreview ? {apiKey:'demo-api-key',authDomain:'demo-doceria-checkout.firebaseapp.com',projectId:'demo-doceria-checkout',appId:'demo-doceria-checkout',storageBucket:'demo-doceria-checkout.appspot.com'} : persistedFirebaseConfig;
+if(!localPreview && firebaseConfig.projectId!=='ana-guimaraes')throw new Error('Projeto Firebase incompatível com este workspace.');
+
 const missingEnvKeys = Object.entries(firebaseConfig)
   .filter(([, value]) => !value)
   .map(([key]) => key);
@@ -84,12 +92,12 @@ export const VAPID_KEY =
 
 // Initialise the Firebase app.  Use getApps() to avoid creating
 // duplicate instances if this module is imported multiple times.
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const app = getApps().find(candidate=>candidate.name==='[DEFAULT]') || initializeApp(firebaseConfig);
 
 // Optionally enable Google Analytics (only works in browsers).  When
 // running in Node or during SSR the analytics import will be unused.
 let analytics;
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !localPreview) {
   analytics = getAnalytics(app);
 }
 
@@ -97,10 +105,12 @@ if (typeof window !== 'undefined') {
 // Firestore for data storage, Auth for authentication, Storage for
 // file uploads.
 export const db = getFirestore(app);
-export const auth = getAuth(app);
+export const auth = getCanonicalAuth(app,{initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver});
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
+export const apiBaseUrl = localPreview ? 'http://127.0.0.1:5001/demo-doceria-checkout/us-central1/api' : (process.env.REACT_APP_API_BASE_URL || 'https://us-central1-ana-guimaraes.cloudfunctions.net/api');
+if(localPreview){connectAuthEmulator(auth,'http://127.0.0.1:9099',{disableWarnings:true});connectFirestoreEmulator(db,'127.0.0.1',8080);connectFunctionsEmulator(functions,'127.0.0.1',5001);}
 // Expose the underlying app and analytics for advanced use cases.
 export { app, analytics };
 

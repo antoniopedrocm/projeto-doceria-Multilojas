@@ -1,0 +1,8 @@
+{
+  "status": "BLOCKED",
+  "command": "gradlew.bat testDebugUnitTest --offline --no-daemon",
+  "reason": "Android Gradle plugin 8.7.2 and Google Services plugin 4.4.2 not cached for offline execution",
+  "nativeSourcesChanged": false,
+  "instrumentedTestRun": false,
+  "deviceInstallPerformed": false
+}
