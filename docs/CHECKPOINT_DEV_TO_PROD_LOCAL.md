@@ -1,5 +1,15 @@
 # Checkpoint — preparação local DEV → PROD
 
+## 13/11/2026 — candidato enviado à main PROD, sem publicação Firebase
+
+Commit/pushPROD **`153bd8514aa4dfd4dc3a8b48217f3c809f2064c9`**, avanço normalnamain desde7751ab46, semforce e sem mudanças de remotes. Branchlocaldepreparação preservada; refmainlocal pode ser avançada somente porfast-forward verificado/semcheckout de arquivos. CandidatoDEV `d23fd8028bf9db8c01c778bb5925b2829e67076c` confirmado noGitHub. Commitsdocumentaisposteriores não mudamruntimevalidado.
+
+Revisão do índicePROD88arquivos semarquivoscredenciais/7z/dotenvreal/certificados/tokens/keys; `.env`flag mantido local e removido doGit.534objetos textuais do histórico revisados; contatoscomerciaisdoemissor/linkwa.me efixtures sintéticas classificados, sem alertareal deSecretpendente. CandidatoLocal651React/161integrações/build/diffPASS;lint0erros77avisoshistóricos e expressãoformatadacomASTigual,CIguard7/7PASS. Não é revisãoAstra ouliberaçãoPROD.
+
+Pós-push: workflows274898027/274898028 renomeadosparaBuild/test—nodeploy econtinuamdisabled_manually,67execuçõeshistóricas/nenhumaativa,deployments0. AppsconfirmadospeloDono: somenteCodexConnector,demaispublicadoresausentes/removidos. **FirebasePRODnãofoiacessado/modificado/publicado.** BackupDEVpassounoreteste0/PASS; arquivo629.650.646bytesinalterado. ManifestoPROD deve ser atualizado depois doscommits paraentão criar/testararquivoPROD comsenhasomente noaplicativo. Nãoformatarantesdarestauração novamáquina.
+
+Fase9=100%,Fase10=93,75%,C15PASS,C16/AstraPENDENTESparanovamáquina,global97%,Fase13=0%,PRODREADY:NÃO. Android/fiscal/configuração/rollback aindaexigemseusgates, nãoforamsubstituídosporsincronizaçãoGit.
+
 ## 13/11/2026 — gate de push GitHub PROD aprovado; backup DEV testado
 
 Dono atestou InstalledGitHubApps: somenteChatGPTCodexConnector temacessoao repositório;Vercelremovido;GoogleCloudBuild/Firebase nãoinstalados. [Registro](evidence/machine-migration-20261113/github-apps-owner-attestation.json). CLI novamente confirmouworkflowsmerge/PRdisabled_manually/filas0/hooks0/deployments0; CIlocal-only/7testesPASS. Nenhum outro mecanismo de publicação automática identificado nessas fontes. **Condição para commit/pushPROD satisfeita**, semforce e após revisão deSecrets/PII/índice/commits. FirebasePROD continua expressamente proibido, inclusive leitura; pushnãoédeploy.
