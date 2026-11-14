@@ -1,0 +1,134 @@
+{
+  "date": "2026-11-11",
+  "area": "PROD_LOCAL_ONLY",
+  "workspace": "C:\\Users\\antonio.pedro\\Projeto\\projeto-doceria-multiloja",
+  "projectAssociation": "ana-guimaraes",
+  "branch": "codex/dev-to-prod-preparation-20261108",
+  "head": "a0229cc019b3b4cf689d7ab15c47269974d38b71",
+  "stage": "LOCAL_REVIEW_REQUIRED",
+  "status": "PREFERENCE_IMPLEMENTED_PROVIDER_APPLICATION_PENDING",
+  "formalProgress": {
+    "phase9": 100,
+    "phase10": 87.5,
+    "global": 97,
+    "phase13": 0
+  },
+  "tests": {
+    "fullReact": {
+      "passed": 621,
+      "suites": 61
+    },
+    "focusedReactAfterFinalUiAdjustment": {
+      "passed": 5
+    },
+    "nodeRegression": {
+      "passed": 24
+    },
+    "localEmulatorIntegration": {
+      "passed": 64
+    },
+    "groupsOverlap": true,
+    "realProviderFeeEnforcementTested": false
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 0,
+    "scope": [
+      "functions/card-1x-fee-policy.js",
+      "functions/payment-settings.js",
+      "crm/src/payments/InfinitePaySettings.js",
+      "functions/card-1x-fee-policy.test.js",
+      "functions/card-1x-fee-settings-emulator.test.js",
+      "crm/src/payments/InfinitePaySettings.test.js"
+    ]
+  },
+  "build": {
+    "passed": true,
+    "mainBundle": "main.796e3c6f.js",
+    "localOnly": true
+  },
+  "safety": {
+    "commit": false,
+    "push": false,
+    "deploy": false,
+    "remoteBusinessReads": false,
+    "remoteDataChanges": false,
+    "credentialChanges": false,
+    "realPayments": false,
+    "sms": false,
+    "whatsApp": false,
+    "prodServicesAccessed": false
+  },
+  "nativeContract": {
+    "source": "https://www.infinitepay.io/checkout-documentacao",
+    "optionsRequireServerApiKey": true,
+    "assuredInstallmentsIsInclusiveThreshold": true,
+    "customer1xActivationAllowed": false,
+    "appliedToNewProviderLinks": false
+  },
+  "sourceHashes": {
+    "functions/card-1x-fee-policy.js": "a8947c651c426f7698b3f269f72bdd3438b9c1caab39bc4b03348c290af29e61",
+    "functions/payment-settings.js": "f1cf6805abbe6af560365c0fee464c60070b97bd76dee448b797ac4e48991bd9",
+    "crm/src/payments/InfinitePaySettings.js": "d090d8f8a955c596dee422b55307a1f4df53bf8d455fde3af784f196ffe7800f",
+    "functions/card-1x-fee-policy.test.js": "a1ed92488e660352eedc8f50788827c223377c1d260c52de3e2523bbf3f35335",
+    "functions/card-1x-fee-settings-emulator.test.js": "60dc8cd4903b9ca2276de9714069de4329742cccb07585bc1e14b6c4c0245820",
+    "crm/src/payments/InfinitePaySettings.test.js": "731313c1ce01016cc11abc14a746214154c858d47842833c59c328d0b2d3d2bb"
+  },
+  "protectedHashes": {
+    ".firebaserc": {
+      "sha256": "cc156b35df3965efc7dc03d051b12b03c8efe7b8b9b66be863a13510cc760159",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "firebase.json": {
+      "sha256": "edcb3442957167cbef8d4a05e2b909e1e7a31dec35b9dd02ee5811a3bcbe5fd9",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "functions/checkout-payment.js": {
+      "sha256": "4c5366cc4440ed655d916d55ee7a5074dd7774b6b92e5afe2703e9a14e918cad",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "functions/payment-verification.js": {
+      "sha256": "e298390bc3bd6c4e8177dbd5aec3fb5b3aef4afb541d7c887894815bbfd80c70",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "functions/payment-signal-policy.js": {
+      "sha256": "7aff37bd2fc6afb900508eea42ec15b799937a634f9518d568e9599bd2855916",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "functions/package.json": {
+      "sha256": "a5c7aa92c26e3de8d591519a8884bb96bbe79f898f6d34b78ed08ce372792d85",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "functions/package-lock.json": {
+      "sha256": "7a70d5c298bece856feb354a4ee41bcf23b5146c355216dbe01e3b8423a952e8",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "crm/package.json": {
+      "sha256": "f002268c2c69db0dd9ac515ae7a01d17d4831f5913067f990ef8e24bd67e3f32",
+      "matchesHeadAfterEolNormalization": true
+    },
+    "crm/package-lock.json": {
+      "sha256": "dbe635eaa3ee76eb4df055454b03f084441b744a1f3288cdd385c3cdb6cb44b9",
+      "matchesHeadAfterEolNormalization": true
+    }
+  },
+  "diffCheck": {
+    "passed": true,
+    "trackedWorkingTree": true,
+    "newTaskSourcesChecked": true,
+    "indexEmpty": true,
+    "headUnchanged": true
+  },
+  "evidenceCredentialPatternScan": {
+    "passed": true,
+    "files": [
+      "build.txt",
+      "emulator.txt",
+      "lint.json",
+      "react-focused.txt",
+      "react.txt",
+      "unit.txt",
+      "validation.json"
+    ]
+  }
+}

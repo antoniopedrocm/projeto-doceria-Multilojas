@@ -1,5 +1,14 @@
 # Preparação local DEV → PROD — Ana Guimarães Doceria
 
+## 13/11/2026 — checkpoint de continuidade
+
+[Checkpoint local atualizado](CHECKPOINT_DEV_TO_PROD_LOCAL.md). C15-E/G encerrados; C16 ainda aguarda revisão completa/recuperação do preflight, Fase10=93,75%, global97,00%,Fase9=100%,Fase13=0%,PRODREADY:NÃO. Teste de recompra reconciliado seletivamente24/24PASS; CIguard7/7PASS. Nenhum runtimePROD local ou configuração financeira foi alterado nesta continuação.13arquivosruntime recentes de Clientes/recebimento/conexões/Rules continuam pendentes de integração seletiva após selarDEV; fees/credenciais já equivalentes. TerminalAndroid/runtimefiscal/configurações/rollback preservam seus gates. WorkflowsGitHubPROD permanecem disabled_manually/filas0/hooks0, fonteslocaisCI-only preservadas. Sem FirebasePROD, commit/push/deploy ou cópia de credenciais.
+
+## 12/11/2026 — bloqueio CI e credencial DEV conferidos
+
+[Estado financeiro/CI/gates](INFINITEPAY_PREPROD_STATUS.md). Workflowsremotosmerge/PRdisabled_manually,filas0; somente arquivoslocaisforampreparadoscombuild/testessemdeploy/credenciais. GuardpredeployPRODpreservado. Tagsfuturasconfirmadas:Matrizana_guimares,Garaveloantoniopedrocm;nenhumSecretDEVcopiadoparaconfiguraçãoPROD. APIKeyopcionalnomodobásico. C15-G/C16echecklistfinalcontinuampendentes. SemFirebasePROD,pushoudeploy. Percentuaisformaispreservados.
+
+
 ## Escopo e estado
 
 08/11/2026. **Nenhum deploy autorizado ou executado. Nenhum push de produção.** Trabalho somente no diretório local `C:/Users/antonio.pedro/Projeto/projeto-doceria-multiloja`, associado ao Firebase `ana-guimaraes` para identificação de ambiente, sem acessar dados/usuários reais. DEV consultado somente como origem de código. Pix-only não será implementado.

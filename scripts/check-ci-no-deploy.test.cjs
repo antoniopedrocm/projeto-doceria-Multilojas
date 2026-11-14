@@ -1,0 +1,10 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const{validateWorkflow}=require('./check-ci-no-deploy.cjs');
+const source=fs.readFileSync(path.join(__dirname,'../.github/workflows/firebase-hosting-merge.yml'),'utf8');
+test('production workflows keep build/tests and only read permissions',()=>{for(const file of ['firebase-hosting-merge.yml','firebase-hosting-pull-request.yml'])assert.doesNotThrow(()=>validateWorkflow(fs.readFileSync(path.join(__dirname,'../.github/workflows',file),'utf8')));});
+test('write permission is rejected',()=>assert.throws(()=>validateWorkflow(source.replace('contents: read','contents: write'))));
+test('Firebase publication action is rejected',()=>assert.throws(()=>validateWorkflow(source+'\n      - uses: FirebaseExtended/action-hosting-deploy@v0\n')));
+test('Firebase/gcloud publishing commands are rejected',()=>{for(const run of ['firebase deploy --project ana-guimaraes','npx firebase-tools deploy --only hosting','gcloud builds submit'])assert.throws(()=>validateWorkflow(source+'\n      - run: '+run+'\n'));});
+test('production secret references are rejected',()=>assert.throws(()=>validateWorkflow(source+'\n      - run: echo ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANA_GUIMARAES }}\n')));
+test('privileged PR trigger is rejected',()=>assert.throws(()=>validateWorkflow(source.replace('on:\n  push:\n    branches: [main]','on: pull_request_target'))));
+test('removing backend tests is rejected',()=>assert.throws(()=>validateWorkflow(source.replace('      - run: npm test --prefix functions\n',''))));
