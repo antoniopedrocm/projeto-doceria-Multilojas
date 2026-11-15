@@ -1,5 +1,20 @@
 # Checkpoint — preparação local DEV → PROD
 
+## 15/11/2026 — backups DEV e PROD íntegros; restauração na nova máquina pendente
+
+Retomada conferiu estado real: DEV funcional e GitHub em b3a08d72; PROD preparação, main local e GitHub main em 05d04995, sem alterações rastreadas antes deste registro. Ambos são candidatos; C16 não está homologado.
+
+Backup DEV preservado: 629.650.646 bytes, SHA256 1351c2cb49a3aaebb91cdbaebc98c6ebed804c1fa8ce0fb6c336144c49badee7, integridade PASS. Backup PROD preservado: 476.959.093 bytes, SHA256 94d0e11e42e8f09f8d002ab7a98f490d3397692a12e596269e37dee2123d5f02, integridade PASS em 15/11 às 09:42 (Brasília), retorno 0 e aceite do titular. Após interrupção, o teste anterior não tinha conclusão verificável; foi reaberto somente o teste, sem recriar arquivo ou inferir senha incorreta/corrupção. Senha digitada apenas no aplicativo. Manifestos originais mantêm seus hashes.
+
+As pastas credenciais de cada ambiente contêm arquivos AES-256 com cabeçalhos criptografados, manifestos, roteiro e ferramentas suplementares. Nenhum conteúdo dessas pastas é publicado no Git. O verificador de restauração passou em três cenários sintéticos (íntegro, corrupção e caminho inseguro); ainda não substitui a prova de extração e hashes na nova máquina. Snapshot DEV b2fe7cd4 e PROD 05d04995 preservados; documentação posterior acompanha como suplemento e GitHub, sem alterar runtime.
+
+GitHub PROD: workflows 274898027/274898028 continuam disabled_manually, somente CI nos arquivos locais; 67 execuções históricas, nenhuma ativa na conferência. Atestação de Apps do Dono preservada. Nenhum Firebase PROD acessado, modificado ou publicado. Não há mudança funcional nesta retomada; os testes/builds anteriores permanecem válidos e nenhum deploy DEV é necessário por documentação.
+
+Próxima dependência humana: copiar os dois diretórios credenciais para armazenamento seguro/nova máquina, testar e extrair com senha apenas no 7-Zip, verificar cada manifesto, reparar worktrees e executar builds/testes conforme [roteiro atualizado](MACHINE_MIGRATION_STATUS_20261115.md). Não instalar Python nesta máquina nem formatar/apagar os originais. Auditoria Astra completa e C16 continuam pendentes na nova máquina.
+
+**Fase 9: 100%; Fase 10: 93,75% (15/16); C15: PASS; C16: PENDENTE; global formal: 97,00%; Fase 13: 0%; PROD READY: NÃO.** Backups e sincronização não alteram os percentuais.
+
+
 ## 13/11/2026 — candidato enviado à main PROD, sem publicação Firebase
 
 Commit/pushPROD **`153bd8514aa4dfd4dc3a8b48217f3c809f2064c9`**, avanço normalnamain desde7751ab46, semforce e sem mudanças de remotes. Branchlocaldepreparação preservada; refmainlocal pode ser avançada somente porfast-forward verificado/semcheckout de arquivos. CandidatoDEV `d23fd8028bf9db8c01c778bb5925b2829e67076c` confirmado noGitHub. Commitsdocumentaisposteriores não mudamruntimevalidado.
